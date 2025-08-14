@@ -1,4 +1,4 @@
-local h = require("tests.helpers")
+local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set
 
@@ -19,39 +19,39 @@ local T = new_set({
 })
 
 -- Test TreeNode class
-T["TreeNode can be created with default values"] = function()
+T['TreeNode can be created with default values'] = function()
   child.lua([[
     node = TreeNode:new()
   ]])
 
-  local node = child.lua_get("node")
+  local node = child.lua_get('node')
 
-  h.eq("string", type(node.id))
-  h.eq("", node.content)
-  h.eq("analysis", node.type)
+  h.eq('string', type(node.id))
+  h.eq('', node.content)
+  h.eq('analysis', node.type)
   h.expect_truthy(node.parent == nil or node.parent == vim.NIL)
-  h.eq("table", type(node.children))
+  h.eq('table', type(node.children))
   h.eq(0, #node.children)
   h.eq(0, node.depth)
   h.eq(0, node.score)
-  h.eq("number", type(node.created_at))
+  h.eq('number', type(node.created_at))
 end
 
-T["TreeNode can be created with custom values"] = function()
+T['TreeNode can be created with custom values'] = function()
   child.lua([[
     parent_node = TreeNode:new("Parent content")
     child_node = TreeNode:new("Child content", "reasoning", parent_node, 2)
   ]])
 
-  local child_node = child.lua_get("child_node")
+  local child_node = child.lua_get('child_node')
 
-  h.eq("Child content", child_node.content)
-  h.eq("reasoning", child_node.type)
-  h.eq("table", type(child_node.parent))
+  h.eq('Child content', child_node.content)
+  h.eq('reasoning', child_node.type)
+  h.eq('table', type(child_node.parent))
   h.eq(2, child_node.depth)
 end
 
-T["TreeNode generates unique IDs"] = function()
+T['TreeNode generates unique IDs'] = function()
   child.lua([[
     node1 = TreeNode:new("Node 1")
     node2 = TreeNode:new("Node 2")
@@ -59,12 +59,12 @@ T["TreeNode generates unique IDs"] = function()
     ids_different = node1.id ~= node2.id
   ]])
 
-  local ids_different = child.lua_get("ids_different")
+  local ids_different = child.lua_get('ids_different')
 
   h.eq(true, ids_different)
 end
 
-T["TreeNode add_child creates child with correct relationships"] = function()
+T['TreeNode add_child creates child with correct relationships'] = function()
   child.lua([[
     parent = TreeNode:new("Parent")
     child = parent:add_child("Child content", "task")
@@ -79,16 +79,16 @@ T["TreeNode add_child creates child with correct relationships"] = function()
     }
   ]])
 
-  local child_info = child.lua_get("child_info")
+  local child_info = child.lua_get('child_info')
 
   h.eq(1, child_info.parent_children_count)
-  h.eq("Child content", child_info.content)
-  h.eq("task", child_info.type)
+  h.eq('Child content', child_info.content)
+  h.eq('task', child_info.type)
   h.eq(1, child_info.depth)
-  h.eq("string", child_info.id_type)
+  h.eq('string', child_info.id_type)
 end
 
-T["TreeNode add_child validates node types"] = function()
+T['TreeNode add_child validates node types'] = function()
   child.lua([[
     parent = TreeNode:new("Parent")
     valid_child, valid_error = parent:add_child("Valid child", "validation")
@@ -102,16 +102,16 @@ T["TreeNode add_child validates node types"] = function()
     }
   ]])
 
-  local results = child.lua_get("validation_results")
+  local results = child.lua_get('validation_results')
 
   h.eq(true, results.valid_child_exists)
   h.eq(true, results.valid_error_is_nil)
   h.eq(true, results.invalid_child_is_nil)
-  h.expect_contains("Invalid node type", results.invalid_error)
-  h.expect_contains("Valid types:", results.invalid_error)
+  h.expect_contains('Invalid node type', results.invalid_error)
+  h.expect_contains('Valid types:', results.invalid_error)
 end
 
-T["TreeNode add_child uses default type when nil"] = function()
+T['TreeNode add_child uses default type when nil'] = function()
   child.lua([[
     parent = TreeNode:new("Parent")
     child = parent:add_child("Child with default type")
@@ -119,74 +119,74 @@ T["TreeNode add_child uses default type when nil"] = function()
     child_type = child.type
   ]])
 
-  local child_type = child.lua_get("child_type")
+  local child_type = child.lua_get('child_type')
 
-  h.eq("analysis", child_type)
+  h.eq('analysis', child_type)
 end
 
 -- Test TreeNode suggestion generation
-T["TreeNode generates analysis suggestions"] = function()
+T['TreeNode generates analysis suggestions'] = function()
   child.lua([[
     node = TreeNode:new("Complex problem", "analysis")
     suggestions = node:generate_suggestions()
   ]])
 
-  local suggestions = child.lua_get("suggestions")
+  local suggestions = child.lua_get('suggestions')
 
-  h.eq("table", type(suggestions))
+  h.eq('table', type(suggestions))
   h.eq(4, #suggestions)
-  h.expect_contains("Sub-questions", table.concat(suggestions, " "))
-  h.expect_contains("Assumptions", table.concat(suggestions, " "))
-  h.expect_contains("Data needed", table.concat(suggestions, " "))
-  h.expect_contains("Related cases", table.concat(suggestions, " "))
+  h.expect_contains('Sub-questions', table.concat(suggestions, ' '))
+  h.expect_contains('Assumptions', table.concat(suggestions, ' '))
+  h.expect_contains('Data needed', table.concat(suggestions, ' '))
+  h.expect_contains('Related cases', table.concat(suggestions, ' '))
 end
 
-T["TreeNode generates reasoning suggestions"] = function()
+T['TreeNode generates reasoning suggestions'] = function()
   child.lua([[
     node = TreeNode:new("Logical conclusion", "reasoning")
     suggestions = node:generate_suggestions()
   ]])
 
-  local suggestions = child.lua_get("suggestions")
+  local suggestions = child.lua_get('suggestions')
 
   h.eq(4, #suggestions)
-  h.expect_contains("Implications", table.concat(suggestions, " "))
-  h.expect_contains("Supporting evidence", table.concat(suggestions, " "))
-  h.expect_contains("Counter-arguments", table.concat(suggestions, " "))
-  h.expect_contains("Next steps", table.concat(suggestions, " "))
+  h.expect_contains('Implications', table.concat(suggestions, ' '))
+  h.expect_contains('Supporting evidence', table.concat(suggestions, ' '))
+  h.expect_contains('Counter-arguments', table.concat(suggestions, ' '))
+  h.expect_contains('Next steps', table.concat(suggestions, ' '))
 end
 
-T["TreeNode generates task suggestions"] = function()
+T['TreeNode generates task suggestions'] = function()
   child.lua([[
     node = TreeNode:new("Implement solution", "task")
     suggestions = node:generate_suggestions()
   ]])
 
-  local suggestions = child.lua_get("suggestions")
+  local suggestions = child.lua_get('suggestions')
 
   h.eq(4, #suggestions)
-  h.expect_contains("Implementation steps", table.concat(suggestions, " "))
-  h.expect_contains("Alternative approaches", table.concat(suggestions, " "))
-  h.expect_contains("Resources needed", table.concat(suggestions, " "))
-  h.expect_contains("Success criteria", table.concat(suggestions, " "))
+  h.expect_contains('Implementation steps', table.concat(suggestions, ' '))
+  h.expect_contains('Alternative approaches', table.concat(suggestions, ' '))
+  h.expect_contains('Resources needed', table.concat(suggestions, ' '))
+  h.expect_contains('Success criteria', table.concat(suggestions, ' '))
 end
 
-T["TreeNode generates validation suggestions"] = function()
+T['TreeNode generates validation suggestions'] = function()
   child.lua([[
     node = TreeNode:new("Test results", "validation")
     suggestions = node:generate_suggestions()
   ]])
 
-  local suggestions = child.lua_get("suggestions")
+  local suggestions = child.lua_get('suggestions')
 
   h.eq(4, #suggestions)
-  h.expect_contains("Test cases", table.concat(suggestions, " "))
-  h.expect_contains("Success metrics", table.concat(suggestions, " "))
-  h.expect_contains("Edge cases", table.concat(suggestions, " "))
-  h.expect_contains("Failure recovery", table.concat(suggestions, " "))
+  h.expect_contains('Test cases', table.concat(suggestions, ' '))
+  h.expect_contains('Success metrics', table.concat(suggestions, ' '))
+  h.expect_contains('Edge cases', table.concat(suggestions, ' '))
+  h.expect_contains('Failure recovery', table.concat(suggestions, ' '))
 end
 
-T["TreeNode generates default suggestions for unknown type"] = function()
+T['TreeNode generates default suggestions for unknown type'] = function()
   child.lua([[
     -- Create node with custom type bypassing validation
     node = TreeNode:new("Unknown content")
@@ -194,14 +194,14 @@ T["TreeNode generates default suggestions for unknown type"] = function()
     suggestions = node:generate_suggestions()
   ]])
 
-  local suggestions = child.lua_get("suggestions")
+  local suggestions = child.lua_get('suggestions')
 
   h.eq(1, #suggestions)
-  h.expect_contains("Next steps", suggestions[1])
+  h.expect_contains('Next steps', suggestions[1])
 end
 
 -- Test TreeNode path operations
-T["TreeNode get_path returns correct path from root"] = function()
+T['TreeNode get_path returns correct path from root'] = function()
   child.lua([[
     root = TreeNode:new("Root")
     level1 = root:add_child("Level 1")
@@ -219,27 +219,27 @@ T["TreeNode get_path returns correct path from root"] = function()
     end
   ]])
 
-  local path_info = child.lua_get("path_info")
+  local path_info = child.lua_get('path_info')
 
   h.eq(3, path_info.length)
-  h.eq("Root", path_info.contents[1])
-  h.eq("Level 1", path_info.contents[2])
-  h.eq("Level 2", path_info.contents[3])
+  h.eq('Root', path_info.contents[1])
+  h.eq('Level 1', path_info.contents[2])
+  h.eq('Level 2', path_info.contents[3])
 end
 
-T["TreeNode get_path works for root node"] = function()
+T['TreeNode get_path works for root node'] = function()
   child.lua([[
     root = TreeNode:new("Root only")
     path = root:get_path()
   ]])
 
-  local path = child.lua_get("path")
+  local path = child.lua_get('path')
 
   h.eq(1, #path)
-  h.eq("Root only", path[1].content)
+  h.eq('Root only', path[1].content)
 end
 
-T["TreeNode is_leaf correctly identifies leaf nodes"] = function()
+T['TreeNode is_leaf correctly identifies leaf nodes'] = function()
   child.lua([[
     parent = TreeNode:new("Parent")
     child = parent:add_child("Child")
@@ -248,14 +248,14 @@ T["TreeNode is_leaf correctly identifies leaf nodes"] = function()
     child_is_leaf = child:is_leaf()
   ]])
 
-  local parent_is_leaf = child.lua_get("parent_is_leaf")
-  local child_is_leaf = child.lua_get("child_is_leaf")
+  local parent_is_leaf = child.lua_get('parent_is_leaf')
+  local child_is_leaf = child.lua_get('child_is_leaf')
 
   h.eq(false, parent_is_leaf)
   h.eq(true, child_is_leaf)
 end
 
-T["TreeNode get_siblings returns correct siblings"] = function()
+T['TreeNode get_siblings returns correct siblings'] = function()
   child.lua([[
     parent = TreeNode:new("Parent")
     child1 = parent:add_child("Child 1")
@@ -276,40 +276,40 @@ T["TreeNode get_siblings returns correct siblings"] = function()
     end
   ]])
 
-  local sibling_info = child.lua_get("sibling_info")
+  local sibling_info = child.lua_get('sibling_info')
 
   h.eq(2, sibling_info.child1_sibling_count)
   h.eq(0, sibling_info.parent_sibling_count) -- Root has no siblings
-  h.expect_contains("Child 2", table.concat(sibling_info.sibling_contents, " "))
-  h.expect_contains("Child 3", table.concat(sibling_info.sibling_contents, " "))
+  h.expect_contains('Child 2', table.concat(sibling_info.sibling_contents, ' '))
+  h.expect_contains('Child 3', table.concat(sibling_info.sibling_contents, ' '))
 end
 
 -- Test TreeOfThoughts class
-T["TreeOfThoughts can be created with default problem"] = function()
+T['TreeOfThoughts can be created with default problem'] = function()
   child.lua([[
     tot = TreeOfThoughts:new()
   ]])
 
-  local tot = child.lua_get("tot")
+  local tot = child.lua_get('tot')
 
-  h.eq("table", type(tot.root))
-  h.eq("Initial Problem", tot.root.content)
-  h.eq("analysis", tot.root.type)
+  h.eq('table', type(tot.root))
+  h.eq('Initial Problem', tot.root.content)
+  h.eq('analysis', tot.root.type)
   h.expect_truthy(tot.evaluation_fn == nil or tot.evaluation_fn == vim.NIL)
 end
 
-T["TreeOfThoughts can be created with custom problem"] = function()
+T['TreeOfThoughts can be created with custom problem'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Custom problem statement")
   ]])
 
-  local tot = child.lua_get("tot")
+  local tot = child.lua_get('tot')
 
-  h.eq("Custom problem statement", tot.root.content)
-  h.eq("analysis", tot.root.type)
+  h.eq('Custom problem statement', tot.root.content)
+  h.eq('analysis', tot.root.type)
 end
 
-T["TreeOfThoughts add_typed_thought adds to root by default"] = function()
+T['TreeOfThoughts add_typed_thought adds to root by default'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     new_node, error_msg, suggestions = tot:add_typed_thought(nil, "First thought", "reasoning")
@@ -324,17 +324,17 @@ T["TreeOfThoughts add_typed_thought adds to root by default"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
+  local result_info = child.lua_get('result_info')
 
   h.eq(true, result_info.new_node_exists)
   h.eq(true, result_info.error_msg_is_nil)
   h.expect_truthy(result_info.suggestions_count > 0)
-  h.eq("First thought", result_info.new_node_content)
-  h.eq("reasoning", result_info.new_node_type)
+  h.eq('First thought', result_info.new_node_content)
+  h.eq('reasoning', result_info.new_node_type)
   h.eq(1, result_info.root_children_count)
 end
 
-T["TreeOfThoughts add_typed_thought adds to specific parent"] = function()
+T['TreeOfThoughts add_typed_thought adds to specific parent'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     first_child, _, _ = tot:add_typed_thought(nil, "First child", "analysis")
@@ -350,17 +350,17 @@ T["TreeOfThoughts add_typed_thought adds to specific parent"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
+  local result_info = child.lua_get('result_info')
 
   h.eq(true, result_info.second_child_exists)
   h.eq(true, result_info.error_msg_is_nil)
-  h.eq("Second level", result_info.second_child_content)
-  h.eq("task", result_info.second_child_type)
+  h.eq('Second level', result_info.second_child_content)
+  h.eq('task', result_info.second_child_type)
   h.eq(1, result_info.first_child_children_count)
   h.eq(2, result_info.second_child_depth)
 end
 
-T["TreeOfThoughts add_typed_thought handles root parent_id"] = function()
+T['TreeOfThoughts add_typed_thought handles root parent_id'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     new_node, error_msg, suggestions = tot:add_typed_thought("root", "Root child", "validation")
@@ -373,30 +373,30 @@ T["TreeOfThoughts add_typed_thought handles root parent_id"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
+  local result_info = child.lua_get('result_info')
 
   h.eq(true, result_info.new_node_exists)
   h.eq(true, result_info.error_msg_is_nil)
-  h.eq("Root child", result_info.new_node_content)
+  h.eq('Root child', result_info.new_node_content)
   h.eq(1, result_info.root_children_count)
 end
 
-T["TreeOfThoughts add_typed_thought rejects invalid parent_id"] = function()
+T['TreeOfThoughts add_typed_thought rejects invalid parent_id'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     new_node, error_msg, suggestions = tot:add_typed_thought("nonexistent_id", "Orphan thought", "analysis")
   ]])
 
-  local new_node = child.lua_get("new_node")
-  local error_msg = child.lua_get("error_msg")
-  local suggestions = child.lua_get("suggestions")
+  local new_node = child.lua_get('new_node')
+  local error_msg = child.lua_get('error_msg')
+  local suggestions = child.lua_get('suggestions')
 
   h.expect_truthy(new_node == nil or new_node == vim.NIL)
-  h.expect_contains("Parent node not found", error_msg)
+  h.expect_contains('Parent node not found', error_msg)
   h.expect_truthy(suggestions == nil or suggestions == vim.NIL)
 end
 
-T["TreeOfThoughts add_typed_thought validates node types"] = function()
+T['TreeOfThoughts add_typed_thought validates node types'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     valid_node, valid_error, valid_suggestions = tot:add_typed_thought(nil, "Valid thought", "reasoning")
@@ -410,15 +410,15 @@ T["TreeOfThoughts add_typed_thought validates node types"] = function()
     }
   ]])
 
-  local validation_results = child.lua_get("validation_results")
+  local validation_results = child.lua_get('validation_results')
 
   h.eq(true, validation_results.valid_node_exists)
   h.eq(true, validation_results.valid_error_is_nil)
   h.eq(true, validation_results.invalid_node_is_nil)
-  h.expect_contains("Invalid node type", validation_results.invalid_error)
+  h.expect_contains('Invalid node type', validation_results.invalid_error)
 end
 
-T["TreeOfThoughts add_typed_thought assigns scores"] = function()
+T['TreeOfThoughts add_typed_thought assigns scores'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     new_node, _, _ = tot:add_typed_thought(nil, "Scored thought", "validation")
@@ -429,41 +429,41 @@ T["TreeOfThoughts add_typed_thought assigns scores"] = function()
     }
   ]])
 
-  local score_info = child.lua_get("score_info")
+  local score_info = child.lua_get('score_info')
 
-  h.eq("number", score_info.score_type)
+  h.eq('number', score_info.score_type)
   h.expect_truthy(score_info.score_value > 0)
 end
 
-T["TreeOfThoughts add_typed_thought returns suggestions"] = function()
+T['TreeOfThoughts add_typed_thought returns suggestions'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     new_node, _, suggestions = tot:add_typed_thought(nil, "Thought with suggestions", "analysis")
   ]])
 
-  local suggestions = child.lua_get("suggestions")
+  local suggestions = child.lua_get('suggestions')
 
-  h.eq("table", type(suggestions))
+  h.eq('table', type(suggestions))
   h.eq(4, #suggestions)
-  h.expect_contains("Sub-questions", table.concat(suggestions, " "))
+  h.expect_contains('Sub-questions', table.concat(suggestions, ' '))
 end
 
 -- Test TreeOfThoughts find_node_by_id
-T["TreeOfThoughts find_node_by_id finds root node"] = function()
+T['TreeOfThoughts find_node_by_id finds root node'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root problem")
     found_node = tot:find_node_by_id(tot.root.id)
   ]])
 
-  local found_node = child.lua_get("found_node")
-  local tot = child.lua_get("tot")
+  local found_node = child.lua_get('found_node')
+  local tot = child.lua_get('tot')
 
-  h.eq("table", type(found_node))
+  h.eq('table', type(found_node))
   h.eq(tot.root.id, found_node.id)
-  h.eq("Root problem", found_node.content)
+  h.eq('Root problem', found_node.content)
 end
 
-T["TreeOfThoughts find_node_by_id finds nested nodes"] = function()
+T['TreeOfThoughts find_node_by_id finds nested nodes'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
     level1, _, _ = tot:add_typed_thought(nil, "Level 1", "analysis")
@@ -483,28 +483,28 @@ T["TreeOfThoughts find_node_by_id finds nested nodes"] = function()
     }
   ]])
 
-  local level1_info = child.lua_get("level1_info")
-  local level2_info = child.lua_get("level2_info")
+  local level1_info = child.lua_get('level1_info')
+  local level2_info = child.lua_get('level2_info')
 
   h.eq(true, level1_info.found)
-  h.eq("Level 1", level1_info.content)
+  h.eq('Level 1', level1_info.content)
   h.eq(true, level2_info.found)
-  h.eq("Level 2", level2_info.content)
+  h.eq('Level 2', level2_info.content)
 end
 
-T["TreeOfThoughts find_node_by_id returns nil for non-existent id"] = function()
+T['TreeOfThoughts find_node_by_id returns nil for non-existent id'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
     found_node = tot:find_node_by_id("nonexistent_id")
   ]])
 
-  local found_node = child.lua_get("found_node")
+  local found_node = child.lua_get('found_node')
 
   h.expect_truthy(found_node == nil or found_node == vim.NIL)
 end
 
 -- Test evaluation system
-T["TreeOfThoughts evaluate_thought uses custom evaluation function"] = function()
+T['TreeOfThoughts evaluate_thought uses custom evaluation function'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -519,12 +519,12 @@ T["TreeOfThoughts evaluate_thought uses custom evaluation function"] = function(
     node_score = node and node.score or nil
   ]])
 
-  local node_score = child.lua_get("node_score")
+  local node_score = child.lua_get('node_score')
 
   h.eq(42.0, node_score)
 end
 
-T["TreeOfThoughts evaluate_thought uses default scoring"] = function()
+T['TreeOfThoughts evaluate_thought uses default scoring'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -540,17 +540,17 @@ T["TreeOfThoughts evaluate_thought uses default scoring"] = function()
     }
   ]])
 
-  local scores = child.lua_get("scores")
+  local scores = child.lua_get('scores')
 
-  h.eq("number", type(scores.short))
-  h.eq("number", type(scores.medium))
-  h.eq("number", type(scores.long))
+  h.eq('number', type(scores.short))
+  h.eq('number', type(scores.medium))
+  h.eq('number', type(scores.long))
   h.expect_truthy(scores.short > 0)
   h.expect_truthy(scores.medium > 0)
   h.expect_truthy(scores.long > 0)
 end
 
-T["TreeOfThoughts evaluate_thought considers depth penalty"] = function()
+T['TreeOfThoughts evaluate_thought considers depth penalty'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -565,14 +565,14 @@ T["TreeOfThoughts evaluate_thought considers depth penalty"] = function()
     }
   ]])
 
-  local scores = child.lua_get("scores")
+  local scores = child.lua_get('scores')
 
   -- Deeper nodes should generally have lower scores due to depth penalty
   h.expect_truthy(scores.level1 > scores.level2)
   h.expect_truthy(scores.level2 > scores.level3)
 end
 
-T["TreeOfThoughts evaluate_thought considers sibling diversity bonus"] = function()
+T['TreeOfThoughts evaluate_thought considers sibling diversity bonus'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -587,13 +587,13 @@ T["TreeOfThoughts evaluate_thought considers sibling diversity bonus"] = functio
     updated_first_score = tot:evaluate_thought(first_child)
   ]])
 
-  local first_score = child.lua_get("first_score")
-  local updated_first_score = child.lua_get("updated_first_score")
+  local first_score = child.lua_get('first_score')
+  local updated_first_score = child.lua_get('updated_first_score')
 
   h.expect_truthy(updated_first_score > first_score)
 end
 
-T["TreeOfThoughts evaluate_thought considers type bonuses"] = function()
+T['TreeOfThoughts evaluate_thought considers type bonuses'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -619,14 +619,14 @@ T["TreeOfThoughts evaluate_thought considers type bonuses"] = function()
     }
   ]])
 
-  local score_comparisons = child.lua_get("score_comparisons")
+  local score_comparisons = child.lua_get('score_comparisons')
 
   -- Due to randomness in scoring, just check that validation gets bonus and all scores are positive
   h.eq(true, score_comparisons.validation_highest)
   h.eq(true, score_comparisons.all_positive)
 end
 
-T["TreeOfThoughts evaluate_thought ensures non-negative scores"] = function()
+T['TreeOfThoughts evaluate_thought ensures non-negative scores'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -640,13 +640,13 @@ T["TreeOfThoughts evaluate_thought ensures non-negative scores"] = function()
     final_score = current_node.score
   ]])
 
-  local final_score = child.lua_get("final_score")
+  local final_score = child.lua_get('final_score')
 
   h.expect_truthy(final_score >= 0)
 end
 
 -- Test complex tree structures
-T["TreeOfThoughts handles complex branching structure"] = function()
+T['TreeOfThoughts handles complex branching structure'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Complex problem")
 
@@ -671,7 +671,7 @@ T["TreeOfThoughts handles complex branching structure"] = function()
     }
   ]])
 
-  local structure_info = child.lua_get("structure_info")
+  local structure_info = child.lua_get('structure_info')
 
   h.eq(2, structure_info.root_children)
   h.eq(2, structure_info.branch1_children)
@@ -680,7 +680,7 @@ T["TreeOfThoughts handles complex branching structure"] = function()
   h.eq(3, structure_info.deep1_depth)
 end
 
-T["TreeOfThoughts maintains correct parent-child relationships"] = function()
+T['TreeOfThoughts maintains correct parent-child relationships'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -711,7 +711,7 @@ T["TreeOfThoughts maintains correct parent-child relationships"] = function()
     end
   ]])
 
-  local relationships = child.lua_get("relationships")
+  local relationships = child.lua_get('relationships')
 
   h.eq(true, relationships.child1_parent_is_root)
   h.eq(true, relationships.grandchild_parent_is_child1)
@@ -720,7 +720,7 @@ T["TreeOfThoughts maintains correct parent-child relationships"] = function()
 end
 
 -- Test edge cases and error handling
-T["TreeOfThoughts handles empty content gracefully"] = function()
+T['TreeOfThoughts handles empty content gracefully'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
     empty_node, error_msg, suggestions = tot:add_typed_thought(nil, "", "analysis")
@@ -733,14 +733,14 @@ T["TreeOfThoughts handles empty content gracefully"] = function()
     }
   ]])
 
-  local node_info = child.lua_get("node_info")
+  local node_info = child.lua_get('node_info')
 
   h.eq(true, node_info.exists)
-  h.eq("", node_info.content)
+  h.eq('', node_info.content)
   h.eq(true, node_info.error_is_nil)
 end
 
-T["TreeOfThoughts handles nil content gracefully"] = function()
+T['TreeOfThoughts handles nil content gracefully'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
     nil_node, error_msg, suggestions = tot:add_typed_thought(nil, nil, "analysis")
@@ -753,15 +753,15 @@ T["TreeOfThoughts handles nil content gracefully"] = function()
     }
   ]])
 
-  local node_info = child.lua_get("node_info")
+  local node_info = child.lua_get('node_info')
 
   h.eq(true, node_info.exists)
-  h.eq("", node_info.content) -- Should default to empty string
+  h.eq('', node_info.content) -- Should default to empty string
   h.eq(true, node_info.error_is_nil)
 end
 
 -- Test scoring consistency
-T["TreeOfThoughts scoring includes random factor for tie-breaking"] = function()
+T['TreeOfThoughts scoring includes random factor for tie-breaking'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -785,13 +785,13 @@ T["TreeOfThoughts scoring includes random factor for tie-breaking"] = function()
     scores_vary = not all_same
   ]])
 
-  local scores_vary = child.lua_get("scores_vary")
+  local scores_vary = child.lua_get('scores_vary')
 
   h.eq(true, scores_vary)
 end
 
 -- Test search functionality across tree
-T["TreeOfThoughts find_node_by_id searches entire tree"] = function()
+T['TreeOfThoughts find_node_by_id searches entire tree'] = function()
   child.lua([[
     tot = TreeOfThoughts:new("Root")
 
@@ -815,7 +815,7 @@ T["TreeOfThoughts find_node_by_id searches entire tree"] = function()
     }
   ]])
 
-  local search_results = child.lua_get("search_results")
+  local search_results = child.lua_get('search_results')
 
   h.eq(true, search_results.root_found)
   h.eq(true, search_results.branch2_found)

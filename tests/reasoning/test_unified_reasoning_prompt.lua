@@ -1,4 +1,4 @@
-local h = require("tests.helpers")
+local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set
 
@@ -66,7 +66,7 @@ local T = new_set({
 })
 
 -- Test configuration creation for different reasoning types
-T["chain_of_thought_config returns complete configuration"] = function()
+T['chain_of_thought_config returns complete configuration'] = function()
   child.lua([[
     config = UnifiedReasoningPrompt.chain_of_thought_config()
 
@@ -82,19 +82,19 @@ T["chain_of_thought_config returns complete configuration"] = function()
     }
   ]])
 
-  local config_info = child.lua_get("config_info")
+  local config_info = child.lua_get('config_info')
 
-  h.eq("Chain of Thought Programming", config_info.agent_type)
-  h.eq("TOP 1%", config_info.performance_tier)
-  h.eq("Staff Engineer", config_info.identity_level)
-  h.expect_contains("sequential logical excellence", config_info.reasoning_approach)
-  h.eq("zero-defect", config_info.quality_standard)
+  h.eq('Chain of Thought Programming', config_info.agent_type)
+  h.eq('TOP 1%', config_info.performance_tier)
+  h.eq('Staff Engineer', config_info.identity_level)
+  h.expect_contains('sequential logical excellence', config_info.reasoning_approach)
+  h.eq('zero-defect', config_info.quality_standard)
   h.eq(4, config_info.core_capabilities_count)
   h.eq(4, config_info.specialized_patterns_count)
   h.eq(true, config_info.has_success_rate)
 end
 
-T["tree_of_thoughts_config returns complete configuration"] = function()
+T['tree_of_thoughts_config returns complete configuration'] = function()
   child.lua([[
     config = UnifiedReasoningPrompt.tree_of_thoughts_config()
 
@@ -110,19 +110,19 @@ T["tree_of_thoughts_config returns complete configuration"] = function()
     }
   ]])
 
-  local config_info = child.lua_get("config_info")
+  local config_info = child.lua_get('config_info')
 
-  h.eq("Tree of Thoughts Programming", config_info.agent_type)
-  h.eq("TOP 1%", config_info.performance_tier)
-  h.eq("Principal Architect", config_info.identity_level)
-  h.expect_contains("multiple solution path exploration", config_info.reasoning_approach)
-  h.eq("enterprise-grade", config_info.quality_standard)
+  h.eq('Tree of Thoughts Programming', config_info.agent_type)
+  h.eq('TOP 1%', config_info.performance_tier)
+  h.eq('Principal Architect', config_info.identity_level)
+  h.expect_contains('multiple solution path exploration', config_info.reasoning_approach)
+  h.eq('enterprise-grade', config_info.quality_standard)
   h.eq(4, config_info.core_capabilities_count)
   h.eq(4, config_info.specialized_patterns_count)
   h.eq(96, config_info.success_rate_target)
 end
 
-T["graph_of_thoughts_config returns complete configuration"] = function()
+T['graph_of_thoughts_config returns complete configuration'] = function()
   child.lua([[
     config = UnifiedReasoningPrompt.graph_of_thoughts_config()
 
@@ -138,13 +138,13 @@ T["graph_of_thoughts_config returns complete configuration"] = function()
     }
   ]])
 
-  local config_info = child.lua_get("config_info")
+  local config_info = child.lua_get('config_info')
 
-  h.eq("Graph of Thoughts Programming", config_info.agent_type)
-  h.eq("TOP 0.1%", config_info.performance_tier)
-  h.eq("Distinguished Engineer", config_info.identity_level)
-  h.expect_contains("interconnected system analysis", config_info.reasoning_approach)
-  h.eq("industry-leading", config_info.quality_standard)
+  h.eq('Graph of Thoughts Programming', config_info.agent_type)
+  h.eq('TOP 0.1%', config_info.performance_tier)
+  h.eq('Distinguished Engineer', config_info.identity_level)
+  h.expect_contains('interconnected system analysis', config_info.reasoning_approach)
+  h.eq('industry-leading', config_info.quality_standard)
   h.eq(4, config_info.core_capabilities_count)
   h.eq(4, config_info.specialized_patterns_count)
   h.eq(97, config_info.success_rate_target)
@@ -157,9 +157,9 @@ T["get_optimized_config returns chain config for 'chain' type"] = function()
     agent_type = config.agent_type
   ]])
 
-  local agent_type = child.lua_get("agent_type")
+  local agent_type = child.lua_get('agent_type')
 
-  h.eq("Chain of Thought Programming", agent_type)
+  h.eq('Chain of Thought Programming', agent_type)
 end
 
 T["get_optimized_config returns tree config for 'tree' type"] = function()
@@ -168,9 +168,9 @@ T["get_optimized_config returns tree config for 'tree' type"] = function()
     agent_type = config.agent_type
   ]])
 
-  local agent_type = child.lua_get("agent_type")
+  local agent_type = child.lua_get('agent_type')
 
-  h.eq("Tree of Thoughts Programming", agent_type)
+  h.eq('Tree of Thoughts Programming', agent_type)
 end
 
 T["get_optimized_config returns graph config for 'graph' type"] = function()
@@ -179,129 +179,129 @@ T["get_optimized_config returns graph config for 'graph' type"] = function()
     agent_type = config.agent_type
   ]])
 
-  local agent_type = child.lua_get("agent_type")
+  local agent_type = child.lua_get('agent_type')
 
-  h.eq("Graph of Thoughts Programming", agent_type)
+  h.eq('Graph of Thoughts Programming', agent_type)
 end
 
-T["get_optimized_config throws error for invalid type"] = function()
+T['get_optimized_config throws error for invalid type'] = function()
   child.lua([[
     success, error_msg = pcall(function()
       return UnifiedReasoningPrompt.get_optimized_config("invalid")
     end)
   ]])
 
-  local success = child.lua_get("success")
-  local error_msg = child.lua_get("error_msg")
+  local success = child.lua_get('success')
+  local error_msg = child.lua_get('error_msg')
 
   h.eq(false, success)
-  h.expect_contains("Invalid reasoning type", error_msg)
+  h.expect_contains('Invalid reasoning type', error_msg)
   h.expect_contains("Must be 'chain', 'tree', or 'graph'", error_msg)
 end
 
 -- Test section generation (internal function behavior via generate)
-T["generate creates identity_mission section"] = function()
+T['generate creates identity_mission section'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.expect_contains("TEST AGENT ARCHITECT", prompt)
-  h.expect_contains("IDENTITY ACTIVATION", prompt)
-  h.expect_contains("MISSION CRITICAL", prompt)
-  h.expect_contains("SUCCESS METRICS", prompt)
-  h.expect_contains("Zero production incidents", prompt)
+  h.expect_contains('TEST AGENT ARCHITECT', prompt)
+  h.expect_contains('IDENTITY ACTIVATION', prompt)
+  h.expect_contains('MISSION CRITICAL', prompt)
+  h.expect_contains('SUCCESS METRICS', prompt)
+  h.expect_contains('Zero production incidents', prompt)
 end
 
-T["generate creates cognitive_prime section"] = function()
+T['generate creates cognitive_prime section'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.expect_contains("COGNITIVE PRIME", prompt)
-  h.expect_contains("Peak Performance Protocol", prompt)
-  h.expect_contains("ACTIVATE", prompt)
-  h.expect_contains("systematic analysis thinking patterns", prompt)
-  h.expect_contains("Core Capabilities", prompt)
-  h.expect_contains("Core capability 1", prompt)
+  h.expect_contains('COGNITIVE PRIME', prompt)
+  h.expect_contains('Peak Performance Protocol', prompt)
+  h.expect_contains('ACTIVATE', prompt)
+  h.expect_contains('systematic analysis thinking patterns', prompt)
+  h.expect_contains('Core Capabilities', prompt)
+  h.expect_contains('Core capability 1', prompt)
 end
 
-T["generate creates tool_mastery section"] = function()
+T['generate creates tool_mastery section'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.expect_contains("TOOL MASTERY", prompt)
-  h.expect_contains("STRATEGIC OPTIMIZATION", prompt)
-  h.expect_contains("DISCOVERY PROTOCOL", prompt)
-  h.expect_contains("tool_discovery", prompt)
-  h.expect_contains("STRATEGIC USAGE PATTERNS", prompt)
+  h.expect_contains('TOOL MASTERY', prompt)
+  h.expect_contains('STRATEGIC OPTIMIZATION', prompt)
+  h.expect_contains('DISCOVERY PROTOCOL', prompt)
+  h.expect_contains('tool_discovery', prompt)
+  h.expect_contains('STRATEGIC USAGE PATTERNS', prompt)
 end
 
-T["generate creates execution_mastery section"] = function()
+T['generate creates execution_mastery section'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
   -- Check if the section exists or if there was an error
   if string.find(prompt, "Error generating section 'execution_mastery'") then
     -- If there's an error, just verify it's handled gracefully
-    h.expect_contains("Error generating section", prompt)
+    h.expect_contains('Error generating section', prompt)
   else
-    h.expect_contains("EXECUTION MASTERY", prompt)
-    h.expect_contains("Non-Negotiable Standards", prompt)
-    h.expect_contains("WORKFLOW STAGES", prompt)
-    h.expect_contains("DISCOVER & ANALYZE", prompt)
-    h.expect_contains("IMPLEMENT SYSTEMATICALLY", prompt)
-    h.expect_contains("VALIDATE RUTHLESSLY", prompt)
-    h.expect_contains("Specialized Execution Patterns", prompt)
-    h.expect_contains("Pattern 1", prompt)
+    h.expect_contains('EXECUTION MASTERY', prompt)
+    h.expect_contains('Non-Negotiable Standards', prompt)
+    h.expect_contains('WORKFLOW STAGES', prompt)
+    h.expect_contains('DISCOVER & ANALYZE', prompt)
+    h.expect_contains('IMPLEMENT SYSTEMATICALLY', prompt)
+    h.expect_contains('VALIDATE RUTHLESSLY', prompt)
+    h.expect_contains('Specialized Execution Patterns', prompt)
+    h.expect_contains('Pattern 1', prompt)
   end
 end
 
-T["generate creates error_elimination section"] = function()
+T['generate creates error_elimination section'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.expect_contains("ERROR ELIMINATION PROTOCOL", prompt)
-  h.expect_contains("IMMEDIATE RESPONSE TRIGGERS", prompt)
+  h.expect_contains('ERROR ELIMINATION PROTOCOL', prompt)
+  h.expect_contains('IMMEDIATE RESPONSE TRIGGERS', prompt)
   h.expect_contains("Murphy's Law", prompt)
-  h.expect_contains("defensive programming", prompt)
-  h.expect_contains("METACOGNITIVE CHECKPOINT", prompt)
+  h.expect_contains('defensive programming', prompt)
+  h.expect_contains('METACOGNITIVE CHECKPOINT', prompt)
 end
 
-T["generate creates performance_monitoring section"] = function()
+T['generate creates performance_monitoring section'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.expect_contains("PERFORMANCE MONITORING", prompt)
-  h.expect_contains("CONTINUOUS EXCELLENCE", prompt)
-  h.expect_contains("REAL-TIME SELF-ASSESSMENT", prompt)
-  h.expect_contains("QUALITY BENCHMARKS", prompt)
-  h.expect_contains("FINAL VALIDATION", prompt)
+  h.expect_contains('PERFORMANCE MONITORING', prompt)
+  h.expect_contains('CONTINUOUS EXCELLENCE', prompt)
+  h.expect_contains('REAL-TIME SELF-ASSESSMENT', prompt)
+  h.expect_contains('QUALITY BENCHMARKS', prompt)
+  h.expect_contains('FINAL VALIDATION', prompt)
 end
 
 -- Test section ordering and completeness
-T["generate includes main sections in order"] = function()
+T['generate includes main sections in order'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
@@ -322,7 +322,7 @@ T["generate includes main sections in order"] = function()
     }
   ]])
 
-  local order_check = child.lua_get("order_check")
+  local order_check = child.lua_get('order_check')
 
   h.eq(true, order_check.core_sections_present)
   h.eq(true, order_check.identity_before_cognitive)
@@ -332,7 +332,7 @@ T["generate includes main sections in order"] = function()
 end
 
 -- Test configuration value interpolation
-T["generate properly interpolates config values"] = function()
+T['generate properly interpolates config values'] = function()
   child.lua([[
     config = create_basic_config()
     config.agent_type = "CUSTOM AGENT"
@@ -352,7 +352,7 @@ T["generate properly interpolates config values"] = function()
     }
   ]])
 
-  local interpolation_check = child.lua_get("interpolation_check")
+  local interpolation_check = child.lua_get('interpolation_check')
 
   h.eq(true, interpolation_check.has_custom_agent)
   h.eq(true, interpolation_check.has_elite_tier)
@@ -362,7 +362,7 @@ T["generate properly interpolates config values"] = function()
 end
 
 -- Test empty collections handling
-T["generate handles empty core_capabilities gracefully"] = function()
+T['generate handles empty core_capabilities gracefully'] = function()
   child.lua([[
     config = create_basic_config()
     config.core_capabilities = {}
@@ -374,14 +374,14 @@ T["generate handles empty core_capabilities gracefully"] = function()
     has_core_capabilities_header = string.find(prompt, "Core Capabilities") == nil
   ]])
 
-  local has_cognitive_prime = child.lua_get("has_cognitive_prime")
-  local has_core_capabilities_header = child.lua_get("has_core_capabilities_header")
+  local has_cognitive_prime = child.lua_get('has_cognitive_prime')
+  local has_core_capabilities_header = child.lua_get('has_core_capabilities_header')
 
   h.eq(true, has_cognitive_prime)
   h.eq(true, has_core_capabilities_header) -- Should not have header when empty
 end
 
-T["generate handles empty specialized_patterns gracefully"] = function()
+T['generate handles empty specialized_patterns gracefully'] = function()
   child.lua([[
     config = create_basic_config()
     config.specialized_patterns = {}
@@ -393,15 +393,15 @@ T["generate handles empty specialized_patterns gracefully"] = function()
     has_patterns_header = string.find(prompt, "Specialized Execution Patterns") == nil
   ]])
 
-  local has_execution_content = child.lua_get("has_execution_content")
-  local has_patterns_header = child.lua_get("has_patterns_header")
+  local has_execution_content = child.lua_get('has_execution_content')
+  local has_patterns_header = child.lua_get('has_patterns_header')
 
   h.eq(true, has_execution_content)
   h.eq(true, has_patterns_header) -- Should not have header when empty
 end
 
 -- Test custom sections
-T["generate handles custom sections"] = function()
+T['generate handles custom sections'] = function()
   child.lua([[
     config = create_basic_config()
     config.custom_sections = {
@@ -415,15 +415,15 @@ T["generate handles custom sections"] = function()
     custom_content = config.custom_sections.custom_test
   ]])
 
-  local has_custom_sections = child.lua_get("has_custom_sections")
-  local custom_content = child.lua_get("custom_content")
+  local has_custom_sections = child.lua_get('has_custom_sections')
+  local custom_content = child.lua_get('custom_content')
 
   h.eq(true, has_custom_sections)
-  h.eq("This is a custom section content", custom_content)
+  h.eq('This is a custom section content', custom_content)
 end
 
 -- Test error handling in section generation
-T["generate handles section generation errors gracefully"] = function()
+T['generate handles section generation errors gracefully'] = function()
   child.lua([[
     -- Create a config that will cause an error (missing required fields)
     config = {
@@ -440,15 +440,15 @@ T["generate handles section generation errors gracefully"] = function()
     prompt_is_string = type(prompt) == "string"
   ]])
 
-  local has_error_message = child.lua_get("has_error_message")
-  local prompt_is_string = child.lua_get("prompt_is_string")
+  local has_error_message = child.lua_get('has_error_message')
+  local prompt_is_string = child.lua_get('prompt_is_string')
 
   h.eq(true, prompt_is_string)
   h.eq(true, has_error_message)
 end
 
 -- Test generate_for_reasoning function
-T["generate_for_reasoning creates complete prompt for chain"] = function()
+T['generate_for_reasoning creates complete prompt for chain'] = function()
   child.lua([[
     prompt = UnifiedReasoningPrompt.generate_for_reasoning("chain")
 
@@ -461,7 +461,7 @@ T["generate_for_reasoning creates complete prompt for chain"] = function()
     }
   ]])
 
-  local prompt_info = child.lua_get("prompt_info")
+  local prompt_info = child.lua_get('prompt_info')
 
   h.eq(true, prompt_info.is_string)
   h.expect_truthy(prompt_info.length > 500) -- Reduced threshold due to potential errors
@@ -470,7 +470,7 @@ T["generate_for_reasoning creates complete prompt for chain"] = function()
   h.eq(true, prompt_info.has_sequential_logic)
 end
 
-T["generate_for_reasoning creates complete prompt for tree"] = function()
+T['generate_for_reasoning creates complete prompt for tree'] = function()
   child.lua([[
     prompt = UnifiedReasoningPrompt.generate_for_reasoning("tree")
 
@@ -482,7 +482,7 @@ T["generate_for_reasoning creates complete prompt for tree"] = function()
     }
   ]])
 
-  local prompt_info = child.lua_get("prompt_info")
+  local prompt_info = child.lua_get('prompt_info')
 
   h.eq(true, prompt_info.is_string)
   h.eq(true, prompt_info.has_tree_content)
@@ -490,7 +490,7 @@ T["generate_for_reasoning creates complete prompt for tree"] = function()
   h.eq(true, prompt_info.has_multiple_paths)
 end
 
-T["generate_for_reasoning creates complete prompt for graph"] = function()
+T['generate_for_reasoning creates complete prompt for graph'] = function()
   child.lua([[
     prompt = UnifiedReasoningPrompt.generate_for_reasoning("graph")
 
@@ -502,7 +502,7 @@ T["generate_for_reasoning creates complete prompt for graph"] = function()
     }
   ]])
 
-  local prompt_info = child.lua_get("prompt_info")
+  local prompt_info = child.lua_get('prompt_info')
 
   h.eq(true, prompt_info.is_string)
   h.eq(true, prompt_info.has_graph_content)
@@ -510,22 +510,22 @@ T["generate_for_reasoning creates complete prompt for graph"] = function()
   h.eq(true, prompt_info.has_interconnected)
 end
 
-T["generate_for_reasoning propagates error for invalid type"] = function()
+T['generate_for_reasoning propagates error for invalid type'] = function()
   child.lua([[
     success, error_msg = pcall(function()
       return UnifiedReasoningPrompt.generate_for_reasoning("invalid")
     end)
   ]])
 
-  local success = child.lua_get("success")
-  local error_msg = child.lua_get("error_msg")
+  local success = child.lua_get('success')
+  local error_msg = child.lua_get('error_msg')
 
   h.eq(false, success)
-  h.expect_contains("Invalid reasoning type", error_msg)
+  h.expect_contains('Invalid reasoning type', error_msg)
 end
 
 -- Test configuration differences between reasoning types
-T["different reasoning types have distinct configurations"] = function()
+T['different reasoning types have distinct configurations'] = function()
   child.lua([[
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
     tree_config = UnifiedReasoningPrompt.tree_of_thoughts_config()
@@ -542,7 +542,7 @@ T["different reasoning types have distinct configurations"] = function()
     }
   ]])
 
-  local comparison = child.lua_get("comparison")
+  local comparison = child.lua_get('comparison')
 
   h.eq(true, comparison.different_agent_types)
   h.eq(true, comparison.different_identity_levels)
@@ -554,7 +554,7 @@ T["different reasoning types have distinct configurations"] = function()
 end
 
 -- Test prompt quality and completeness
-T["generated prompts contain essential keywords"] = function()
+T['generated prompts contain essential keywords'] = function()
   child.lua([[
     chain_prompt = UnifiedReasoningPrompt.generate_for_reasoning("chain")
     tree_prompt = UnifiedReasoningPrompt.generate_for_reasoning("tree")
@@ -578,16 +578,16 @@ T["generated prompts contain essential keywords"] = function()
     end
   ]])
 
-  local keyword_check = child.lua_get("keyword_check")
+  local keyword_check = child.lua_get('keyword_check')
 
   for keyword, presence in pairs(keyword_check) do
-    h.eq(true, presence.in_chain, "Chain prompt missing keyword: " .. keyword)
-    h.eq(true, presence.in_tree, "Tree prompt missing keyword: " .. keyword)
-    h.eq(true, presence.in_graph, "Graph prompt missing keyword: " .. keyword)
+    h.eq(true, presence.in_chain, 'Chain prompt missing keyword: ' .. keyword)
+    h.eq(true, presence.in_tree, 'Tree prompt missing keyword: ' .. keyword)
+    h.eq(true, presence.in_graph, 'Graph prompt missing keyword: ' .. keyword)
   end
 end
 
-T["generated prompts have substantial content"] = function()
+T['generated prompts have substantial content'] = function()
   child.lua([[
     chain_prompt = UnifiedReasoningPrompt.generate_for_reasoning("chain")
     tree_prompt = UnifiedReasoningPrompt.generate_for_reasoning("tree")
@@ -603,7 +603,7 @@ T["generated prompts have substantial content"] = function()
     }
   ]])
 
-  local content_metrics = child.lua_get("content_metrics")
+  local content_metrics = child.lua_get('content_metrics')
 
   -- All prompts should be substantial (reduced threshold due to potential errors)
   h.expect_truthy(content_metrics.chain_length > 1000)
@@ -617,7 +617,7 @@ T["generated prompts have substantial content"] = function()
 end
 
 -- Test integration and edge cases
-T["generate works with minimal configuration"] = function()
+T['generate works with minimal configuration'] = function()
   child.lua([[
     minimal_config = create_minimal_config()
     prompt = UnifiedReasoningPrompt.generate(minimal_config)
@@ -630,14 +630,14 @@ T["generate works with minimal configuration"] = function()
     }
   ]])
 
-  local minimal_test = child.lua_get("minimal_test")
+  local minimal_test = child.lua_get('minimal_test')
 
   h.eq(true, minimal_test.is_string)
   h.eq(true, minimal_test.has_basic_content)
   h.eq(true, minimal_test.not_empty)
 end
 
-T["configuration objects are independent"] = function()
+T['configuration objects are independent'] = function()
   child.lua([[
     config1 = UnifiedReasoningPrompt.chain_of_thought_config()
     config2 = UnifiedReasoningPrompt.tree_of_thoughts_config()
@@ -652,14 +652,14 @@ T["configuration objects are independent"] = function()
     }
   ]])
 
-  local independence_test = child.lua_get("independence_test")
+  local independence_test = child.lua_get('independence_test')
 
   h.eq(true, independence_test.config1_modified)
   h.eq(true, independence_test.config2_unchanged)
   h.eq(true, independence_test.different_objects)
 end
 
-T["specialized patterns contain relevant content"] = function()
+T['specialized patterns contain relevant content'] = function()
   child.lua([[
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
     tree_config = UnifiedReasoningPrompt.tree_of_thoughts_config()
@@ -693,7 +693,7 @@ T["specialized patterns contain relevant content"] = function()
     end
   ]])
 
-  local patterns_content = child.lua_get("patterns_content")
+  local patterns_content = child.lua_get('patterns_content')
 
   h.eq(true, patterns_content.chain_has_debug)
   h.eq(true, patterns_content.tree_has_architecture)
@@ -701,7 +701,7 @@ T["specialized patterns contain relevant content"] = function()
 end
 
 -- Debug test to understand what's happening
-T["debug_basic_functionality"] = function()
+T['debug_basic_functionality'] = function()
   child.lua([[
     -- Test basic chain config
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
@@ -717,15 +717,15 @@ T["debug_basic_functionality"] = function()
     }
   ]])
 
-  local debug_info = child.lua_get("debug_info")
+  local debug_info = child.lua_get('debug_info')
 
-  h.eq("table", debug_info.config_type)
-  h.eq("Chain of Thought Programming", debug_info.agent_type)
-  h.eq("string", debug_info.prompt_type)
+  h.eq('table', debug_info.config_type)
+  h.eq('Chain of Thought Programming', debug_info.agent_type)
+  h.eq('string', debug_info.prompt_type)
   h.expect_truthy(debug_info.prompt_length > 100)
 
   -- Print debug info for troubleshooting
-  print("Debug info:", debug_info)
+  print('Debug info:', debug_info)
 end
 
 return T

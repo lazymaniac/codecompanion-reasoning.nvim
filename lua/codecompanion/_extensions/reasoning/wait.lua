@@ -1,6 +1,6 @@
-local config = require("codecompanion.config")
-local ui = require("codecompanion.utils.ui")
-local utils = require("codecompanion.utils")
+local config = require('codecompanion.config')
+local ui = require('codecompanion.utils.ui')
+local utils = require('codecompanion.utils')
 
 local api = vim.api
 
@@ -20,7 +20,7 @@ function M.for_decision(id, events, callback, opts)
     return callback({ accepted = true })
   end
 
-  local aug = api.nvim_create_augroup("codecompanion.tools.wait_" .. tostring(id), { clear = true })
+  local aug = api.nvim_create_augroup('codecompanion.tools.wait_' .. tostring(id), { clear = true })
 
   -- Show waiting indicator in the chat buffer
   local chat_extmark_id = nil
@@ -28,7 +28,7 @@ function M.for_decision(id, events, callback, opts)
     chat_extmark_id = M.show_waiting_indicator(opts.chat_bufnr, opts)
   end
 
-  api.nvim_create_autocmd("User", {
+  api.nvim_create_autocmd('User', {
     group = aug,
     pattern = events,
     callback = function(event)
@@ -53,7 +53,7 @@ function M.for_decision(id, events, callback, opts)
   })
 
   if opts.notify then
-    utils.notify(opts.notify or "Waiting for user decision ...")
+    utils.notify(opts.notify or 'Waiting for user decision ...')
   end
 
   opts.timeout = opts.timeout or config.strategies.chat.tools.opts.wait_timeout or 30000
@@ -77,16 +77,16 @@ end
 function M.show_waiting_indicator(bufnr, opts)
   opts = opts or {}
 
-  local notify = opts.notify or "Waiting for user decision ..."
+  local notify = opts.notify or 'Waiting for user decision ...'
   local sub_text = opts.sub_text
 
   return ui.show_buffer_notification(bufnr, {
-    namespace = "codecompanion_waiting_" .. tostring(bufnr),
+    namespace = 'codecompanion_waiting_' .. tostring(bufnr),
     footer = true,
     text = notify,
     sub_text = sub_text,
-    main_hl = "CodeCompanionChatWarn",
-    sub_hl = "CodeCompanionChatSubtext",
+    main_hl = 'CodeCompanionChatWarn',
+    sub_hl = 'CodeCompanionChatSubtext',
   })
 end
 
@@ -94,7 +94,7 @@ end
 ---@param bufnr number The buffer number to clear the indicator from
 ---@return nil
 function M.clear_waiting_indicator(bufnr)
-  ui.clear_notification(bufnr, { namespace = "codecompanion_waiting_" .. tostring(bufnr) })
+  ui.clear_notification(bufnr, { namespace = 'codecompanion_waiting_' .. tostring(bufnr) })
 end
 
 return M

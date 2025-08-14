@@ -1,13 +1,15 @@
 ---@class CodeCompanion.TreeOfThoughtEngine
 
-local ReasoningVisualizer = require("codecompanion._extensions.reasoning.reasoning.reasoning_visualizer")
-local ToT = require("codecompanion._extensions.reasoning.reasoning.tree_of_thoughts")
-local log_ok, log = pcall(require, "codecompanion.utils.log")
+local ReasoningVisualizer = require('codecompanion._extensions.reasoning.reasoning.reasoning_visualizer')
+local ToT = require('codecompanion._extensions.reasoning.reasoning.tree_of_thoughts')
+local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   -- Fallback logging when CodeCompanion log is not available
   log = {
     debug = function(...) end,
-    error = function(...) vim.notify(string.format(...), vim.log.levels.ERROR) end,
+    error = function(...)
+      vim.notify(string.format(...), vim.log.levels.ERROR)
+    end,
   }
 end
 local fmt = string.format
@@ -17,11 +19,11 @@ local TreeOfThoughtEngine = {}
 local Actions = {}
 
 function Actions.initialize(args, agent_state)
-  log:debug("[Tree of Thoughts Engine] Initializing with problem: %s", args.problem)
+  log:debug('[Tree of Thoughts Engine] Initializing with problem: %s', args.problem)
 
   agent_state.session_id = tostring(os.time())
   agent_state.current_instance = ToT.TreeOfThoughts:new(args.problem)
-  agent_state.current_instance.agent_type = "Tree of Thoughts Agent"
+  agent_state.current_instance.agent_type = 'Tree of Thoughts Agent'
 
   -- Add interface methods for base class compatibility
   agent_state.current_instance.get_element = function(self, id)
@@ -45,7 +47,7 @@ function Actions.initialize(args, agent_state)
   end
 
   return {
-    status = "success",
+    status = 'success',
     data = fmt(
       [[# Tree of Thoughts Initialized
 
@@ -61,28 +63,28 @@ end
 
 function Actions.add_thought(args, agent_state)
   if not agent_state.current_instance then
-    return { status = "error", data = "No active tree. Initialize first." }
+    return { status = 'error', data = 'No active tree. Initialize first.' }
   end
 
   local content = args.content
-  local node_type = args.type or "analysis" -- Default to analysis
-  local parent_id = args.parent_id or "root"
+  local node_type = args.type or 'analysis' -- Default to analysis
+  local parent_id = args.parent_id or 'root'
 
-  log:debug("[Tree of Thoughts Engine] Adding typed thought: %s (%s)", content, node_type)
+  log:debug('[Tree of Thoughts Engine] Adding typed thought: %s (%s)', content, node_type)
 
   -- Validate type
-  local valid_types = { "analysis", "reasoning", "task", "validation" }
+  local valid_types = { 'analysis', 'reasoning', 'task', 'validation' }
   if not vim.tbl_contains(valid_types, node_type) then
     return {
-      status = "error",
-      data = "Invalid type '" .. node_type .. "'. Valid types: " .. table.concat(valid_types, ", "),
+      status = 'error',
+      data = "Invalid type '" .. node_type .. "'. Valid types: " .. table.concat(valid_types, ', '),
     }
   end
 
   local new_node, error_msg, suggestions = agent_state.current_instance:add_typed_thought(parent_id, content, node_type)
 
   if not new_node then
-    return { status = "error", data = error_msg }
+    return { status = 'error', data = error_msg }
   end
 
   -- Format the response with suggestions
@@ -95,24 +97,24 @@ function Actions.add_thought(args, agent_state)
 **Node ID:** %s (for adding child thoughts)]],
     string.upper(node_type:sub(1, 1)) .. node_type:sub(2),
     content,
-    table.concat(suggestions, "\n"),
+    table.concat(suggestions, '\n'),
     new_node.id
   )
 
   return {
-    status = "success",
+    status = 'success',
     data = response_data,
   }
 end
 
 function Actions.view_tree(args, agent_state)
   if not agent_state.current_instance then
-    return { status = "error", data = "No active tree. Initialize first." }
+    return { status = 'error', data = 'No active tree. Initialize first.' }
   end
 
-  log:debug("[Tree of Thoughts Engine] Viewing tree structure")
+  log:debug('[Tree of Thoughts Engine] Viewing tree structure')
 
-  local tree_view = ""
+  local tree_view = ''
 
   -- If we have a root node, visualize from there
   if agent_state.current_instance.root then
@@ -122,62 +124,62 @@ function Actions.view_tree(args, agent_state)
     local tree_lines = {}
     local original_print = print
     print = function(line)
-      table.insert(tree_lines, line or "")
+      table.insert(tree_lines, line or '')
     end
 
     agent_state.current_instance:print_tree()
     print = original_print
 
-    tree_view = table.concat(tree_lines, "\n")
+    tree_view = table.concat(tree_lines, '\n')
   end
 
   return {
-    status = "success",
+    status = 'success',
     data = tree_view,
   }
 end
 
 function TreeOfThoughtEngine.get_config()
   return {
-    agent_type = "Tree of Thoughts Agent",
-    tool_name = "tree_of_thoughts_agent",
-    description = "Tree of Thoughts reasoning agent that systematically explores multiple solution paths for complex problems.",
+    agent_type = 'Tree of Thoughts Agent',
+    tool_name = 'tree_of_thoughts_agent',
+    description = 'Tree of Thoughts reasoning agent that systematically explores multiple solution paths for complex problems.',
     actions = Actions,
     validation_rules = {
-      initialize = { "problem" },
-      add_thought = { "content" },
+      initialize = { 'problem' },
+      add_thought = { 'content' },
       view_tree = {},
     },
     parameters = {
-      type = "object",
+      type = 'object',
       properties = {
         action = {
-          type = "string",
+          type = 'string',
           description = "The tree action to perform: 'initialize', 'add_thought', 'view_tree'",
         },
         problem = {
-          type = "string",
+          type = 'string',
           description = "The problem to solve using tree of thoughts (required for 'initialize' action)",
         },
         content = {
-          type = "string",
+          type = 'string',
           description = "The thought content to add (required for 'add_thought')",
         },
         type = {
-          type = "string",
+          type = 'string',
           description = "Node type: 'analysis', 'reasoning', 'task', 'validation' (default: 'analysis', for 'add_thought')",
         },
         parent_id = {
-          type = "string",
+          type = 'string',
           description = "ID of parent node to add thought to (default: 'root', for 'add_thought')",
         },
       },
-      required = { "action" },
+      required = { 'action' },
       additionalProperties = false,
     },
     system_prompt_config = function()
-      local UnifiedReasoningPrompt = require("codecompanion._extensions.reasoning.unified_reasoning_prompt")
-      return UnifiedReasoningPrompt.get_optimized_config("tree")
+      local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
+      return UnifiedReasoningPrompt.get_optimized_config('tree')
     end,
   }
 end

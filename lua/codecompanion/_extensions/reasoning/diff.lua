@@ -1,6 +1,6 @@
-local config = require("codecompanion.config")
-local keymaps = require("codecompanion.utils.keymaps")
-local ui = require("codecompanion.utils.ui")
+local config = require('codecompanion.config')
+local keymaps = require('codecompanion.utils.keymaps')
+local ui = require('codecompanion.utils.ui')
 local api = vim.api
 
 local M = {}
@@ -19,12 +19,12 @@ function M.create(bufnr, diff_id, opts)
   end
 
   -- Skip for terminal buffers
-  if vim.bo[bufnr].buftype == "terminal" then
+  if vim.bo[bufnr].buftype == 'terminal' then
     return nil
   end
 
   local provider = config.display.diff.provider
-  local ok, diff_module = pcall(require, "codecompanion.providers.diff." .. provider)
+  local ok, diff_module = pcall(require, 'codecompanion.providers.diff.' .. provider)
   if not ok then
     return nil
   end
@@ -37,7 +37,7 @@ function M.create(bufnr, diff_id, opts)
   local diff_args = {
     bufnr = bufnr,
     contents = api.nvim_buf_get_lines(bufnr, 0, -1, true),
-    filetype = api.nvim_buf_get_option(bufnr, "filetype"),
+    filetype = api.nvim_buf_get_option(bufnr, 'filetype'),
     id = diff_id,
     winnr = winnr,
   }
@@ -63,7 +63,7 @@ function M.setup_keymaps(diff, opts)
   keymaps
     .new({
       bufnr = diff.bufnr,
-      callbacks = require("codecompanion.strategies.inline.keymaps"),
+      callbacks = require('codecompanion.strategies.inline.keymaps'),
       data = { diff = diff },
       keymaps = inline_config.keymaps,
     })
@@ -76,15 +76,15 @@ end
 ---@return string|nil reason Why diff creation was skipped
 function M.should_create(bufnr)
   if vim.g.codecompanion_auto_tool_mode then
-    return false, "auto_tool_mode"
+    return false, 'auto_tool_mode'
   end
 
   if not config.display.diff.enabled then
-    return false, "diff_disabled"
+    return false, 'diff_disabled'
   end
 
-  if vim.bo[bufnr].buftype == "terminal" then
-    return false, "terminal_buffer"
+  if vim.bo[bufnr].buftype == 'terminal' then
+    return false, 'terminal_buffer'
   end
 
   return true, nil

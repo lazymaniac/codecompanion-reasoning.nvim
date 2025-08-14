@@ -1,4 +1,4 @@
-local h = require("tests.helpers")
+local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set
 
@@ -36,7 +36,7 @@ local T = new_set({
 })
 
 -- Test engine configuration
-T["get_config returns valid configuration"] = function()
+T['get_config returns valid configuration'] = function()
   child.lua([[
     config = ChainOfThoughtEngine.get_config()
 
@@ -52,100 +52,100 @@ T["get_config returns valid configuration"] = function()
     }
   ]])
 
-  local config_types = child.lua_get("config_types")
+  local config_types = child.lua_get('config_types')
 
-  h.eq("Chain of Thoughts Agent", config_types.agent_type)
-  h.eq("chain_of_thoughts_agent", config_types.tool_name)
-  h.eq("string", config_types.description_type)
-  h.eq("table", config_types.actions_type)
-  h.eq("table", config_types.validation_rules_type)
-  h.eq("table", config_types.parameters_type)
-  h.eq("function", config_types.system_prompt_config_type)
+  h.eq('Chain of Thoughts Agent', config_types.agent_type)
+  h.eq('chain_of_thoughts_agent', config_types.tool_name)
+  h.eq('string', config_types.description_type)
+  h.eq('table', config_types.actions_type)
+  h.eq('table', config_types.validation_rules_type)
+  h.eq('table', config_types.parameters_type)
+  h.eq('function', config_types.system_prompt_config_type)
 end
 
-T["get_config has correct validation rules"] = function()
+T['get_config has correct validation rules'] = function()
   child.lua([[
     config = ChainOfThoughtEngine.get_config()
     rules = config.validation_rules
   ]])
 
-  local rules = child.lua_get("rules")
+  local rules = child.lua_get('rules')
 
   h.eq(1, #rules.initialize)
-  h.eq("problem", rules.initialize[1])
+  h.eq('problem', rules.initialize[1])
 
   h.eq(3, #rules.add_step)
-  h.expect_contains("step_id", table.concat(rules.add_step, " "))
-  h.expect_contains("content", table.concat(rules.add_step, " "))
-  h.expect_contains("step_type", table.concat(rules.add_step, " "))
+  h.expect_contains('step_id', table.concat(rules.add_step, ' '))
+  h.expect_contains('content', table.concat(rules.add_step, ' '))
+  h.expect_contains('step_type', table.concat(rules.add_step, ' '))
 
   h.eq(0, #rules.view_chain)
   h.eq(0, #rules.reflect)
 end
 
-T["get_config has correct parameters structure"] = function()
+T['get_config has correct parameters structure'] = function()
   child.lua([[
     config = ChainOfThoughtEngine.get_config()
     params = config.parameters
   ]])
 
-  local params = child.lua_get("params")
+  local params = child.lua_get('params')
 
-  h.eq("object", params.type)
-  h.eq("table", type(params.properties))
-  h.eq("table", type(params.required))
-  h.eq("action", params.required[1])
+  h.eq('object', params.type)
+  h.eq('table', type(params.properties))
+  h.eq('table', type(params.required))
+  h.eq('action', params.required[1])
   h.eq(false, params.additionalProperties)
 end
 
 -- Test initialize action
-T["initialize creates new chain successfully"] = function()
+T['initialize creates new chain successfully'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
-  local agent_state = child.lua_get("agent_state")
+  local result = child.lua_get('result')
+  local agent_state = child.lua_get('agent_state')
 
-  h.eq("success", result.status)
-  h.expect_contains("Test problem", result.data)
-  h.expect_contains("CoT initialized", result.data)
-  h.expect_contains("Session ID:", result.data)
-  h.expect_contains("Actions available:", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Test problem', result.data)
+  h.expect_contains('CoT initialized', result.data)
+  h.expect_contains('Session ID:', result.data)
+  h.expect_contains('Actions available:', result.data)
 
-  h.eq("string", type(agent_state.session_id))
-  h.eq("table", type(agent_state.current_instance))
-  h.eq("Test problem", agent_state.current_instance.problem)
-  h.eq("Chain of Thought Agent", agent_state.current_instance.agent_type)
+  h.eq('string', type(agent_state.session_id))
+  h.eq('table', type(agent_state.current_instance))
+  h.eq('Test problem', agent_state.current_instance.problem)
+  h.eq('Chain of Thought Agent', agent_state.current_instance.agent_type)
 end
 
-T["initialize rejects empty problem"] = function()
+T['initialize rejects empty problem'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = ChainOfThoughtEngine.get_config().actions.initialize({problem = ""}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Problem description cannot be empty", result.data)
+  h.eq('error', result.status)
+  h.eq('Problem description cannot be empty', result.data)
 end
 
-T["initialize rejects nil problem"] = function()
+T['initialize rejects nil problem'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = ChainOfThoughtEngine.get_config().actions.initialize({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Problem description cannot be empty", result.data)
+  h.eq('error', result.status)
+  h.eq('Problem description cannot be empty', result.data)
 end
 
 -- Test add_step action
-T["add_step adds valid step successfully"] = function()
+T['add_step adds valid step successfully'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -158,21 +158,21 @@ T["add_step adds valid step successfully"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
-  local agent_state = child.lua_get("agent_state")
+  local result = child.lua_get('result')
+  local agent_state = child.lua_get('agent_state')
 
-  h.eq("success", result.status)
-  h.expect_contains("Added step 1", result.data)
-  h.expect_contains("Analyze the problem", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Added step 1', result.data)
+  h.expect_contains('Analyze the problem', result.data)
 
   h.eq(1, #agent_state.current_instance.steps)
-  h.eq("step1", agent_state.current_instance.steps[1].id)
-  h.eq("Analyze the problem", agent_state.current_instance.steps[1].content)
-  h.eq("analysis", agent_state.current_instance.steps[1].type)
-  h.eq("We need to understand the requirements", agent_state.current_instance.steps[1].reasoning)
+  h.eq('step1', agent_state.current_instance.steps[1].id)
+  h.eq('Analyze the problem', agent_state.current_instance.steps[1].content)
+  h.eq('analysis', agent_state.current_instance.steps[1].type)
+  h.eq('We need to understand the requirements', agent_state.current_instance.steps[1].reasoning)
 end
 
-T["add_step works without reasoning parameter"] = function()
+T['add_step works without reasoning parameter'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -184,14 +184,14 @@ T["add_step works without reasoning parameter"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
-  local agent_state = child.lua_get("agent_state")
+  local result = child.lua_get('result')
+  local agent_state = child.lua_get('agent_state')
 
-  h.eq("success", result.status)
-  h.eq("", agent_state.current_instance.steps[1].reasoning)
+  h.eq('success', result.status)
+  h.eq('', agent_state.current_instance.steps[1].reasoning)
 end
 
-T["add_step rejects when no active chain"] = function()
+T['add_step rejects when no active chain'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = ChainOfThoughtEngine.get_config().actions.add_step({
@@ -201,13 +201,13 @@ T["add_step rejects when no active chain"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active chain. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active chain. Initialize first.', result.data)
 end
 
-T["add_step rejects empty content"] = function()
+T['add_step rejects empty content'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -219,13 +219,13 @@ T["add_step rejects empty content"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Step content cannot be empty", result.data)
+  h.eq('error', result.status)
+  h.eq('Step content cannot be empty', result.data)
 end
 
-T["add_step rejects nil content"] = function()
+T['add_step rejects nil content'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -236,13 +236,13 @@ T["add_step rejects nil content"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Step content cannot be empty", result.data)
+  h.eq('error', result.status)
+  h.eq('Step content cannot be empty', result.data)
 end
 
-T["add_step rejects empty step_id"] = function()
+T['add_step rejects empty step_id'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -254,13 +254,13 @@ T["add_step rejects empty step_id"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Step ID cannot be empty", result.data)
+  h.eq('error', result.status)
+  h.eq('Step ID cannot be empty', result.data)
 end
 
-T["add_step rejects nil step_id"] = function()
+T['add_step rejects nil step_id'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -271,13 +271,13 @@ T["add_step rejects nil step_id"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Step ID cannot be empty", result.data)
+  h.eq('error', result.status)
+  h.eq('Step ID cannot be empty', result.data)
 end
 
-T["add_step rejects empty step_type"] = function()
+T['add_step rejects empty step_type'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -289,13 +289,13 @@ T["add_step rejects empty step_type"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("Step type must be specified", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('Step type must be specified', result.data)
 end
 
-T["add_step rejects nil step_type"] = function()
+T['add_step rejects nil step_type'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -306,13 +306,13 @@ T["add_step rejects nil step_type"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("Step type must be specified", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('Step type must be specified', result.data)
 end
 
-T["add_step rejects duplicate step_id"] = function()
+T['add_step rejects duplicate step_id'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -332,13 +332,13 @@ T["add_step rejects duplicate step_id"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
+  h.eq('error', result.status)
   h.expect_contains("Step ID 'step1' already exists", result.data)
 end
 
-T["add_step handles invalid step_type from underlying chain"] = function()
+T['add_step handles invalid step_type from underlying chain'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -350,14 +350,14 @@ T["add_step handles invalid step_type from underlying chain"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("Invalid step type", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('Invalid step type', result.data)
 end
 
 -- Test view_chain action
-T["view_chain shows empty chain message"] = function()
+T['view_chain shows empty chain message'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -365,14 +365,14 @@ T["view_chain shows empty chain message"] = function()
     result = ChainOfThoughtEngine.get_config().actions.view_chain({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Chain initialized but no steps added yet", result.data)
-  h.expect_contains("Test problem", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Chain initialized but no steps added yet', result.data)
+  h.expect_contains('Test problem', result.data)
 end
 
-T["view_chain shows visualization when steps exist"] = function()
+T['view_chain shows visualization when steps exist'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -385,29 +385,29 @@ T["view_chain shows visualization when steps exist"] = function()
     result = ChainOfThoughtEngine.get_config().actions.view_chain({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
+  h.eq('success', result.status)
   -- The actual visualizer is being used, so check for its output format
-  h.expect_contains("Test problem", result.data)
-  h.expect_contains("Step 1", result.data)
-  h.expect_contains("First step", result.data)
+  h.expect_contains('Test problem', result.data)
+  h.expect_contains('Step 1', result.data)
+  h.expect_contains('First step', result.data)
 end
 
-T["view_chain rejects when no active chain"] = function()
+T['view_chain rejects when no active chain'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = ChainOfThoughtEngine.get_config().actions.view_chain({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active chain. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active chain. Initialize first.', result.data)
 end
 
 -- Test reflect action
-T["reflect analyzes chain with steps"] = function()
+T['reflect analyzes chain with steps'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -426,16 +426,16 @@ T["reflect analyzes chain with steps"] = function()
     result = ChainOfThoughtEngine.get_config().actions.reflect({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Reflection Analysis", result.data)
-  h.expect_contains("Total steps: 2", result.data)
-  h.expect_contains("Insights:", result.data)
-  h.expect_contains("Suggested Improvements:", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Reflection Analysis', result.data)
+  h.expect_contains('Total steps: 2', result.data)
+  h.expect_contains('Insights:', result.data)
+  h.expect_contains('Suggested Improvements:', result.data)
 end
 
-T["reflect includes user reflection when provided"] = function()
+T['reflect includes user reflection when provided'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -450,26 +450,26 @@ T["reflect includes user reflection when provided"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("User Reflection:", result.data)
-  h.expect_contains("This was a good approach", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('User Reflection:', result.data)
+  h.expect_contains('This was a good approach', result.data)
 end
 
-T["reflect rejects when no active chain"] = function()
+T['reflect rejects when no active chain'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = ChainOfThoughtEngine.get_config().actions.reflect({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active chain. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active chain. Initialize first.', result.data)
 end
 
-T["reflect rejects when no steps to analyze"] = function()
+T['reflect rejects when no steps to analyze'] = function()
   child.lua([[
     agent_state = create_agent_state()
     ChainOfThoughtEngine.get_config().actions.initialize({problem = "Test problem"}, agent_state)
@@ -477,14 +477,14 @@ T["reflect rejects when no steps to analyze"] = function()
     result = ChainOfThoughtEngine.get_config().actions.reflect({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No steps to reflect on. Add some steps first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No steps to reflect on. Add some steps first.', result.data)
 end
 
 -- Test action flow integration
-T["complete workflow initialize -> add_step -> view_chain -> reflect"] = function()
+T['complete workflow initialize -> add_step -> view_chain -> reflect'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = ChainOfThoughtEngine.get_config().actions
@@ -524,30 +524,30 @@ T["complete workflow initialize -> add_step -> view_chain -> reflect"] = functio
     }, agent_state)
   ]])
 
-  local init_result = child.lua_get("init_result")
-  local step1_result = child.lua_get("step1_result")
-  local step2_result = child.lua_get("step2_result")
-  local step3_result = child.lua_get("step3_result")
-  local view_result = child.lua_get("view_result")
-  local reflect_result = child.lua_get("reflect_result")
-  local agent_state = child.lua_get("agent_state")
+  local init_result = child.lua_get('init_result')
+  local step1_result = child.lua_get('step1_result')
+  local step2_result = child.lua_get('step2_result')
+  local step3_result = child.lua_get('step3_result')
+  local view_result = child.lua_get('view_result')
+  local reflect_result = child.lua_get('reflect_result')
+  local agent_state = child.lua_get('agent_state')
 
   -- All operations should succeed
-  h.eq("success", init_result.status)
-  h.eq("success", step1_result.status)
-  h.eq("success", step2_result.status)
-  h.eq("success", step3_result.status)
-  h.eq("success", view_result.status)
-  h.eq("success", reflect_result.status)
+  h.eq('success', init_result.status)
+  h.eq('success', step1_result.status)
+  h.eq('success', step2_result.status)
+  h.eq('success', step3_result.status)
+  h.eq('success', view_result.status)
+  h.eq('success', reflect_result.status)
 
   -- Check final state
   h.eq(3, #agent_state.current_instance.steps)
-  h.eq("Solve math problem", agent_state.current_instance.problem)
-  h.expect_contains("systematic", reflect_result.data)
+  h.eq('Solve math problem', agent_state.current_instance.problem)
+  h.expect_contains('systematic', reflect_result.data)
 end
 
 -- Test edge cases and error handling
-T["handles agent_state modifications correctly"] = function()
+T['handles agent_state modifications correctly'] = function()
   child.lua([[
     agent_state1 = create_agent_state()
     agent_state2 = create_agent_state()
@@ -571,28 +571,28 @@ T["handles agent_state modifications correctly"] = function()
     }, agent_state2)
   ]])
 
-  local agent_state1 = child.lua_get("agent_state1")
-  local agent_state2 = child.lua_get("agent_state2")
+  local agent_state1 = child.lua_get('agent_state1')
+  local agent_state2 = child.lua_get('agent_state2')
 
   -- States should be independent
-  h.eq("Problem A", agent_state1.current_instance.problem)
-  h.eq("Problem B", agent_state2.current_instance.problem)
-  h.eq("Step for A", agent_state1.current_instance.steps[1].content)
-  h.eq("Step for B", agent_state2.current_instance.steps[1].content)
-  h.eq("analysis", agent_state1.current_instance.steps[1].type)
-  h.eq("reasoning", agent_state2.current_instance.steps[1].type)
+  h.eq('Problem A', agent_state1.current_instance.problem)
+  h.eq('Problem B', agent_state2.current_instance.problem)
+  h.eq('Step for A', agent_state1.current_instance.steps[1].content)
+  h.eq('Step for B', agent_state2.current_instance.steps[1].content)
+  h.eq('analysis', agent_state1.current_instance.steps[1].type)
+  h.eq('reasoning', agent_state2.current_instance.steps[1].type)
 end
 
-T["system_prompt_config function works"] = function()
+T['system_prompt_config function works'] = function()
   child.lua([[
     config = ChainOfThoughtEngine.get_config()
     prompt = config.system_prompt_config()
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.eq("string", type(prompt))
-  h.expect_contains("chain reasoning", prompt)
+  h.eq('string', type(prompt))
+  h.expect_contains('chain reasoning', prompt)
 end
 
 return T

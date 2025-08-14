@@ -1,4 +1,4 @@
-local h = require("tests.helpers")
+local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set
 
@@ -110,24 +110,24 @@ local T = new_set({
 })
 
 -- Test state management
-T["get_state creates new state for new agent type"] = function()
+T['get_state creates new state for new agent type'] = function()
   child.lua([[
     state1 = ReasoningAgentBase.get_state("agent_type_1")
     state2 = ReasoningAgentBase.get_state("agent_type_2")
   ]])
 
-  local state1 = child.lua_get("state1")
-  local state2 = child.lua_get("state2")
+  local state1 = child.lua_get('state1')
+  local state2 = child.lua_get('state2')
 
-  h.eq("table", type(state1))
-  h.eq("table", type(state2))
+  h.eq('table', type(state1))
+  h.eq('table', type(state2))
   h.expect_truthy(state1.current_instance == nil or state1.current_instance == vim.NIL)
   h.expect_truthy(state1.session_id == nil or state1.session_id == vim.NIL)
   h.expect_truthy(state1.tool_instance == nil or state1.tool_instance == vim.NIL)
-  h.eq("table", type(state1.sub_chats))
+  h.eq('table', type(state1.sub_chats))
 end
 
-T["get_state returns same state for same agent type"] = function()
+T['get_state returns same state for same agent type'] = function()
   child.lua([[
     state1 = ReasoningAgentBase.get_state("same_agent")
     state1.test_marker = "unique_value"
@@ -136,12 +136,12 @@ T["get_state returns same state for same agent type"] = function()
     same_reference = state2.test_marker == "unique_value"
   ]])
 
-  local same_reference = child.lua_get("same_reference")
+  local same_reference = child.lua_get('same_reference')
 
   h.eq(true, same_reference)
 end
 
-T["get_state maintains isolation between different agent types"] = function()
+T['get_state maintains isolation between different agent types'] = function()
   child.lua([[
     state_a = ReasoningAgentBase.get_state("agent_a")
     state_b = ReasoningAgentBase.get_state("agent_b")
@@ -156,15 +156,15 @@ T["get_state maintains isolation between different agent types"] = function()
     }
   ]])
 
-  local isolation_check = child.lua_get("isolation_check")
+  local isolation_check = child.lua_get('isolation_check')
 
-  h.eq("value_a", isolation_check.a_value)
-  h.eq("value_b", isolation_check.b_value)
+  h.eq('value_a', isolation_check.a_value)
+  h.eq('value_b', isolation_check.b_value)
   h.eq(true, isolation_check.different)
 end
 
 -- Test validator creation and validation
-T["create_validator validates required parameters"] = function()
+T['create_validator validates required parameters'] = function()
   child.lua([[
     -- Test the internal validator creation
     local function create_validator(action_rules)
@@ -210,13 +210,13 @@ T["create_validator validates required parameters"] = function()
     }
   ]])
 
-  local results = child.lua_get("validation_results")
+  local results = child.lua_get('validation_results')
 
   h.eq(true, results.valid1)
   h.expect_truthy(results.error1 == nil or results.error1 == vim.NIL)
 
   h.eq(false, results.valid2)
-  h.expect_contains("param2 is required for action1", results.error2)
+  h.expect_contains('param2 is required for action1', results.error2)
 
   h.eq(true, results.valid3)
   h.expect_truthy(results.error3 == nil or results.error3 == vim.NIL)
@@ -225,7 +225,7 @@ T["create_validator validates required parameters"] = function()
 end
 
 -- Test tool definition creation
-T["create_tool_definition creates valid tool structure"] = function()
+T['create_tool_definition creates valid tool structure'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -241,18 +241,18 @@ T["create_tool_definition creates valid tool structure"] = function()
     }
   ]])
 
-  local structure = child.lua_get("tool_structure")
+  local structure = child.lua_get('tool_structure')
 
-  h.eq("agent", structure.name)
-  h.eq("table", structure.cmds_type)
+  h.eq('agent', structure.name)
+  h.eq('table', structure.cmds_type)
   h.eq(1, structure.cmds_count)
-  h.eq("table", structure.schema_type)
-  h.eq("function", structure.system_prompt_type)
-  h.eq("table", structure.handlers_type)
-  h.eq("table", structure.output_type)
+  h.eq('table', structure.schema_type)
+  h.eq('function', structure.system_prompt_type)
+  h.eq('table', structure.handlers_type)
+  h.eq('table', structure.output_type)
 end
 
-T["create_tool_definition has correct schema structure"] = function()
+T['create_tool_definition has correct schema structure'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -266,16 +266,16 @@ T["create_tool_definition has correct schema structure"] = function()
     }
   ]])
 
-  local schema_info = child.lua_get("schema_info")
+  local schema_info = child.lua_get('schema_info')
 
-  h.eq("function", schema_info.type)
-  h.eq("test_agent", schema_info.function_name)
-  h.eq("A test reasoning agent", schema_info.function_description)
-  h.eq("table", schema_info.parameters_type)
+  h.eq('function', schema_info.type)
+  h.eq('test_agent', schema_info.function_name)
+  h.eq('A test reasoning agent', schema_info.function_description)
+  h.eq('table', schema_info.parameters_type)
   h.eq(true, schema_info.strict)
 end
 
-T["create_tool_definition system_prompt function works"] = function()
+T['create_tool_definition system_prompt function works'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -285,14 +285,14 @@ T["create_tool_definition system_prompt function works"] = function()
     prompt_length = #prompt
   ]])
 
-  local prompt_type = child.lua_get("prompt_type")
-  local prompt_length = child.lua_get("prompt_length")
+  local prompt_type = child.lua_get('prompt_type')
+  local prompt_length = child.lua_get('prompt_length')
 
-  h.eq("string", prompt_type)
+  h.eq('string', prompt_type)
   h.expect_truthy(prompt_length > 0)
 end
 
-T["create_tool_definition system_prompt handles errors gracefully"] = function()
+T['create_tool_definition system_prompt handles errors gracefully'] = function()
   child.lua([[
     config = create_sample_agent_config()
     -- Make system_prompt_config throw an error
@@ -304,15 +304,15 @@ T["create_tool_definition system_prompt handles errors gracefully"] = function()
     prompt = tool_def.system_prompt()
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.eq("string", type(prompt))
-  h.expect_contains("Test Agent", prompt)
-  h.expect_contains("helpful AI assistant", prompt)
+  h.eq('string', type(prompt))
+  h.expect_contains('Test Agent', prompt)
+  h.expect_contains('helpful AI assistant', prompt)
 end
 
 -- Test action handling
-T["tool handles valid actions successfully"] = function()
+T['tool handles valid actions successfully'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -323,14 +323,14 @@ T["tool handles valid actions successfully"] = function()
     result = cmd_func(tool_instance, {action = "test_action", test_param = "test_value"}, nil)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Test action executed", result.data)
-  h.expect_contains("test_value", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Test action executed', result.data)
+  h.expect_contains('test_value', result.data)
 end
 
-T["tool handles error actions"] = function()
+T['tool handles error actions'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -340,13 +340,13 @@ T["tool handles error actions"] = function()
     result = cmd_func(tool_instance, {action = "error_action"}, nil)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("Test error message", result.data)
+  h.eq('error', result.status)
+  h.eq('Test error message', result.data)
 end
 
-T["tool rejects invalid actions"] = function()
+T['tool rejects invalid actions'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -356,14 +356,14 @@ T["tool rejects invalid actions"] = function()
     result = cmd_func(tool_instance, {action = "invalid_action"}, nil)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
+  h.eq('error', result.status)
   h.expect_contains("Invalid action 'invalid_action'", result.data)
-  h.expect_contains("Valid actions:", result.data)
+  h.expect_contains('Valid actions:', result.data)
 end
 
-T["tool validates required parameters"] = function()
+T['tool validates required parameters'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -373,13 +373,13 @@ T["tool validates required parameters"] = function()
     result = cmd_func(tool_instance, {action = "test_action"}, nil) -- Missing test_param
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("test_param is required", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('test_param is required', result.data)
 end
 
-T["tool handles missing action handler"] = function()
+T['tool handles missing action handler'] = function()
   child.lua([[
     config = create_sample_agent_config()
     -- Remove the handler but keep validation rule
@@ -392,13 +392,13 @@ T["tool handles missing action handler"] = function()
     result = cmd_func(tool_instance, {action = "test_action", test_param = "value"}, nil)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
+  h.eq('error', result.status)
   h.expect_contains("No handler found for action 'test_action'", result.data)
 end
 
-T["tool maintains agent state across calls"] = function()
+T['tool maintains agent state across calls'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -414,15 +414,15 @@ T["tool maintains agent state across calls"] = function()
     state_value = state.test_value
   ]])
 
-  local result1 = child.lua_get("result1")
-  local state_value = child.lua_get("state_value")
+  local result1 = child.lua_get('result1')
+  local state_value = child.lua_get('state_value')
 
-  h.eq("success", result1.status)
-  h.expect_contains("first_value", result1.data)
-  h.eq("first_value", state_value)
+  h.eq('success', result1.status)
+  h.expect_contains('first_value', result1.data)
+  h.eq('first_value', state_value)
 end
 
-T["tool sets tool_instance in agent state"] = function()
+T['tool sets tool_instance in agent state'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -436,13 +436,13 @@ T["tool sets tool_instance in agent state"] = function()
     has_tool_instance = state.tool_instance ~= nil and state.tool_instance.unique_marker == "test_marker"
   ]])
 
-  local has_tool_instance = child.lua_get("has_tool_instance")
+  local has_tool_instance = child.lua_get('has_tool_instance')
 
   h.eq(true, has_tool_instance)
 end
 
 -- Test output handlers
-T["create_output_handlers creates all required handlers"] = function()
+T['create_output_handlers creates all required handlers'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
 
@@ -454,15 +454,15 @@ T["create_output_handlers creates all required handlers"] = function()
     }
   ]])
 
-  local handler_info = child.lua_get("handler_info")
+  local handler_info = child.lua_get('handler_info')
 
-  h.eq("function", handler_info.success_type)
-  h.eq("function", handler_info.error_type)
-  h.eq("function", handler_info.prompt_type)
-  h.eq("function", handler_info.rejected_type)
+  h.eq('function', handler_info.success_type)
+  h.eq('function', handler_info.error_type)
+  h.eq('function', handler_info.prompt_type)
+  h.eq('function', handler_info.rejected_type)
 end
 
-T["success handler adds tool output to chat"] = function()
+T['success handler adds tool output to chat'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -477,16 +477,16 @@ T["success handler adds tool output to chat"] = function()
     output_content = output_added and chat_messages[1].output or nil
   ]])
 
-  local output_added = child.lua_get("output_added")
-  local output_content = child.lua_get("output_content")
+  local output_added = child.lua_get('output_added')
+  local output_content = child.lua_get('output_content')
 
   h.eq(true, output_added)
-  h.expect_contains("line1", output_content)
-  h.expect_contains("line2", output_content)
-  h.expect_contains("line3", output_content)
+  h.expect_contains('line1', output_content)
+  h.expect_contains('line2', output_content)
+  h.expect_contains('line3', output_content)
 end
 
-T["error handler adds error output to chat"] = function()
+T['error handler adds error output to chat'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -501,17 +501,17 @@ T["error handler adds error output to chat"] = function()
     output_content = output_added and chat_messages[1].output or nil
   ]])
 
-  local output_added = child.lua_get("output_added")
-  local output_content = child.lua_get("output_content")
+  local output_added = child.lua_get('output_added')
+  local output_content = child.lua_get('output_content')
 
   h.eq(true, output_added)
-  h.expect_contains("[ERROR]", output_content)
-  h.expect_contains("Test Agent", output_content)
-  h.expect_contains("error1", output_content)
-  h.expect_contains("error2", output_content)
+  h.expect_contains('[ERROR]', output_content)
+  h.expect_contains('Test Agent', output_content)
+  h.expect_contains('error1', output_content)
+  h.expect_contains('error2', output_content)
 end
 
-T["prompt handler returns formatted prompt"] = function()
+T['prompt handler returns formatted prompt'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -520,13 +520,13 @@ T["prompt handler returns formatted prompt"] = function()
     prompt_text = handlers.prompt(mock_tool, agent)
   ]])
 
-  local prompt_text = child.lua_get("prompt_text")
+  local prompt_text = child.lua_get('prompt_text')
 
-  h.expect_contains("Use Test Agent", prompt_text)
-  h.expect_contains("test_action", prompt_text)
+  h.expect_contains('Use Test Agent', prompt_text)
+  h.expect_contains('test_action', prompt_text)
 end
 
-T["prompt handler handles missing action gracefully"] = function()
+T['prompt handler handles missing action gracefully'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -535,13 +535,13 @@ T["prompt handler handles missing action gracefully"] = function()
     prompt_text = handlers.prompt(mock_tool, agent)
   ]])
 
-  local prompt_text = child.lua_get("prompt_text")
+  local prompt_text = child.lua_get('prompt_text')
 
-  h.expect_contains("Use Test Agent", prompt_text)
-  h.expect_contains("unknown action", prompt_text)
+  h.expect_contains('Use Test Agent', prompt_text)
+  h.expect_contains('unknown action', prompt_text)
 end
 
-T["prompt handler handles missing args gracefully"] = function()
+T['prompt handler handles missing args gracefully'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -550,13 +550,13 @@ T["prompt handler handles missing args gracefully"] = function()
     prompt_text = handlers.prompt(mock_tool, agent)
   ]])
 
-  local prompt_text = child.lua_get("prompt_text")
+  local prompt_text = child.lua_get('prompt_text')
 
-  h.expect_contains("Use Test Agent", prompt_text)
-  h.expect_contains("unknown", prompt_text)
+  h.expect_contains('Use Test Agent', prompt_text)
+  h.expect_contains('unknown', prompt_text)
 end
 
-T["rejected handler adds rejection message to chat"] = function()
+T['rejected handler adds rejection message to chat'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -571,17 +571,17 @@ T["rejected handler adds rejection message to chat"] = function()
     output_content = output_added and chat_messages[1].output or nil
   ]])
 
-  local output_added = child.lua_get("output_added")
-  local output_content = child.lua_get("output_content")
+  local output_added = child.lua_get('output_added')
+  local output_content = child.lua_get('output_content')
 
   h.eq(true, output_added)
-  h.expect_contains("Test Agent", output_content)
-  h.expect_contains("User declined", output_content)
-  h.expect_contains("test_action", output_content)
-  h.expect_contains("User did not approve", output_content)
+  h.expect_contains('Test Agent', output_content)
+  h.expect_contains('User declined', output_content)
+  h.expect_contains('test_action', output_content)
+  h.expect_contains('User did not approve', output_content)
 end
 
-T["rejected handler works without feedback"] = function()
+T['rejected handler works without feedback'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -595,16 +595,16 @@ T["rejected handler works without feedback"] = function()
     output_content = output_added and chat_messages[1].output or nil
   ]])
 
-  local output_added = child.lua_get("output_added")
-  local output_content = child.lua_get("output_content")
+  local output_added = child.lua_get('output_added')
+  local output_content = child.lua_get('output_content')
 
   h.eq(true, output_added)
-  h.expect_contains("User declined", output_content)
+  h.expect_contains('User declined', output_content)
   -- Should not contain feedback reference when none provided
-  h.not_eq(nil, string.match(output_content, "User declined to execute test_action$"))
+  h.not_eq(nil, string.match(output_content, 'User declined to execute test_action$'))
 end
 
-T["rejected handler works with empty feedback"] = function()
+T['rejected handler works with empty feedback'] = function()
   child.lua([[
     handlers = ReasoningAgentBase.create_output_handlers("Test Agent")
     agent = create_mock_agent()
@@ -617,15 +617,15 @@ T["rejected handler works with empty feedback"] = function()
     output_content = chat_messages[1].output
   ]])
 
-  local output_content = child.lua_get("output_content")
+  local output_content = child.lua_get('output_content')
 
-  h.expect_contains("User declined", output_content)
+  h.expect_contains('User declined', output_content)
   -- Should not contain feedback reference when empty
-  h.not_eq(nil, string.match(output_content, "User declined to execute test_action$"))
+  h.not_eq(nil, string.match(output_content, 'User declined to execute test_action$'))
 end
 
 -- Test on_exit handler
-T["tool definition includes on_exit handler"] = function()
+T['tool definition includes on_exit handler'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -634,14 +634,14 @@ T["tool definition includes on_exit handler"] = function()
     on_exit_type = type(tool_def.handlers.on_exit)
   ]])
 
-  local has_on_exit = child.lua_get("has_on_exit")
-  local on_exit_type = child.lua_get("on_exit_type")
+  local has_on_exit = child.lua_get('has_on_exit')
+  local on_exit_type = child.lua_get('on_exit_type')
 
   h.eq(true, has_on_exit)
-  h.eq("function", on_exit_type)
+  h.eq('function', on_exit_type)
 end
 
-T["on_exit handler executes without error"] = function()
+T['on_exit handler executes without error'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -654,13 +654,13 @@ T["on_exit handler executes without error"] = function()
     end)
   ]])
 
-  local success = child.lua_get("success")
+  local success = child.lua_get('success')
 
   h.eq(true, success)
 end
 
 -- Test integration scenarios
-T["complete workflow with multiple actions"] = function()
+T['complete workflow with multiple actions'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -685,15 +685,15 @@ T["complete workflow with multiple actions"] = function()
     }
   ]])
 
-  local workflow_results = child.lua_get("workflow_results")
+  local workflow_results = child.lua_get('workflow_results')
 
-  h.eq("success", workflow_results.result1_status)
-  h.eq("success", workflow_results.result2_status)
-  h.eq("success", workflow_results.result3_status)
-  h.eq("updated", workflow_results.final_state)
+  h.eq('success', workflow_results.result1_status)
+  h.eq('success', workflow_results.result2_status)
+  h.eq('success', workflow_results.result3_status)
+  h.eq('updated', workflow_results.final_state)
 end
 
-T["different agent types maintain separate states"] = function()
+T['different agent types maintain separate states'] = function()
   child.lua([[
     config1 = create_sample_agent_config()
     config1.agent_type = "Agent Type 1"
@@ -724,14 +724,14 @@ T["different agent types maintain separate states"] = function()
     }
   ]])
 
-  local separation_test = child.lua_get("separation_test")
+  local separation_test = child.lua_get('separation_test')
 
-  h.eq("agent1_value", separation_test.agent1_value)
-  h.eq("agent2_value", separation_test.agent2_value)
+  h.eq('agent1_value', separation_test.agent1_value)
+  h.eq('agent2_value', separation_test.agent2_value)
   h.eq(true, separation_test.states_different)
 end
 
-T["error handling preserves agent state"] = function()
+T['error handling preserves agent state'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
@@ -756,7 +756,7 @@ T["error handling preserves agent state"] = function()
     }
   ]])
 
-  local preservation_test = child.lua_get("preservation_test")
+  local preservation_test = child.lua_get('preservation_test')
 
   h.eq(true, preservation_test.initial_success)
   h.eq(true, preservation_test.error_occurred)

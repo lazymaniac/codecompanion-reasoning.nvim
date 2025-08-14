@@ -3,26 +3,26 @@ local ReasoningExtension = {}
 
 local function register_tools()
   local tools = {
-    "ask_user",
-    "chain_of_thoughts_agent",
-    "tree_of_thoughts_agent",
-    "graph_of_thoughts_agent",
-    "meta_reasoning_governor",
-    "tool_discovery",
+    'ask_user',
+    'chain_of_thoughts_agent',
+    'tree_of_thoughts_agent',
+    'graph_of_thoughts_agent',
+    'meta_reasoning_governor',
+    'tool_discovery',
   }
 
   local registered_tools = {}
 
   for _, tool_name in ipairs(tools) do
-    local ok, tool = pcall(require, string.format("codecompanion._extensions.reasoning.tools.%s", tool_name))
+    local ok, tool = pcall(require, string.format('codecompanion._extensions.reasoning.tools.%s', tool_name))
     if ok then
       -- Use the schema function name for registration to avoid conflicts
-      local actual_name = tool.schema and tool.schema["function"] and tool.schema["function"].name
+      local actual_name = tool.schema and tool.schema['function'] and tool.schema['function'].name
         or tool.name
         or tool_name
       registered_tools[actual_name] = tool
     else
-      vim.notify(string.format("Failed to load reasoning tool: %s", tool_name), vim.log.levels.WARN)
+      vim.notify(string.format('Failed to load reasoning tool: %s', tool_name), vim.log.levels.WARN)
     end
   end
 
@@ -36,7 +36,7 @@ function ReasoningExtension.setup(opts)
   local reasoning_tools = register_tools()
 
   -- Get CodeCompanion configuration
-  local config_ok, config = pcall(require, "codecompanion.config")
+  local config_ok, config = pcall(require, 'codecompanion.config')
   if not config_ok then
     -- Return tools in simple format when CodeCompanion config not available
     return {
@@ -48,8 +48,8 @@ function ReasoningExtension.setup(opts)
 
   for name, tool in pairs(reasoning_tools) do
     config.strategies.chat.tools[name] = {
-      id = "reasoning:" .. name,
-      description = tool.schema["function"].description,
+      id = 'reasoning:' .. name,
+      description = tool.schema['function'].description,
       callback = tool,
     }
   end

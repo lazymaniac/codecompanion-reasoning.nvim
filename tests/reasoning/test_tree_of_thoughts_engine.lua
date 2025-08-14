@@ -1,4 +1,4 @@
-local h = require("tests.helpers")
+local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set
 
@@ -105,7 +105,7 @@ local T = new_set({
 })
 
 -- Test engine configuration
-T["get_config returns valid configuration"] = function()
+T['get_config returns valid configuration'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
 
@@ -121,63 +121,63 @@ T["get_config returns valid configuration"] = function()
     }
   ]])
 
-  local config_types = child.lua_get("config_types")
+  local config_types = child.lua_get('config_types')
 
-  h.eq("Tree of Thoughts Agent", config_types.agent_type)
-  h.eq("tree_of_thoughts_agent", config_types.tool_name)
-  h.eq("string", config_types.description_type)
-  h.eq("table", config_types.actions_type)
-  h.eq("table", config_types.validation_rules_type)
-  h.eq("table", config_types.parameters_type)
-  h.eq("function", config_types.system_prompt_config_type)
+  h.eq('Tree of Thoughts Agent', config_types.agent_type)
+  h.eq('tree_of_thoughts_agent', config_types.tool_name)
+  h.eq('string', config_types.description_type)
+  h.eq('table', config_types.actions_type)
+  h.eq('table', config_types.validation_rules_type)
+  h.eq('table', config_types.parameters_type)
+  h.eq('function', config_types.system_prompt_config_type)
 end
 
-T["get_config has correct validation rules"] = function()
+T['get_config has correct validation rules'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     rules = config.validation_rules
   ]])
 
-  local rules = child.lua_get("rules")
+  local rules = child.lua_get('rules')
 
   h.eq(1, #rules.initialize)
-  h.eq("problem", rules.initialize[1])
+  h.eq('problem', rules.initialize[1])
 
   h.eq(1, #rules.add_thought)
-  h.eq("content", rules.add_thought[1])
+  h.eq('content', rules.add_thought[1])
 
   h.eq(0, #rules.view_tree)
 end
 
-T["get_config has correct parameters structure"] = function()
+T['get_config has correct parameters structure'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     params = config.parameters
   ]])
 
-  local params = child.lua_get("params")
+  local params = child.lua_get('params')
 
-  h.eq("object", params.type)
-  h.eq("table", type(params.properties))
-  h.eq("table", type(params.required))
-  h.eq("action", params.required[1])
+  h.eq('object', params.type)
+  h.eq('table', type(params.properties))
+  h.eq('table', type(params.required))
+  h.eq('action', params.required[1])
   h.eq(false, params.additionalProperties)
 end
 
-T["get_config system_prompt_config function works"] = function()
+T['get_config system_prompt_config function works'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     prompt = config.system_prompt_config()
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.eq("string", type(prompt))
-  h.expect_contains("tree reasoning", prompt)
+  h.eq('string', type(prompt))
+  h.expect_contains('tree reasoning', prompt)
 end
 
 -- Test initialize action
-T["initialize action creates new tree instance"] = function()
+T['initialize action creates new tree instance'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -193,16 +193,16 @@ T["initialize action creates new tree instance"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
+  local result_info = child.lua_get('result_info')
 
-  h.eq("success", result_info.status)
-  h.eq("string", result_info.data_type)
+  h.eq('success', result_info.status)
+  h.eq('string', result_info.data_type)
   h.eq(true, result_info.has_instance)
   h.eq(true, result_info.has_session_id)
-  h.eq("Tree of Thoughts Agent", result_info.agent_type)
+  h.eq('Tree of Thoughts Agent', result_info.agent_type)
 end
 
-T["initialize action returns formatted response"] = function()
+T['initialize action returns formatted response'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -211,15 +211,15 @@ T["initialize action returns formatted response"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Tree of Thoughts Initialized", data)
-  h.expect_contains("Complex reasoning problem", data)
-  h.expect_contains("Session ID:", data)
-  h.expect_contains("The tree is ready", data)
+  h.expect_contains('Tree of Thoughts Initialized', data)
+  h.expect_contains('Complex reasoning problem', data)
+  h.expect_contains('Session ID:', data)
+  h.expect_contains('The tree is ready', data)
 end
 
-T["initialize action adds interface methods"] = function()
+T['initialize action adds interface methods'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -232,14 +232,14 @@ T["initialize action adds interface methods"] = function()
     }
   ]])
 
-  local interface_info = child.lua_get("interface_info")
+  local interface_info = child.lua_get('interface_info')
 
   h.eq(true, interface_info.has_get_element)
   h.eq(true, interface_info.has_update_element_score)
 end
 
 -- Test add_thought action
-T["add_thought action requires active tree"] = function()
+T['add_thought action requires active tree'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state() -- No tree instance
@@ -247,13 +247,13 @@ T["add_thought action requires active tree"] = function()
     result = config.actions.add_thought({content = "Test thought"}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("No active tree", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('No active tree', result.data)
 end
 
-T["add_thought action adds thought successfully"] = function()
+T['add_thought action adds thought successfully'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -270,18 +270,18 @@ T["add_thought action adds thought successfully"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
-  local result_data = child.lua_get("result.data")
+  local result_info = child.lua_get('result_info')
+  local result_data = child.lua_get('result.data')
 
-  h.eq("success", result_info.status)
-  h.eq("string", result_info.data_type)
-  h.expect_contains("Added Analysis node", result_data)
-  h.expect_contains("First analysis thought", result_data)
-  h.expect_contains("Suggested next steps", result_data)
-  h.expect_contains("Node ID:", result_data)
+  h.eq('success', result_info.status)
+  h.eq('string', result_info.data_type)
+  h.expect_contains('Added Analysis node', result_data)
+  h.expect_contains('First analysis thought', result_data)
+  h.expect_contains('Suggested next steps', result_data)
+  h.expect_contains('Node ID:', result_data)
 end
 
-T["add_thought action defaults to analysis type"] = function()
+T['add_thought action defaults to analysis type'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -293,13 +293,13 @@ T["add_thought action defaults to analysis type"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Added Analysis node", data)
-  h.expect_contains("Default type thought", data)
+  h.expect_contains('Added Analysis node', data)
+  h.expect_contains('Default type thought', data)
 end
 
-T["add_thought action defaults to root parent"] = function()
+T['add_thought action defaults to root parent'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -312,13 +312,13 @@ T["add_thought action defaults to root parent"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Added Reasoning node", data)
-  h.expect_contains("Root child thought", data)
+  h.expect_contains('Added Reasoning node', data)
+  h.expect_contains('Root child thought', data)
 end
 
-T["add_thought action validates node types"] = function()
+T['add_thought action validates node types'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -340,15 +340,15 @@ T["add_thought action validates node types"] = function()
     }
   ]])
 
-  local validation_test = child.lua_get("validation_test")
+  local validation_test = child.lua_get('validation_test')
 
-  h.eq("success", validation_test.valid_status)
-  h.eq("error", validation_test.invalid_status)
+  h.eq('success', validation_test.valid_status)
+  h.eq('error', validation_test.invalid_status)
   h.expect_contains("Invalid type 'invalid_type'", validation_test.invalid_error)
-  h.expect_contains("Valid types:", validation_test.invalid_error)
+  h.expect_contains('Valid types:', validation_test.invalid_error)
 end
 
-T["add_thought action handles all valid node types"] = function()
+T['add_thought action handles all valid node types'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -369,15 +369,15 @@ T["add_thought action handles all valid node types"] = function()
     end
   ]])
 
-  local types_test = child.lua_get("types_test")
+  local types_test = child.lua_get('types_test')
 
-  for _, node_type in ipairs({ "analysis", "reasoning", "task", "validation" }) do
-    h.eq("success", types_test[node_type].status)
+  for _, node_type in ipairs({ 'analysis', 'reasoning', 'task', 'validation' }) do
+    h.eq('success', types_test[node_type].status)
     h.eq(true, types_test[node_type].contains_type)
   end
 end
 
-T["add_thought action includes suggestions in response"] = function()
+T['add_thought action includes suggestions in response'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -390,14 +390,14 @@ T["add_thought action includes suggestions in response"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Suggested next steps", data)
-  h.expect_contains("🔍", data) -- Contains suggestion emojis
-  h.expect_contains("Explore", data) -- Contains suggestion text
+  h.expect_contains('Suggested next steps', data)
+  h.expect_contains('🔍', data) -- Contains suggestion emojis
+  h.expect_contains('Explore', data) -- Contains suggestion text
 end
 
-T["add_thought action includes node ID for further expansion"] = function()
+T['add_thought action includes node ID for further expansion'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -410,14 +410,14 @@ T["add_thought action includes node ID for further expansion"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Node ID:", data)
-  h.expect_contains("for adding child thoughts", data)
+  h.expect_contains('Node ID:', data)
+  h.expect_contains('for adding child thoughts', data)
 end
 
 -- Test view_tree action
-T["view_tree action requires active tree"] = function()
+T['view_tree action requires active tree'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state() -- No tree instance
@@ -425,13 +425,13 @@ T["view_tree action requires active tree"] = function()
     result = config.actions.view_tree({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("No active tree", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('No active tree', result.data)
 end
 
-T["view_tree action returns tree visualization"] = function()
+T['view_tree action returns tree visualization'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Complex problem")
@@ -444,16 +444,16 @@ T["view_tree action returns tree visualization"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
-  local result_data = child.lua_get("result.data")
+  local result_info = child.lua_get('result_info')
+  local result_data = child.lua_get('result.data')
 
-  h.eq("success", result_info.status)
-  h.eq("string", result_info.data_type)
-  h.expect_contains("Tree of Thoughts", result_data)
-  h.expect_contains("Complex problem", result_data)
+  h.eq('success', result_info.status)
+  h.eq('string', result_info.data_type)
+  h.expect_contains('Tree of Thoughts', result_data)
+  h.expect_contains('Complex problem', result_data)
 end
 
-T["view_tree action uses visualizer when root exists"] = function()
+T['view_tree action uses visualizer when root exists'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Test problem")
@@ -468,13 +468,13 @@ T["view_tree action uses visualizer when root exists"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Tree of Thoughts", data)
-  h.expect_contains("Root content", data)
+  h.expect_contains('Tree of Thoughts', data)
+  h.expect_contains('Root content', data)
 end
 
-T["view_tree action falls back to print_tree when no root"] = function()
+T['view_tree action falls back to print_tree when no root'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Test problem")
@@ -486,14 +486,14 @@ T["view_tree action falls back to print_tree when no root"] = function()
     data = result.data
   ]])
 
-  local data = child.lua_get("data")
+  local data = child.lua_get('data')
 
-  h.expect_contains("Tree structure", data)
-  h.expect_contains("Root node", data)
+  h.expect_contains('Tree structure', data)
+  h.expect_contains('Root node', data)
 end
 
 -- Test edge cases and error handling
-T["initialize action handles empty problem"] = function()
+T['initialize action handles empty problem'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -506,13 +506,13 @@ T["initialize action handles empty problem"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
+  local result_info = child.lua_get('result_info')
 
-  h.eq("success", result_info.status)
+  h.eq('success', result_info.status)
   h.eq(true, result_info.has_instance)
 end
 
-T["initialize action handles nil problem"] = function()
+T['initialize action handles nil problem'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -525,13 +525,13 @@ T["initialize action handles nil problem"] = function()
     }
   ]])
 
-  local result_info = child.lua_get("result_info")
+  local result_info = child.lua_get('result_info')
 
-  h.eq("success", result_info.status)
+  h.eq('success', result_info.status)
   h.eq(true, result_info.has_instance)
 end
 
-T["add_thought action handles empty content"] = function()
+T['add_thought action handles empty content'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -542,13 +542,13 @@ T["add_thought action handles empty content"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Added Analysis node", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Added Analysis node', result.data)
 end
 
-T["add_thought action handles nil content"] = function()
+T['add_thought action handles nil content'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -558,13 +558,13 @@ T["add_thought action handles nil content"] = function()
     }, agent_state) -- No content field
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Added Reasoning node", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Added Reasoning node', result.data)
 end
 
-T["add_thought action handles invalid parent_id gracefully"] = function()
+T['add_thought action handles invalid parent_id gracefully'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state_with_tree("Root problem")
@@ -577,14 +577,14 @@ T["add_thought action handles invalid parent_id gracefully"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("Parent node not found", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('Parent node not found', result.data)
 end
 
 -- Test complex workflows and integration
-T["complete workflow: initialize, add thoughts, view tree"] = function()
+T['complete workflow: initialize, add thoughts, view tree'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -625,18 +625,18 @@ T["complete workflow: initialize, add thoughts, view tree"] = function()
     }
   ]])
 
-  local workflow_results = child.lua_get("workflow_results")
+  local workflow_results = child.lua_get('workflow_results')
 
-  h.eq("success", workflow_results.init_status)
-  h.eq("success", workflow_results.analysis_status)
-  h.eq("success", workflow_results.reasoning_status)
-  h.eq("success", workflow_results.task_status)
-  h.eq("success", workflow_results.view_status)
+  h.eq('success', workflow_results.init_status)
+  h.eq('success', workflow_results.analysis_status)
+  h.eq('success', workflow_results.reasoning_status)
+  h.eq('success', workflow_results.task_status)
+  h.eq('success', workflow_results.view_status)
   h.eq(true, workflow_results.has_session)
   h.eq(true, workflow_results.has_instance)
 end
 
-T["multiple tree instances maintain basic separation"] = function()
+T['multiple tree instances maintain basic separation'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
 
@@ -656,7 +656,7 @@ T["multiple tree instances maintain basic separation"] = function()
     }
   ]])
 
-  local independence_test = child.lua_get("independence_test")
+  local independence_test = child.lua_get('independence_test')
 
   h.eq(true, independence_test.both_successful)
   h.eq(true, independence_test.both_have_instances)
@@ -686,16 +686,16 @@ T["error states don't affect agent state integrity"] = function()
     }
   ]])
 
-  local integrity_test = child.lua_get("integrity_test")
+  local integrity_test = child.lua_get('integrity_test')
 
   h.eq(true, integrity_test.session_preserved)
   h.eq(true, integrity_test.problem_preserved)
   h.eq(true, integrity_test.instance_still_exists)
-  h.eq("error", integrity_test.error1_status)
-  h.eq("error", integrity_test.error2_status)
+  h.eq('error', integrity_test.error1_status)
+  h.eq('error', integrity_test.error2_status)
 end
 
-T["reinitialize creates new tree instance"] = function()
+T['reinitialize creates new tree instance'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
     agent_state = create_agent_state()
@@ -717,7 +717,7 @@ T["reinitialize creates new tree instance"] = function()
     }
   ]])
 
-  local reinit_test = child.lua_get("reinit_test")
+  local reinit_test = child.lua_get('reinit_test')
 
   h.eq(true, reinit_test.first_success)
   h.eq(true, reinit_test.second_success)

@@ -23,20 +23,20 @@ local CONFIG = {
 -- Box drawing characters
 local BOX_CHARS = {
   unicode = {
-    horizontal = "─",
-    vertical = "│",
-    corner = "┌",
-    tee = "├",
-    end_tee = "└",
-    cross = "┼",
-    down_right = "┌",
-    down_left = "┐",
-    up_right = "└",
-    up_left = "┘",
-    down_horizontal = "┬",
-    up_horizontal = "┴",
-    vertical_right = "├",
-    vertical_left = "┤",
+    horizontal = '─',
+    vertical = '│',
+    corner = '┌',
+    tee = '├',
+    end_tee = '└',
+    cross = '┼',
+    down_right = '┌',
+    down_left = '┐',
+    up_right = '└',
+    up_left = '┘',
+    down_horizontal = '┬',
+    up_horizontal = '┴',
+    vertical_right = '├',
+    vertical_left = '┤',
   },
 }
 
@@ -46,13 +46,13 @@ local BOX_CHARS = {
 ---@return string
 local function truncate_content(content, max_length)
   if not content then
-    return ""
+    return ''
   end
-  content = content:gsub("\n", " "):gsub("%s+", " ")
+  content = content:gsub('\n', ' '):gsub('%s+', ' ')
   if #content <= max_length then
     return content
   end
-  return content:sub(1, max_length - 3) .. "..."
+  return content:sub(1, max_length - 3) .. '...'
 end
 
 ---Format node metadata
@@ -62,10 +62,10 @@ local function format_node_info(node)
   local parts = {}
 
   if node.state then
-    table.insert(parts, fmt("State: %s", node.state))
+    table.insert(parts, fmt('State: %s', node.state))
   end
 
-  return #parts > 0 and fmt(" (%s)", table.concat(parts, ", ")) or ""
+  return #parts > 0 and fmt(' (%s)', table.concat(parts, ', ')) or ''
 end
 
 ---Visualize Chain of Thoughts
@@ -74,35 +74,35 @@ end
 function ReasoningVisualizer.visualize_chain(chain)
   local lines = {}
 
-  table.insert(lines, fmt("# %s", chain.problem or "Unknown"))
-  table.insert(lines, "")
+  table.insert(lines, fmt('# %s', chain.problem or 'Unknown'))
+  table.insert(lines, '')
 
   if not chain.steps or #chain.steps == 0 then
-    table.insert(lines, "No steps in chain")
-    return table.concat(lines, "\n")
+    table.insert(lines, 'No steps in chain')
+    return table.concat(lines, '\n')
   end
 
   for i, step in ipairs(chain.steps) do
     local is_last = i == #chain.steps
     local connector = is_last and BOX_CHARS.unicode.up_right or BOX_CHARS.unicode.vertical_right
-    local line_char = is_last and " " or BOX_CHARS.unicode.vertical
+    local line_char = is_last and ' ' or BOX_CHARS.unicode.vertical
 
     local content = truncate_content(step.content, CONFIG.max_content_length)
-    local step_info = ""
+    local step_info = ''
 
-    table.insert(lines, fmt("%s%s Step %d: %s%s", connector, BOX_CHARS.unicode.horizontal, i, content, step_info))
+    table.insert(lines, fmt('%s%s Step %d: %s%s', connector, BOX_CHARS.unicode.horizontal, i, content, step_info))
 
     if step.reasoning then
       local reasoning = truncate_content(step.reasoning, CONFIG.max_content_length - 10)
-      table.insert(lines, fmt("%s    Reasoning: %s", line_char, reasoning))
+      table.insert(lines, fmt('%s    Reasoning: %s', line_char, reasoning))
     end
 
     if i < #chain.steps then
-      table.insert(lines, fmt("%s", BOX_CHARS.unicode.vertical))
+      table.insert(lines, fmt('%s', BOX_CHARS.unicode.vertical))
     end
   end
 
-  return table.concat(lines, "\n")
+  return table.concat(lines, '\n')
 end
 
 ---Visualize Tree of Thoughts
@@ -111,8 +111,8 @@ end
 function ReasoningVisualizer.visualize_tree(root_node)
   local lines = {}
 
-  table.insert(lines, "# Tree of Thoughts")
-  table.insert(lines, "")
+  table.insert(lines, '# Tree of Thoughts')
+  table.insert(lines, '')
 
   ---Recursively build tree visualization
   ---@param node table
@@ -123,10 +123,10 @@ function ReasoningVisualizer.visualize_tree(root_node)
     local node_info = format_node_info(node)
 
     local connector = is_last and BOX_CHARS.unicode.up_right or BOX_CHARS.unicode.vertical_right
-    table.insert(lines, fmt("%s%s%s %s%s", prefix, connector, BOX_CHARS.unicode.horizontal, content, node_info))
+    table.insert(lines, fmt('%s%s%s %s%s', prefix, connector, BOX_CHARS.unicode.horizontal, content, node_info))
 
     if node.children and #node.children > 0 then
-      local new_prefix = prefix .. (is_last and "  " or (BOX_CHARS.unicode.vertical .. " "))
+      local new_prefix = prefix .. (is_last and '  ' or (BOX_CHARS.unicode.vertical .. ' '))
 
       for i, child in ipairs(node.children) do
         build_tree_lines(child, new_prefix, i == #node.children)
@@ -137,15 +137,15 @@ function ReasoningVisualizer.visualize_tree(root_node)
   -- Start with root node
   local content = truncate_content(root_node.content, CONFIG.max_content_length)
   local node_info = format_node_info(root_node)
-  table.insert(lines, fmt("Root: %s%s", content, node_info))
+  table.insert(lines, fmt('Root: %s%s', content, node_info))
 
   if root_node.children and #root_node.children > 0 then
     for i, child in ipairs(root_node.children) do
-      build_tree_lines(child, "", i == #root_node.children)
+      build_tree_lines(child, '', i == #root_node.children)
     end
   end
 
-  return table.concat(lines, "\n")
+  return table.concat(lines, '\n')
 end
 
 ---Visualize Graph of Thoughts
@@ -154,12 +154,12 @@ end
 function ReasoningVisualizer.visualize_graph(graph)
   local lines = {}
 
-  table.insert(lines, "# Graph of Thoughts")
-  table.insert(lines, "")
+  table.insert(lines, '# Graph of Thoughts')
+  table.insert(lines, '')
 
   if not graph.nodes or vim.tbl_count(graph.nodes) == 0 then
-    table.insert(lines, "No nodes in graph")
-    return table.concat(lines, "\n")
+    table.insert(lines, 'No nodes in graph')
+    return table.concat(lines, '\n')
   end
 
   -- Build node list sorted by creation time or dependency order
@@ -171,18 +171,18 @@ function ReasoningVisualizer.visualize_graph(graph)
     return (a.node.created_at or 0) < (b.node.created_at or 0)
   end)
 
-  table.insert(lines, "## Nodes:")
+  table.insert(lines, '## Nodes:')
   for _, entry in ipairs(sorted_nodes) do
     local node = entry.node
     local content = truncate_content(node.content, CONFIG.max_content_length)
     local node_info = format_node_info(node)
 
-    table.insert(lines, fmt("  %s [%s]: %s%s", BOX_CHARS.unicode.corner, entry.id, content, node_info))
+    table.insert(lines, fmt('  %s [%s]: %s%s', BOX_CHARS.unicode.corner, entry.id, content, node_info))
   end
 
   -- Show dependencies
-  table.insert(lines, "")
-  table.insert(lines, "## Dependencies:")
+  table.insert(lines, '')
+  table.insert(lines, '## Dependencies:')
 
   local has_dependencies = false
   for source_id, targets in pairs(graph.edges or {}) do
@@ -195,18 +195,18 @@ function ReasoningVisualizer.visualize_graph(graph)
         local target_content = graph.nodes[target_id] and truncate_content(graph.nodes[target_id].content, 20)
           or target_id
 
-        local weight_info = edge.weight and edge.weight ~= 1.0 and fmt(" (weight: %.2f)", edge.weight) or ""
+        local weight_info = edge.weight and edge.weight ~= 1.0 and fmt(' (weight: %.2f)', edge.weight) or ''
 
-        table.insert(lines, fmt("  %s → %s%s", source_content, target_content, weight_info))
+        table.insert(lines, fmt('  %s → %s%s', source_content, target_content, weight_info))
       end
     end
   end
 
   if not has_dependencies then
-    table.insert(lines, "  No dependencies defined")
+    table.insert(lines, '  No dependencies defined')
   end
 
-  return table.concat(lines, "\n")
+  return table.concat(lines, '\n')
 end
 
 return ReasoningVisualizer

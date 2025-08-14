@@ -2,15 +2,15 @@
 
 -- Node types for categorizing thoughts
 local NODE_TYPES = {
-  analysis = "Analysis and exploration of the problem",
-  reasoning = "Logical deduction and inference",
-  task = "Actionable implementation step",
-  validation = "Verification and testing",
-  synthesis = "Combining multiple thoughts or ideas",
+  analysis = 'Analysis and exploration of the problem',
+  reasoning = 'Logical deduction and inference',
+  task = 'Actionable implementation step',
+  validation = 'Verification and testing',
+  synthesis = 'Combining multiple thoughts or ideas',
 }
 
 local function generate_id()
-  return tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+  return tostring(os.time()) .. '_' .. tostring(math.random(1000, 9999))
 end
 
 -- ThoughtNode Class
@@ -20,8 +20,8 @@ Node.__index = Node
 function Node.new(content, id, node_type)
   local self = setmetatable({}, Node)
   self.id = id or generate_id()
-  self.content = content or ""
-  self.type = node_type or "analysis"
+  self.content = content or ''
+  self.type = node_type or 'analysis'
   self.score = 0.0
   self.confidence = 0.0
   self.created_at = os.time()
@@ -39,46 +39,46 @@ function Node:generate_suggestions()
   local generators = {
     analysis = function(content)
       return {
-        "🔍 **Sub-questions**: What are the key components of: " .. content .. "?",
-        "🤔 **Assumptions**: What assumptions are being made about this analysis?",
-        "📊 **Data needed**: What information or data would help validate this analysis?",
-        "🔗 **Related cases**: Are there similar problems that have been analyzed before?",
+        '🔍 **Sub-questions**: What are the key components of: ' .. content .. '?',
+        '🤔 **Assumptions**: What assumptions are being made about this analysis?',
+        '📊 **Data needed**: What information or data would help validate this analysis?',
+        '🔗 **Related cases**: Are there similar problems that have been analyzed before?',
       }
     end,
 
     reasoning = function(content)
       return {
-        "➡️ **Implications**: If this reasoning is correct, what are the logical consequences?",
-        "🛡️ **Supporting evidence**: What facts or data support this line of reasoning?",
-        "⚡ **Counter-arguments**: What are potential weaknesses or alternative viewpoints?",
-        "🎯 **Next steps**: How can this reasoning lead to actionable conclusions?",
+        '➡️ **Implications**: If this reasoning is correct, what are the logical consequences?',
+        '🛡️ **Supporting evidence**: What facts or data support this line of reasoning?',
+        '⚡ **Counter-arguments**: What are potential weaknesses or alternative viewpoints?',
+        '🎯 **Next steps**: How can this reasoning lead to actionable conclusions?',
       }
     end,
 
     task = function(content)
       return {
-        "📋 **Implementation steps**: Break this task into specific, actionable sub-steps",
-        "🔄 **Alternative approaches**: Consider different ways to accomplish this task",
-        "🛠️ **Resources needed**: What tools, time, or materials are required?",
-        "✅ **Success criteria**: How will you know when this task is completed successfully?",
+        '📋 **Implementation steps**: Break this task into specific, actionable sub-steps',
+        '🔄 **Alternative approaches**: Consider different ways to accomplish this task',
+        '🛠️ **Resources needed**: What tools, time, or materials are required?',
+        '✅ **Success criteria**: How will you know when this task is completed successfully?',
       }
     end,
 
     validation = function(content)
       return {
-        "🎯 **Test cases**: What specific scenarios should be tested?",
-        "📏 **Success metrics**: What measurable criteria define success?",
-        "⚠️ **Edge cases**: What unusual or boundary conditions might cause issues?",
-        "🔧 **Failure recovery**: What should happen if validation fails?",
+        '🎯 **Test cases**: What specific scenarios should be tested?',
+        '📏 **Success metrics**: What measurable criteria define success?',
+        '⚠️ **Edge cases**: What unusual or boundary conditions might cause issues?',
+        '🔧 **Failure recovery**: What should happen if validation fails?',
       }
     end,
 
     synthesis = function(content)
       return {
-        "🧩 **Integration**: How do the component ideas fit together in this synthesis?",
-        "⚖️ **Trade-offs**: What are the pros and cons of combining these concepts?",
-        "🔄 **Refinement**: How can this synthesis be improved or optimized?",
-        "🎯 **Applications**: Where and how can this synthesized idea be applied?",
+        '🧩 **Integration**: How do the component ideas fit together in this synthesis?',
+        '⚖️ **Trade-offs**: What are the pros and cons of combining these concepts?',
+        '🔄 **Refinement**: How can this synthesis be improved or optimized?',
+        '🎯 **Applications**: Where and how can this synthesized idea be applied?',
       }
     end,
   }
@@ -88,7 +88,7 @@ function Node:generate_suggestions()
     return generator(self.content)
   end
 
-  return { "💡 **Next steps**: Consider what logical follow-ups make sense for this thought" }
+  return { '💡 **Next steps**: Consider what logical follow-ups make sense for this thought' }
 end
 
 -- Edge Class
@@ -100,7 +100,7 @@ function Edge.new(source_id, target_id, weight, relationship_type)
   self.source = source_id
   self.target = target_id
   self.weight = weight or 1.0
-  self.type = relationship_type or "depends_on"
+  self.type = relationship_type or 'depends_on'
   self.created_at = os.time()
   return self
 end
@@ -125,7 +125,7 @@ function GraphOfThoughts:add_node(content, id, node_type)
     for type_name, _ in pairs(NODE_TYPES) do
       table.insert(valid_types, type_name)
     end
-    return nil, "Invalid node type: " .. tostring(node_type) .. ". Valid types: " .. table.concat(valid_types, ", ")
+    return nil, 'Invalid node type: ' .. tostring(node_type) .. '. Valid types: ' .. table.concat(valid_types, ', ')
   end
 
   local node = Node.new(content, id, node_type)
@@ -142,12 +142,12 @@ end
 -- Edge Management
 function GraphOfThoughts:add_edge(source_id, target_id, weight, relationship_type)
   if not self.nodes[source_id] or not self.nodes[target_id] then
-    return false, "Source or target node does not exist"
+    return false, 'Source or target node does not exist'
   end
 
   -- Prevent self-loops
   if source_id == target_id then
-    return false, "Self-loops are not allowed"
+    return false, 'Self-loops are not allowed'
   end
 
   local edge = Edge.new(source_id, target_id, weight, relationship_type)
@@ -240,7 +240,7 @@ function GraphOfThoughts:topological_sort()
 
   -- Check if all nodes are included (no cycles)
   if #result ~= self:get_node_count() then
-    return nil, "Graph contains cycles"
+    return nil, 'Graph contains cycles'
   end
 
   return result
@@ -376,7 +376,7 @@ function GraphOfThoughts:merge_nodes(source_node_ids, merged_content, merged_id)
 
   -- Create edges from all source nodes to the merged node
   for _, source_id in ipairs(source_node_ids) do
-    self:add_edge(source_id, merged_node.id, 1.0, "contributes_to")
+    self:add_edge(source_id, merged_node.id, 1.0, 'contributes_to')
   end
 
   return true, merged_node.id

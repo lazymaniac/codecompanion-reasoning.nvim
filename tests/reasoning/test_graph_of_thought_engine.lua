@@ -1,4 +1,4 @@
-local h = require("tests.helpers")
+local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set
 
@@ -40,7 +40,7 @@ local T = new_set({
 })
 
 -- Test engine configuration
-T["get_config returns valid configuration"] = function()
+T['get_config returns valid configuration'] = function()
   child.lua([[
     config = GraphOfThoughtEngine.get_config()
 
@@ -56,79 +56,79 @@ T["get_config returns valid configuration"] = function()
     }
   ]])
 
-  local config_types = child.lua_get("config_types")
+  local config_types = child.lua_get('config_types')
 
-  h.eq("Graph of Thoughts Agent", config_types.agent_type)
-  h.eq("graph_of_thoughts_agent", config_types.tool_name)
-  h.eq("string", config_types.description_type)
-  h.eq("table", config_types.actions_type)
-  h.eq("table", config_types.validation_rules_type)
-  h.eq("table", config_types.parameters_type)
-  h.eq("function", config_types.system_prompt_config_type)
+  h.eq('Graph of Thoughts Agent', config_types.agent_type)
+  h.eq('graph_of_thoughts_agent', config_types.tool_name)
+  h.eq('string', config_types.description_type)
+  h.eq('table', config_types.actions_type)
+  h.eq('table', config_types.validation_rules_type)
+  h.eq('table', config_types.parameters_type)
+  h.eq('function', config_types.system_prompt_config_type)
 end
 
-T["get_config has correct validation rules"] = function()
+T['get_config has correct validation rules'] = function()
   child.lua([[
     config = GraphOfThoughtEngine.get_config()
     rules = config.validation_rules
   ]])
 
-  local rules = child.lua_get("rules")
+  local rules = child.lua_get('rules')
 
   h.eq(1, #rules.initialize)
-  h.eq("goal", rules.initialize[1])
+  h.eq('goal', rules.initialize[1])
 
   h.eq(1, #rules.add_node)
-  h.eq("content", rules.add_node[1])
+  h.eq('content', rules.add_node[1])
 
   h.eq(2, #rules.add_edge)
-  h.expect_contains("source_id", table.concat(rules.add_edge, " "))
-  h.expect_contains("target_id", table.concat(rules.add_edge, " "))
+  h.expect_contains('source_id', table.concat(rules.add_edge, ' '))
+  h.expect_contains('target_id', table.concat(rules.add_edge, ' '))
 
   h.eq(0, #rules.view_graph)
 
   h.eq(2, #rules.merge_nodes)
-  h.expect_contains("source_nodes", table.concat(rules.merge_nodes, " "))
-  h.expect_contains("merged_content", table.concat(rules.merge_nodes, " "))
+  h.expect_contains('source_nodes', table.concat(rules.merge_nodes, ' '))
+  h.expect_contains('merged_content', table.concat(rules.merge_nodes, ' '))
 end
 
-T["get_config has correct parameters structure"] = function()
+T['get_config has correct parameters structure'] = function()
   child.lua([[
     config = GraphOfThoughtEngine.get_config()
     params = config.parameters
   ]])
 
-  local params = child.lua_get("params")
+  local params = child.lua_get('params')
 
-  h.eq("object", params.type)
-  h.eq("table", type(params.properties))
-  h.eq("table", type(params.required))
-  h.eq("action", params.required[1])
+  h.eq('object', params.type)
+  h.eq('table', type(params.properties))
+  h.eq('table', type(params.required))
+  h.eq('action', params.required[1])
   h.eq(false, params.additionalProperties)
 
   -- Check node_type enum
-  h.eq("table", type(params.properties.node_type.enum))
-  h.expect_contains("analysis", table.concat(params.properties.node_type.enum, " "))
-  h.expect_contains("reasoning", table.concat(params.properties.node_type.enum, " "))
-  h.expect_contains("task", table.concat(params.properties.node_type.enum, " "))
-  h.expect_contains("validation", table.concat(params.properties.node_type.enum, " "))
-  h.expect_contains("synthesis", table.concat(params.properties.node_type.enum, " "))
+  h.eq('table', type(params.properties.node_type.enum))
+  h.expect_contains('analysis', table.concat(params.properties.node_type.enum, ' '))
+  h.expect_contains('reasoning', table.concat(params.properties.node_type.enum, ' '))
+  h.expect_contains('task', table.concat(params.properties.node_type.enum, ' '))
+  h.expect_contains('validation', table.concat(params.properties.node_type.enum, ' '))
+  h.expect_contains('synthesis', table.concat(params.properties.node_type.enum, ' '))
 end
 
 -- Test initialize action
-T["initialize creates new graph successfully"] = function()
+T['initialize creates new graph successfully'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = GraphOfThoughtEngine.get_config().actions.initialize({goal = "Solve complex problem"}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Graph of Thoughts Initialized", result.data)
-  h.expect_contains("Solve complex problem", result.data)
-  h.expect_contains("Root Node ID:", result.data)
-  h.expect_contains("Available Actions:", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Graph of Thoughts Initialized', result.data)
+  h.expect_contains('Solve complex problem', result.data)
+  h.expect_contains('Root Node ID:', result.data)
+  h.expect_contains('Available Actions:', result.data)
 
   child.lua([[
     agent_state_info = {
@@ -140,16 +140,16 @@ T["initialize creates new graph successfully"] = function()
     }
   ]])
 
-  local agent_state_info = child.lua_get("agent_state_info")
+  local agent_state_info = child.lua_get('agent_state_info')
 
-  h.eq("string", agent_state_info.session_id_type)
-  h.eq("table", agent_state_info.current_instance_type)
-  h.eq("Graph of Thoughts Agent", agent_state_info.agent_type)
-  h.eq("function", agent_state_info.get_element_type)
-  h.eq("function", agent_state_info.update_element_score_type)
+  h.eq('string', agent_state_info.session_id_type)
+  h.eq('table', agent_state_info.current_instance_type)
+  h.eq('Graph of Thoughts Agent', agent_state_info.agent_type)
+  h.eq('function', agent_state_info.get_element_type)
+  h.eq('function', agent_state_info.update_element_score_type)
 end
 
-T["initialize validates goal parameter"] = function()
+T['initialize validates goal parameter'] = function()
   child.lua([[
     agent_state = create_agent_state()
     -- Test with nil goal
@@ -159,16 +159,16 @@ T["initialize validates goal parameter"] = function()
     result2 = GraphOfThoughtEngine.get_config().actions.initialize({goal = ""}, agent_state)
   ]])
 
-  local result1 = child.lua_get("result1")
-  local result2 = child.lua_get("result2")
+  local result1 = child.lua_get('result1')
+  local result2 = child.lua_get('result2')
 
   -- Should succeed even with nil/empty goal since underlying GoT handles it
-  h.eq("success", result1.status)
-  h.eq("success", result2.status)
+  h.eq('success', result1.status)
+  h.eq('success', result2.status)
 end
 
 -- Test add_node action
-T["add_node adds valid node successfully"] = function()
+T['add_node adds valid node successfully'] = function()
   child.lua([[
     agent_state = create_agent_state()
     GraphOfThoughtEngine.get_config().actions.initialize({goal = "Test goal"}, agent_state)
@@ -180,24 +180,24 @@ T["add_node adds valid node successfully"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Node Added Successfully", result.data)
-  h.expect_contains("Analyze the problem", result.data)
-  h.expect_contains("analysis", result.data)
-  h.expect_contains("Suggested Next Steps", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Node Added Successfully', result.data)
+  h.expect_contains('Analyze the problem', result.data)
+  h.expect_contains('analysis', result.data)
+  h.expect_contains('Suggested Next Steps', result.data)
 
   -- Check that node was added to the graph
   child.lua([[
     nodes_type = type(agent_state.current_instance.nodes)
   ]])
 
-  local nodes_type = child.lua_get("nodes_type")
-  h.eq("table", nodes_type)
+  local nodes_type = child.lua_get('nodes_type')
+  h.eq('table', nodes_type)
 end
 
-T["add_node works with default node_type"] = function()
+T['add_node works with default node_type'] = function()
   child.lua([[
     agent_state = create_agent_state()
     GraphOfThoughtEngine.get_config().actions.initialize({goal = "Test goal"}, agent_state)
@@ -207,13 +207,13 @@ T["add_node works with default node_type"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("analysis", result.data) -- default type
+  h.eq('success', result.status)
+  h.expect_contains('analysis', result.data) -- default type
 end
 
-T["add_node rejects when no active graph"] = function()
+T['add_node rejects when no active graph'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = GraphOfThoughtEngine.get_config().actions.add_node({
@@ -221,13 +221,13 @@ T["add_node rejects when no active graph"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active graph. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active graph. Initialize first.', result.data)
 end
 
-T["add_node handles invalid node_type"] = function()
+T['add_node handles invalid node_type'] = function()
   child.lua([[
     agent_state = create_agent_state()
     GraphOfThoughtEngine.get_config().actions.initialize({goal = "Test goal"}, agent_state)
@@ -238,14 +238,14 @@ T["add_node handles invalid node_type"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("Invalid node type", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('Invalid node type', result.data)
 end
 
 -- Test add_edge action
-T["add_edge creates valid edge successfully"] = function()
+T['add_edge creates valid edge successfully'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -265,17 +265,17 @@ T["add_edge creates valid edge successfully"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Edge Added Successfully", result.data)
-  h.expect_contains("node1", result.data)
-  h.expect_contains("node2", result.data)
-  h.expect_contains("1.50", result.data)
-  h.expect_contains("leads_to", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Edge Added Successfully', result.data)
+  h.expect_contains('node1', result.data)
+  h.expect_contains('node2', result.data)
+  h.expect_contains('1.50', result.data)
+  h.expect_contains('leads_to', result.data)
 end
 
-T["add_edge works with default parameters"] = function()
+T['add_edge works with default parameters'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -293,14 +293,14 @@ T["add_edge works with default parameters"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("1.00", result.data) -- default weight
-  h.expect_contains("depends_on", result.data) -- default relationship type
+  h.eq('success', result.status)
+  h.expect_contains('1.00', result.data) -- default weight
+  h.expect_contains('depends_on', result.data) -- default relationship type
 end
 
-T["add_edge rejects when no active graph"] = function()
+T['add_edge rejects when no active graph'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = GraphOfThoughtEngine.get_config().actions.add_edge({
@@ -309,13 +309,13 @@ T["add_edge rejects when no active graph"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active graph. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active graph. Initialize first.', result.data)
 end
 
-T["add_edge rejects non-existent nodes"] = function()
+T['add_edge rejects non-existent nodes'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -328,13 +328,13 @@ T["add_edge rejects non-existent nodes"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("does not exist", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('does not exist', result.data)
 end
 
-T["add_edge rejects self-loops"] = function()
+T['add_edge rejects self-loops'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -348,13 +348,13 @@ T["add_edge rejects self-loops"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("Self-loops are not allowed", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('Self-loops are not allowed', result.data)
 end
 
-T["add_edge detects cycles"] = function()
+T['add_edge detects cycles'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -373,14 +373,14 @@ T["add_edge detects cycles"] = function()
     result = actions.add_edge({source_id = "node3", target_id = "node1"}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("cycle", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('cycle', result.data)
 end
 
 -- Test view_graph action
-T["view_graph shows graph visualization"] = function()
+T['view_graph shows graph visualization'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -391,29 +391,29 @@ T["view_graph shows graph visualization"] = function()
     result = actions.view_graph({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
+  h.eq('success', result.status)
   -- The actual visualizer is being used, so check for its output format
-  h.expect_contains("Graph of Thoughts", result.data)
-  h.expect_contains("Nodes:", result.data)
-  h.expect_contains("Test node", result.data)
+  h.expect_contains('Graph of Thoughts', result.data)
+  h.expect_contains('Nodes:', result.data)
+  h.expect_contains('Test node', result.data)
 end
 
-T["view_graph rejects when no active graph"] = function()
+T['view_graph rejects when no active graph'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = GraphOfThoughtEngine.get_config().actions.view_graph({}, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active graph. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active graph. Initialize first.', result.data)
 end
 
 -- Test merge_nodes action
-T["merge_nodes combines multiple nodes successfully"] = function()
+T['merge_nodes combines multiple nodes successfully'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -432,16 +432,16 @@ T["merge_nodes combines multiple nodes successfully"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Nodes Merged Successfully", result.data)
-  h.expect_contains("node1, node2, node3", result.data)
-  h.expect_contains("merged1", result.data)
-  h.expect_contains("Combined ideas", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Nodes Merged Successfully', result.data)
+  h.expect_contains('node1, node2, node3', result.data)
+  h.expect_contains('merged1', result.data)
+  h.expect_contains('Combined ideas', result.data)
 end
 
-T["merge_nodes works without custom merged_id"] = function()
+T['merge_nodes works without custom merged_id'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -457,13 +457,13 @@ T["merge_nodes works without custom merged_id"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("success", result.status)
-  h.expect_contains("Nodes Merged Successfully", result.data)
+  h.eq('success', result.status)
+  h.expect_contains('Nodes Merged Successfully', result.data)
 end
 
-T["merge_nodes rejects when no active graph"] = function()
+T['merge_nodes rejects when no active graph'] = function()
   child.lua([[
     agent_state = create_agent_state()
     result = GraphOfThoughtEngine.get_config().actions.merge_nodes({
@@ -472,13 +472,13 @@ T["merge_nodes rejects when no active graph"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.eq("No active graph. Initialize first.", result.data)
+  h.eq('error', result.status)
+  h.eq('No active graph. Initialize first.', result.data)
 end
 
-T["merge_nodes rejects non-existent source nodes"] = function()
+T['merge_nodes rejects non-existent source nodes'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -491,14 +491,14 @@ T["merge_nodes rejects non-existent source nodes"] = function()
     }, agent_state)
   ]])
 
-  local result = child.lua_get("result")
+  local result = child.lua_get('result')
 
-  h.eq("error", result.status)
-  h.expect_contains("does not exist", result.data)
+  h.eq('error', result.status)
+  h.expect_contains('does not exist', result.data)
 end
 
 -- Test helper methods added during initialization
-T["get_element method works correctly"] = function()
+T['get_element method works correctly'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -510,12 +510,12 @@ T["get_element method works correctly"] = function()
     element_exists = element ~= nil
   ]])
 
-  local element_exists = child.lua_get("element_exists")
+  local element_exists = child.lua_get('element_exists')
 
   h.eq(true, element_exists)
 end
 
-T["update_element_score method works correctly"] = function()
+T['update_element_score method works correctly'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -533,15 +533,15 @@ T["update_element_score method works correctly"] = function()
     updated_score = agent_state.current_instance:get_element("test_node").score
   ]])
 
-  local initial_score = child.lua_get("initial_score")
-  local success = child.lua_get("success")
-  local updated_score = child.lua_get("updated_score")
+  local initial_score = child.lua_get('initial_score')
+  local success = child.lua_get('success')
+  local updated_score = child.lua_get('updated_score')
 
   h.eq(true, success)
   h.eq(initial_score + 5.0, updated_score)
 end
 
-T["update_element_score handles non-existent nodes"] = function()
+T['update_element_score handles non-existent nodes'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -551,13 +551,13 @@ T["update_element_score handles non-existent nodes"] = function()
     success = agent_state.current_instance:update_element_score("nonexistent", 5.0)
   ]])
 
-  local success = child.lua_get("success")
+  local success = child.lua_get('success')
 
   h.eq(false, success)
 end
 
 -- Test complete workflow integration
-T["complete workflow initialize -> add_nodes -> add_edges -> merge -> view"] = function()
+T['complete workflow initialize -> add_nodes -> add_edges -> merge -> view'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -616,32 +616,32 @@ T["complete workflow initialize -> add_nodes -> add_edges -> merge -> view"] = f
     view_result = actions.view_graph({}, agent_state)
   ]])
 
-  local init_result = child.lua_get("init_result")
-  local node1_result = child.lua_get("node1_result")
-  local node2_result = child.lua_get("node2_result")
-  local node3_result = child.lua_get("node3_result")
-  local node4_result = child.lua_get("node4_result")
-  local edge1_result = child.lua_get("edge1_result")
-  local edge2_result = child.lua_get("edge2_result")
-  local edge3_result = child.lua_get("edge3_result")
-  local merge_result = child.lua_get("merge_result")
-  local view_result = child.lua_get("view_result")
+  local init_result = child.lua_get('init_result')
+  local node1_result = child.lua_get('node1_result')
+  local node2_result = child.lua_get('node2_result')
+  local node3_result = child.lua_get('node3_result')
+  local node4_result = child.lua_get('node4_result')
+  local edge1_result = child.lua_get('edge1_result')
+  local edge2_result = child.lua_get('edge2_result')
+  local edge3_result = child.lua_get('edge3_result')
+  local merge_result = child.lua_get('merge_result')
+  local view_result = child.lua_get('view_result')
 
   -- All operations should succeed
-  h.eq("success", init_result.status)
-  h.eq("success", node1_result.status)
-  h.eq("success", node2_result.status)
-  h.eq("success", node3_result.status)
-  h.eq("success", node4_result.status)
-  h.eq("success", edge1_result.status)
-  h.eq("success", edge2_result.status)
-  h.eq("success", edge3_result.status)
-  h.eq("success", merge_result.status)
-  h.eq("success", view_result.status)
+  h.eq('success', init_result.status)
+  h.eq('success', node1_result.status)
+  h.eq('success', node2_result.status)
+  h.eq('success', node3_result.status)
+  h.eq('success', node4_result.status)
+  h.eq('success', edge1_result.status)
+  h.eq('success', edge2_result.status)
+  h.eq('success', edge3_result.status)
+  h.eq('success', merge_result.status)
+  h.eq('success', view_result.status)
 end
 
 -- Test edge cases and error handling
-T["handles agent_state isolation correctly"] = function()
+T['handles agent_state isolation correctly'] = function()
   child.lua([[
     agent_state1 = create_agent_state()
     agent_state2 = create_agent_state()
@@ -662,10 +662,10 @@ T["handles agent_state isolation correctly"] = function()
     nodeB_exists_in_2 = agent_state2.current_instance:get_node("nodeB") ~= nil
   ]])
 
-  local nodeA_exists_in_1 = child.lua_get("nodeA_exists_in_1")
-  local nodeB_exists_in_1 = child.lua_get("nodeB_exists_in_1")
-  local nodeA_exists_in_2 = child.lua_get("nodeA_exists_in_2")
-  local nodeB_exists_in_2 = child.lua_get("nodeB_exists_in_2")
+  local nodeA_exists_in_1 = child.lua_get('nodeA_exists_in_1')
+  local nodeB_exists_in_1 = child.lua_get('nodeB_exists_in_1')
+  local nodeA_exists_in_2 = child.lua_get('nodeA_exists_in_2')
+  local nodeB_exists_in_2 = child.lua_get('nodeB_exists_in_2')
 
   -- Each state should only have its own nodes
   h.eq(true, nodeA_exists_in_1)
@@ -674,20 +674,20 @@ T["handles agent_state isolation correctly"] = function()
   h.eq(true, nodeB_exists_in_2)
 end
 
-T["system_prompt_config function works"] = function()
+T['system_prompt_config function works'] = function()
   child.lua([[
     config = GraphOfThoughtEngine.get_config()
     prompt = config.system_prompt_config()
   ]])
 
-  local prompt = child.lua_get("prompt")
+  local prompt = child.lua_get('prompt')
 
-  h.eq("string", type(prompt))
-  h.expect_contains("graph reasoning", prompt)
+  h.eq('string', type(prompt))
+  h.expect_contains('graph reasoning', prompt)
 end
 
 -- Test node suggestions functionality
-T["add_node includes suggestions based on node type"] = function()
+T['add_node includes suggestions based on node type'] = function()
   child.lua([[
     agent_state = create_agent_state()
     actions = GraphOfThoughtEngine.get_config().actions
@@ -711,18 +711,18 @@ T["add_node includes suggestions based on node type"] = function()
     }, agent_state)
   ]])
 
-  local analysis_result = child.lua_get("analysis_result")
-  local reasoning_result = child.lua_get("reasoning_result")
-  local task_result = child.lua_get("task_result")
+  local analysis_result = child.lua_get('analysis_result')
+  local reasoning_result = child.lua_get('reasoning_result')
+  local task_result = child.lua_get('task_result')
 
-  h.eq("success", analysis_result.status)
-  h.eq("success", reasoning_result.status)
-  h.eq("success", task_result.status)
+  h.eq('success', analysis_result.status)
+  h.eq('success', reasoning_result.status)
+  h.eq('success', task_result.status)
 
   -- Each should contain suggestions relevant to their type
-  h.expect_contains("Suggested Next Steps", analysis_result.data)
-  h.expect_contains("Suggested Next Steps", reasoning_result.data)
-  h.expect_contains("Suggested Next Steps", task_result.data)
+  h.expect_contains('Suggested Next Steps', analysis_result.data)
+  h.expect_contains('Suggested Next Steps', reasoning_result.data)
+  h.expect_contains('Suggested Next Steps', task_result.data)
 end
 
 return T

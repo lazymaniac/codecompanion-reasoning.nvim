@@ -2,7 +2,7 @@ local fmt = string.format
 
 ---@class CodeCompanion.Tool.AskUser: CodeCompanion.Tools.Tool
 return {
-  name = "ask_user",
+  name = 'ask_user',
 
   opts = {},
 
@@ -10,26 +10,26 @@ return {
     function(self, args, input, callback)
       self.args = args
 
-      local question = args.question or "No question provided"
-      local context = args.context or ""
+      local question = args.question or 'No question provided'
+      local context = args.context or ''
       local options = args.options or {}
 
       -- Show popup and use callback when response is received
-      local Popup = require("codecompanion._extensions.reasoning.ui.popup")
+      local Popup = require('codecompanion._extensions.reasoning.ui.popup')
 
       vim.schedule(function()
         Popup.ask_question(question, context, options, function(response, cancelled, selected_option)
           if cancelled then
             -- Call callback with error
             callback({
-              status = "error",
-              data = "User cancelled the question",
+              status = 'error',
+              data = 'User cancelled the question',
             })
           else
             -- Call callback with success and user response
             callback({
-              status = "success",
-              data = { response or "No response provided" },
+              status = 'success',
+              data = { response or 'No response provided' },
             })
           end
         end)
@@ -40,29 +40,29 @@ return {
   },
 
   schema = {
-    type = "function",
-    ["function"] = {
-      name = "ask_user",
-      description = "Ask the user a question when multiple valid approaches exist or when user input is needed for decision making.",
+    type = 'function',
+    ['function'] = {
+      name = 'ask_user',
+      description = 'Ask the user a question when multiple valid approaches exist or when user input is needed for decision making.',
       parameters = {
-        type = "object",
+        type = 'object',
         properties = {
           question = {
-            type = "string",
-            description = "The question to ask the user. Be clear and specific about what decision needs to be made.",
+            type = 'string',
+            description = 'The question to ask the user. Be clear and specific about what decision needs to be made.',
           },
           options = {
-            type = "array",
-            items = { type = "string" },
-            description = "Optional list of predefined choices. If provided, user can select by number or provide custom response.",
+            type = 'array',
+            items = { type = 'string' },
+            description = 'Optional list of predefined choices. If provided, user can select by number or provide custom response.',
           },
           context = {
-            type = "string",
-            description = "Additional context about why this decision is needed and what the implications are.",
+            type = 'string',
+            description = 'Additional context about why this decision is needed and what the implications are.',
           },
         },
         required = {
-          "question",
+          'question',
         },
         additionalProperties = false,
       },
@@ -74,19 +74,19 @@ return {
   output = {
     success = function(self, agent, cmd, stdout)
       local chat = agent.chat
-      local result = vim.iter(stdout):flatten():join("\n")
-      local question = self.args.question or "No question provided"
+      local result = vim.iter(stdout):flatten():join('\n')
+      local question = self.args.question or 'No question provided'
 
       -- Format the user response for chat
-      local output = fmt("**User Response:**\n%s\n\n**Original Question:** %s", result, question)
+      local output = fmt('**User Response:**\n%s\n\n**Original Question:** %s', result, question)
       chat:add_tool_output(self, output)
     end,
 
     error = function(self, agent, cmd, stderr)
       local chat = agent.chat
-      local errors = vim.iter(stderr):flatten():join("\n")
-      local question = self.args.question or "No question provided"
-      local output = fmt("**User cancelled:** %s\n\n**Original Question:** %s", errors, question)
+      local errors = vim.iter(stderr):flatten():join('\n')
+      local question = self.args.question or 'No question provided'
+      local output = fmt('**User cancelled:** %s\n\n**Original Question:** %s', errors, question)
       chat:add_tool_output(self, output)
     end,
   },

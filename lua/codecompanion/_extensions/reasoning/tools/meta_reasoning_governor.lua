@@ -1,9 +1,9 @@
-local config_ok, config = pcall(require, "codecompanion.config")
+local config_ok, config = pcall(require, 'codecompanion.config')
 if not config_ok then
   config = { strategies = { chat = { tools = {} } } }
 end
 
-local log_ok, log = pcall(require, "codecompanion.utils.log")
+local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   log = {
     debug = function(...) end,
@@ -22,15 +22,15 @@ local fmt = string.format
 local pending_algorithm_addition = nil
 
 local function handle_action(args)
-  if args.action == "select_algorithm" then
+  if args.action == 'select_algorithm' then
     if not args.problem then
-      return { status = "error", data = "problem is required" }
+      return { status = 'error', data = 'problem is required' }
     end
 
-    log:debug("[Meta-Reasoning Governor] Selecting algorithm for: %s", args.problem)
+    log:debug('[Meta-Reasoning Governor] Selecting algorithm for: %s', args.problem)
 
     return {
-      status = "success",
+      status = 'success',
       data = fmt(
         [[# Algorithm Selection for Problem
 
@@ -59,63 +59,63 @@ The selected algorithm will be dynamically added to this chat and become availab
         args.problem
       ),
     }
-  elseif args.action == "add_algorithm" then
+  elseif args.action == 'add_algorithm' then
     if not args.algorithm then
-      return { status = "error", data = "algorithm is required" }
+      return { status = 'error', data = 'algorithm is required' }
     end
 
-    local valid_algorithms = { "chain_of_thought_agent", "tree_of_thoughts_agent", "graph_of_thoughts_agent" }
+    local valid_algorithms = { 'chain_of_thought_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' }
     if not vim.tbl_contains(valid_algorithms, args.algorithm) then
       return {
-        status = "error",
-        data = fmt("Invalid algorithm. Must be one of: %s", table.concat(valid_algorithms, ", ")),
+        status = 'error',
+        data = fmt('Invalid algorithm. Must be one of: %s', table.concat(valid_algorithms, ', ')),
       }
     end
 
-    log:debug("[Meta-Reasoning Governor] Preparing to add algorithm: %s", args.algorithm)
+    log:debug('[Meta-Reasoning Governor] Preparing to add algorithm: %s', args.algorithm)
 
     -- Store algorithm for success handler to process
     pending_algorithm_addition = args.algorithm
 
     return {
-      status = "success",
-      data = fmt("Preparing to add %s to chat...", args.algorithm),
+      status = 'success',
+      data = fmt('Preparing to add %s to chat...', args.algorithm),
     }
   else
-    return { status = "error", data = "Actions supported: 'select_algorithm', 'add_algorithm'" }
+    return { status = 'error', data = "Actions supported: 'select_algorithm', 'add_algorithm'" }
   end
 end
 
 ---@class CodeCompanion.Tool.MetaReasoningGovernor: CodeCompanion.Tools.Tool
 return {
-  name = "meta_reasoning_governor",
+  name = 'meta_reasoning_governor',
   cmds = {
     function(self, args, input)
       return handle_action(args)
     end,
   },
   schema = {
-    type = "function",
-    ["function"] = {
-      name = "meta_reasoning_governor",
-      description = "Algorithm selector that shows available reasoning algorithms and dynamically adds the selected one to the chat",
+    type = 'function',
+    ['function'] = {
+      name = 'meta_reasoning_governor',
+      description = 'Algorithm selector that shows available reasoning algorithms and dynamically adds the selected one to the chat',
       parameters = {
-        type = "object",
+        type = 'object',
         properties = {
           action = {
-            type = "string",
+            type = 'string',
             description = "The action to perform: 'select_algorithm' or 'add_algorithm'",
           },
           problem = {
-            type = "string",
+            type = 'string',
             description = "The problem to solve (required for 'select_algorithm')",
           },
           algorithm = {
-            type = "string",
+            type = 'string',
             description = "The algorithm to add to chat (required for 'add_algorithm'): 'chain_of_thought_agent', 'tree_of_thoughts_agent', or 'graph_of_thoughts_agent'",
           },
         },
-        required = { "action" },
+        required = { 'action' },
         additionalProperties = false,
       },
       strict = true,
@@ -134,14 +134,14 @@ After adding, selected algorithm will be available in the chat.]],
   output = {
     success = function(self, agent, cmd, stdout)
       local chat = agent.chat
-      local result = vim.iter(stdout):flatten():join("\n")
+      local result = vim.iter(stdout):flatten():join('\n')
 
       -- Check if we need to add an algorithm to the chat
       if pending_algorithm_addition then
         local algorithm = pending_algorithm_addition
         pending_algorithm_addition = nil -- Clear the pending state
 
-        log:debug("[Meta-Reasoning Governor] Adding algorithm to chat: %s", algorithm)
+        log:debug('[Meta-Reasoning Governor] Adding algorithm to chat: %s', algorithm)
 
         -- Get the tool configuration
         local tools_config = config.strategies.chat.tools
@@ -152,9 +152,9 @@ After adding, selected algorithm will be available in the chat.]],
           chat.tool_registry:add(algorithm, algorithm_config)
 
           -- Also add tool_discovery so the reasoning agent can access other tools
-          local tool_discovery_config = tools_config["tool_discovery"]
+          local tool_discovery_config = tools_config['tool_discovery']
           if tool_discovery_config then
-            chat.tool_registry:add("tool_discovery", tool_discovery_config)
+            chat.tool_registry:add('tool_discovery', tool_discovery_config)
           end
 
           local success_message = fmt(
@@ -173,7 +173,7 @@ You can now use the %s directly to solve your problem. The algorithm will act as
 
           chat:add_tool_output(self, success_message, success_message)
         else
-          chat:add_tool_output(self, fmt("[ERROR] Failed to add algorithm: %s", algorithm))
+          chat:add_tool_output(self, fmt('[ERROR] Failed to add algorithm: %s', algorithm))
         end
       else
         chat:add_tool_output(self, result, result)
@@ -181,9 +181,9 @@ You can now use the %s directly to solve your problem. The algorithm will act as
     end,
     error = function(self, agent, cmd, stderr)
       local chat = agent.chat
-      local errors = vim.iter(stderr):flatten():join("\n")
+      local errors = vim.iter(stderr):flatten():join('\n')
       pending_algorithm_addition = nil -- Clear pending state on error
-      chat:add_tool_output(self, fmt("[ERROR] Meta-Reasoning Governor: %s", errors))
+      chat:add_tool_output(self, fmt('[ERROR] Meta-Reasoning Governor: %s', errors))
     end,
   },
 }

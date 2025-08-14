@@ -1,13 +1,15 @@
 ---@class CodeCompanion.GraphOfThoughtEngine
 
-local GoT = require("codecompanion._extensions.reasoning.reasoning.graph_of_thoughts")
-local ReasoningVisualizer = require("codecompanion._extensions.reasoning.reasoning.reasoning_visualizer")
-local log_ok, log = pcall(require, "codecompanion.utils.log")
+local GoT = require('codecompanion._extensions.reasoning.reasoning.graph_of_thoughts')
+local ReasoningVisualizer = require('codecompanion._extensions.reasoning.reasoning.reasoning_visualizer')
+local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   -- Fallback logging when CodeCompanion log is not available
   log = {
     debug = function(...) end,
-    error = function(...) vim.notify(string.format(...), vim.log.levels.ERROR) end,
+    error = function(...)
+      vim.notify(string.format(...), vim.log.levels.ERROR)
+    end,
   }
 end
 local fmt = string.format
@@ -17,11 +19,11 @@ local GraphOfThoughtEngine = {}
 local Actions = {}
 
 function Actions.initialize(args, agent_state)
-  log:debug("[Graph of Thoughts Engine] Initializing with goal: %s", args.goal)
+  log:debug('[Graph of Thoughts Engine] Initializing with goal: %s', args.goal)
 
   agent_state.session_id = tostring(os.time())
   agent_state.current_instance = GoT.GraphOfThoughts.new()
-  agent_state.current_instance.agent_type = "Graph of Thoughts Agent"
+  agent_state.current_instance.agent_type = 'Graph of Thoughts Agent'
 
   agent_state.current_instance.get_element = function(self, id)
     return self:get_node(id)
@@ -36,10 +38,10 @@ function Actions.initialize(args, agent_state)
     return false
   end
 
-  local goal_id = agent_state.current_instance:add_node(args.goal, "goal")
+  local goal_id = agent_state.current_instance:add_node(args.goal, 'goal')
 
   return {
-    status = "success",
+    status = 'success',
     data = fmt(
       [[# Graph of Thoughts Initialized
 
@@ -61,22 +63,22 @@ end
 
 function Actions.add_node(args, agent_state)
   if not agent_state.current_instance then
-    return { status = "error", data = "No active graph. Initialize first." }
+    return { status = 'error', data = 'No active graph. Initialize first.' }
   end
 
-  log:debug("[Graph of Thoughts Engine] Adding node: %s (type: %s)", args.content, args.node_type or "analysis")
+  log:debug('[Graph of Thoughts Engine] Adding node: %s (type: %s)', args.content, args.node_type or 'analysis')
 
   local node_id, error = agent_state.current_instance:add_node(args.content, args.id, args.node_type)
 
   if not node_id then
-    return { status = "error", data = error }
+    return { status = 'error', data = error }
   end
 
   local node = agent_state.current_instance:get_node(node_id)
   local suggestions = node:generate_suggestions()
 
   return {
-    status = "success",
+    status = 'success',
     data = fmt(
       [[# Node Added Successfully
 
@@ -93,36 +95,36 @@ The node has been added to the graph and is ready for dependency connections.
 Use 'add_edge' to create dependencies with other nodes.]],
       node_id,
       args.content,
-      args.node_type or "analysis",
-      table.concat(suggestions, "\n\n")
+      args.node_type or 'analysis',
+      table.concat(suggestions, '\n\n')
     ),
   }
 end
 
 function Actions.add_edge(args, agent_state)
   if not agent_state.current_instance then
-    return { status = "error", data = "No active graph. Initialize first." }
+    return { status = 'error', data = 'No active graph. Initialize first.' }
   end
 
-  log:debug("[Graph of Thoughts Engine] Adding edge: %s -> %s", args.source_id, args.target_id)
+  log:debug('[Graph of Thoughts Engine] Adding edge: %s -> %s', args.source_id, args.target_id)
 
   local success, error = agent_state.current_instance:add_edge(
     args.source_id,
     args.target_id,
     args.weight or 1.0,
-    args.relationship_type or "depends_on"
+    args.relationship_type or 'depends_on'
   )
 
   if not success then
-    return { status = "error", data = error }
+    return { status = 'error', data = error }
   end
 
   if agent_state.current_instance:has_cycle() then
-    return { status = "error", data = "Edge would create a cycle in the graph. Edge not added." }
+    return { status = 'error', data = 'Edge would create a cycle in the graph. Edge not added.' }
   end
 
   return {
-    status = "success",
+    status = 'success',
     data = fmt(
       [[# Edge Added Successfully
 
@@ -135,43 +137,43 @@ The dependency has been created. The target node will wait for the source node t
       args.source_id,
       args.target_id,
       args.weight or 1.0,
-      args.relationship_type or "depends_on"
+      args.relationship_type or 'depends_on'
     ),
   }
 end
 
 function Actions.view_graph(args, agent_state)
   if not agent_state.current_instance then
-    return { status = "error", data = "No active graph. Initialize first." }
+    return { status = 'error', data = 'No active graph. Initialize first.' }
   end
 
-  log:debug("[Graph of Thoughts Engine] Viewing graph structure")
+  log:debug('[Graph of Thoughts Engine] Viewing graph structure')
 
   -- Use the new reasoning visualizer with sane defaults
   local graph_view = ReasoningVisualizer.visualize_graph(agent_state.current_instance)
 
   return {
-    status = "success",
+    status = 'success',
     data = graph_view,
   }
 end
 
 function Actions.merge_nodes(args, agent_state)
   if not agent_state.current_instance then
-    return { status = "error", data = "No active graph. Initialize first." }
+    return { status = 'error', data = 'No active graph. Initialize first.' }
   end
 
-  log:debug("[Graph of Thoughts Engine] Merging nodes: %s", table.concat(args.source_nodes, ", "))
+  log:debug('[Graph of Thoughts Engine] Merging nodes: %s', table.concat(args.source_nodes, ', '))
 
   local success, result =
     agent_state.current_instance:merge_nodes(args.source_nodes, args.merged_content, args.merged_id)
 
   if not success then
-    return { status = "error", data = result }
+    return { status = 'error', data = result }
   end
 
   return {
-    status = "success",
+    status = 'success',
     data = fmt(
       [[# Nodes Merged Successfully
 
@@ -180,7 +182,7 @@ function Actions.merge_nodes(args, agent_state)
 **Content:** %s
 
 The nodes have been combined into a single reasoning unit.]],
-      table.concat(args.source_nodes, ", "),
+      table.concat(args.source_nodes, ', '),
       result,
       args.merged_content
     ),
@@ -192,65 +194,65 @@ end
 -- ============================================================================
 function GraphOfThoughtEngine.get_config()
   return {
-    agent_type = "Graph of Thoughts Agent",
-    tool_name = "graph_of_thoughts_agent",
-    description = "Graph of Thoughts reasoning agent that systematically manages complex interconnected thought networks for comprehensive problem-solving.",
+    agent_type = 'Graph of Thoughts Agent',
+    tool_name = 'graph_of_thoughts_agent',
+    description = 'Graph of Thoughts reasoning agent that systematically manages complex interconnected thought networks for comprehensive problem-solving.',
     actions = Actions,
     validation_rules = {
-      initialize = { "goal" },
-      add_node = { "content" },
-      add_edge = { "source_id", "target_id" },
+      initialize = { 'goal' },
+      add_node = { 'content' },
+      add_edge = { 'source_id', 'target_id' },
       view_graph = {},
-      merge_nodes = { "source_nodes", "merged_content" },
+      merge_nodes = { 'source_nodes', 'merged_content' },
     },
     parameters = {
-      type = "object",
+      type = 'object',
       properties = {
         action = {
-          type = "string",
+          type = 'string',
           description = "The graph action to perform: 'initialize', 'add_node', 'add_edge', 'view_graph', 'merge_nodes'",
         },
         goal = {
-          type = "string",
+          type = 'string',
           description = "The primary goal/problem to solve (required for 'initialize')",
         },
         content = {
-          type = "string",
+          type = 'string',
           description = "Content for the new node (required for 'add_node')",
         },
         node_type = {
-          type = "string",
-          enum = { "analysis", "reasoning", "task", "validation", "synthesis" },
-          description = "Type of the node: analysis, reasoning, task, validation, or synthesis",
+          type = 'string',
+          enum = { 'analysis', 'reasoning', 'task', 'validation', 'synthesis' },
+          description = 'Type of the node: analysis, reasoning, task, validation, or synthesis',
         },
         source_id = {
-          type = "string",
+          type = 'string',
           description = "Source node ID for edge creation (required for 'add_edge')",
         },
         target_id = {
-          type = "string",
+          type = 'string',
           description = "Target node ID for edge creation (required for 'add_edge')",
         },
         source_nodes = {
-          type = "array",
-          items = { type = "string" },
+          type = 'array',
+          items = { type = 'string' },
           description = "Array of source node IDs to merge (required for 'merge_nodes')",
         },
         merged_content = {
-          type = "string",
+          type = 'string',
           description = "Content for the new merged node (required for 'merge_nodes')",
         },
         merged_id = {
-          type = "string",
+          type = 'string',
           description = "Optional ID for the merged node (for 'merge_nodes')",
         },
       },
-      required = { "action" },
+      required = { 'action' },
       additionalProperties = false,
     },
     system_prompt_config = function()
-      local UnifiedReasoningPrompt = require("codecompanion._extensions.reasoning.unified_reasoning_prompt")
-      return UnifiedReasoningPrompt.get_optimized_config("graph")
+      local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
+      return UnifiedReasoningPrompt.get_optimized_config('graph')
     end,
   }
 end

@@ -1,4 +1,4 @@
-local log = require("codecompanion.utils.log")
+local log = require('codecompanion.utils.log')
 
 ---@class CodeCompanion.Patch
 ---@field prompt string The prompt text explaining the patch format to the LLM
@@ -95,9 +95,9 @@ local function parse_edits_from_patch(patch)
   local edits = {}
   local edit = get_new_edit()
 
-  local lines = vim.split(patch, "\n", { plain = true })
+  local lines = vim.split(patch, '\n', { plain = true })
   for i, line in ipairs(lines) do
-    if vim.startswith(line, "@@") then
+    if vim.startswith(line, '@@') then
       if #edit.old > 0 or #edit.new > 0 then
         -- @@ after any edits is a new edit block
         table.insert(edits, edit)
@@ -108,21 +108,21 @@ local function parse_edits_from_patch(patch)
       if focus_name and #focus_name > 0 then
         edit.focus[#edit.focus + 1] = focus_name
       end
-    elseif line == "" and lines[i + 1] and lines[i + 1]:match("^@@") then
+    elseif line == '' and lines[i + 1] and lines[i + 1]:match('^@@') then
       -- empty lines can be part of pre/post context
       -- we treat empty lines as a new edit block and not as post context
       -- only when the next line uses @@ identifier
       -- skip this line and do nothing
       do
       end
-    elseif line:sub(1, 1) == "-" then
+    elseif line:sub(1, 1) == '-' then
       if #edit.post > 0 then
         -- edits after post edit lines are new block of changes with same focus
         table.insert(edits, edit)
         edit = get_new_edit(edit.focus, edit.post)
       end
       edit.old[#edit.old + 1] = line:sub(2)
-    elseif line:sub(1, 1) == "+" then
+    elseif line:sub(1, 1) == '+' then
       if #edit.post > 0 then
         -- edits after post edit lines are new block of changes with same focus
         table.insert(edits, edit)
@@ -144,7 +144,7 @@ end
 ---@return CodeCompanion.Patch.Edit, boolean, string|nil All parsed edits, and whether the patch was properly parsed
 function Patch.parse_edits(raw)
   local patches = {}
-  for patch in raw:gmatch("%*%*%* Begin Patch[\r\n]+(.-)[\r\n]+%*%*%* End Patch") do
+  for patch in raw:gmatch('%*%*%* Begin Patch[\r\n]+(.-)[\r\n]+%*%*%* End Patch') do
     table.insert(patches, patch)
   end
 
@@ -157,7 +157,7 @@ function Patch.parse_edits(raw)
     --- setting a `markers_error` so that we can show this error in case the patch fails to apply
     had_begin_end_markers = false
     table.insert(patches, raw)
-    parse_error = "Missing Begin/End patch markers - assuming entire content is a patch"
+    parse_error = 'Missing Begin/End patch markers - assuming entire content is a patch'
   end
 
   local all_edits = {}
@@ -269,8 +269,8 @@ end
 ---@return string[]? lines_to_append
 local function is_simple_append(lines, edit)
   -- For empty files (containing only "")
-  if #lines == 1 and lines[1] == "" then
-    log:debug("[Patch] Empty file detected, treating as simple append")
+  if #lines == 1 and lines[1] == '' then
+    log:debug('[Patch] Empty file detected, treating as simple append')
     return true, edit.new
   end
 
@@ -278,7 +278,7 @@ local function is_simple_append(lines, edit)
   if #lines <= 5 and #edit.old == 0 and #edit.new > 0 then
     -- Check if pre-context matches the end of the file or is empty
     if #edit.pre == 0 then
-      log:debug("[Patch] No pre-context, appending to end of small file")
+      log:debug('[Patch] No pre-context, appending to end of small file')
       return true, edit.new
     end
     -- Check if pre-context matches the last lines of the file
@@ -293,7 +293,7 @@ local function is_simple_append(lines, edit)
     end
 
     if matches then
-      log:debug("[Patch] Pre-context matches, treating as simple append")
+      log:debug('[Patch] Pre-context matches, treating as simple append')
       return true, edit.new
     end
   end
@@ -310,10 +310,10 @@ function Patch.apply(lines, edit)
   if #lines <= 5 then
     local is_append, append_lines = is_simple_append(lines, edit)
     if is_append and append_lines then
-      log:debug("[Patch] Using simple append for small file")
+      log:debug('[Patch] Using simple append for small file')
       local new_lines = {}
       -- For empty files, don't include the empty string
-      if #lines == 1 and lines[1] == "" then
+      if #lines == 1 and lines[1] == '' then
         for _, line in ipairs(append_lines) do
           table.insert(new_lines, line)
         end
@@ -326,19 +326,19 @@ function Patch.apply(lines, edit)
           table.insert(new_lines, line)
         end
       end
-      log:debug("[Patch] Small file append successful, new line count: %d", #new_lines)
+      log:debug('[Patch] Small file append successful, new line count: %d', #new_lines)
       return new_lines
     end
   end
   local location, score = get_best_location(lines, edit)
   if score < 0.5 then
     local error_msg = string.format(
-      "Could not confidently apply edit (confidence: %.1f%%). %s",
+      'Could not confidently apply edit (confidence: %.1f%%). %s',
       score * 100,
       score < 0.2 and "The context doesn't match the file content."
-        or "Try providing more specific context or checking for formatting differences."
+        or 'Try providing more specific context or checking for formatting differences.'
     )
-    log:debug("[Patch] Low confidence score (%.2f), edit details: %s", score, Patch.format(edit))
+    log:debug('[Patch] Low confidence score (%.2f), edit details: %s', score, Patch.format(edit))
     return nil, error_msg
   end
   local new_lines = {}
@@ -350,14 +350,14 @@ function Patch.apply(lines, edit)
   local fix_spaces
   -- infer adjustment of spaces from the delete line
   if score ~= 1 and #edit.old > 0 then
-    if edit.old[1] == " " .. lines[location] then
+    if edit.old[1] == ' ' .. lines[location] then
       -- diff patch added and extra space on left
       fix_spaces = function(ln)
         return ln:sub(2)
       end
     elseif #edit.old[1] < #lines[location] then
       -- diff removed spaces on left
-      local prefix = string.rep(" ", #lines[location] - #edit.old[1])
+      local prefix = string.rep(' ', #lines[location] - #edit.old[1])
       fix_spaces = function(ln)
         return prefix .. ln
       end
@@ -399,11 +399,11 @@ end
 ---@return string Formatted string
 function Patch.format(edit)
   local parts = {
-    prefix_join(edit.focus, "\n", "@@"),
-    prefix_join(edit.pre, "\n"),
-    prefix_join(edit.old, "\n", "-"),
-    prefix_join(edit.new, "\n", "+"),
-    prefix_join(edit.post, "\n"),
+    prefix_join(edit.focus, '\n', '@@'),
+    prefix_join(edit.pre, '\n'),
+    prefix_join(edit.old, '\n', '-'),
+    prefix_join(edit.new, '\n', '+'),
+    prefix_join(edit.post, '\n'),
   }
   local non_empty = {}
   for _, part in ipairs(parts) do
@@ -411,7 +411,7 @@ function Patch.format(edit)
       table.insert(non_empty, part)
     end
   end
-  return table.concat(non_empty, "\n")
+  return table.concat(non_empty, '\n')
 end
 
 return Patch
