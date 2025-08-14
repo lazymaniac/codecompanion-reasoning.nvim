@@ -6,8 +6,19 @@ if not log_ok then
   -- Fallback logging when CodeCompanion log is not available
   log = {
     debug = function(...) end,
-    error = function(...)
-      vim.notify(string.format(...), vim.log.levels.ERROR)
+    error = function(template, ...)
+      local args = { ... }
+      -- Convert all args to strings to avoid formatting errors
+      for i = 1, #args do
+        args[i] = tostring(args[i])
+      end
+      -- Use pcall to safely format the message
+      local success, message = pcall(string.format, template, unpack(args))
+      if success then
+        vim.notify(message, vim.log.levels.ERROR)
+      else
+        vim.notify('Error formatting log message: ' .. tostring(template), vim.log.levels.ERROR)
+      end
     end,
   }
 end
@@ -109,7 +120,7 @@ function ReasoningAgentBase.create_tool_definition(agent_config)
       if success then
         return result
       else
-        log:error('[%s] Failed to generate system prompt: %s', agent_type, result)
+        log:error('[%s] Failed to generate system prompt: %s', agent_type, tostring(result))
         return 'You are a helpful AI assistant specialized in ' .. agent_type .. '.'
       end
     end,

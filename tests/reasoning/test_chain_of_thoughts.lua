@@ -5,11 +5,11 @@ local new_set = MiniTest.new_set
 local child = MiniTest.new_child_neovim()
 local T = new_set({
   hooks = {
-    pre_case = function()
+    pre_once = function()
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        ChainOfThoughts = require('codecompanion.strategies.chat.tools.catalog.helpers.reasoning.chain_of_thoughts')
+        ChainOfThoughts = require('codecompanion._extensions.reasoning.reasoning.chain_of_thoughts')
       ]])
     end,
     post_once = child.stop,

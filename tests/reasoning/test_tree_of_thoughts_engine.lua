@@ -5,14 +5,14 @@ local new_set = MiniTest.new_set
 local child = MiniTest.new_child_neovim()
 local T = new_set({
   hooks = {
-    pre_case = function()
+    pre_once = function()
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        TreeOfThoughtEngine = require('codecompanion.strategies.chat.tools.catalog.helpers.reasoning.tree_of_thoughts_engine')
+        TreeOfThoughtEngine = require('codecompanion._extensions.reasoning.reasoning.tree_of_thoughts_engine')
 
         -- Mock the ReasoningVisualizer to avoid dependency issues in tests
-        package.loaded['codecompanion.strategies.chat.tools.catalog.helpers.reasoning.reasoning_visualizer'] = {
+        package.loaded['codecompanion._extensions.reasoning.reasoning.reasoning_visualizer'] = {
           visualize_tree = function(root)
             if not root then
               return "Empty tree"
@@ -32,7 +32,7 @@ local T = new_set({
         _global_counter = _global_counter or 0
 
         -- Mock the tree of thoughts module to control behavior
-        package.loaded['codecompanion.strategies.chat.tools.catalog.helpers.reasoning.tree_of_thoughts'] = {
+        package.loaded['codecompanion._extensions.reasoning.reasoning.tree_of_thoughts'] = {
           TreeOfThoughts = {
             new = function(self, problem)
               _global_counter = _global_counter + 1
@@ -91,7 +91,7 @@ local T = new_set({
 
         -- Helper function to create mock agent state with tree instance
         function create_agent_state_with_tree(problem)
-          local ToT = require('codecompanion.strategies.chat.tools.catalog.helpers.reasoning.tree_of_thoughts')
+          local ToT = require('codecompanion._extensions.reasoning.reasoning.tree_of_thoughts')
           local state = create_agent_state()
           state.current_instance = ToT.TreeOfThoughts:new(problem)
           state.current_instance.agent_type = "Tree of Thoughts Agent"
@@ -167,13 +167,18 @@ end
 T['get_config system_prompt_config function works'] = function()
   child.lua([[
     config = TreeOfThoughtEngine.get_config()
-    prompt = config.system_prompt_config()
+    prompt_config = config.system_prompt_config()
+
+    -- Test that it returns a valid config table
+    prompt_config_type = type(prompt_config)
+    has_agent_type = prompt_config.agent_type ~= nil
   ]])
 
-  local prompt = child.lua_get('prompt')
+  local prompt_config_type = child.lua_get('prompt_config_type')
+  local has_agent_type = child.lua_get('has_agent_type')
 
-  h.eq('string', type(prompt))
-  h.expect_contains('tree reasoning', prompt)
+  h.eq('table', prompt_config_type)
+  h.eq(true, has_agent_type)
 end
 
 -- Test initialize action

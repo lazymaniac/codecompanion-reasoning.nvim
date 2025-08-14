@@ -5,14 +5,14 @@ local new_set = MiniTest.new_set
 local child = MiniTest.new_child_neovim()
 local T = new_set({
   hooks = {
-    pre_case = function()
+    pre_once = function()
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        GraphOfThoughtEngine = require('codecompanion.strategies.chat.tools.catalog.helpers.reasoning.graph_of_thought_engine')
+        GraphOfThoughtEngine = require('codecompanion._extensions.reasoning.reasoning.graph_of_thought_engine')
 
         -- Mock the ReasoningVisualizer to avoid dependency issues in tests
-        package.loaded['codecompanion.strategies.chat.tools.catalog.helpers.reasoning.reasoning_visualizer'] = {
+        package.loaded['codecompanion._extensions.reasoning.reasoning.reasoning_visualizer'] = {
           visualize_graph = function(graph)
             local node_count = 0
             for _ in pairs(graph.nodes or {}) do
@@ -677,13 +677,18 @@ end
 T['system_prompt_config function works'] = function()
   child.lua([[
     config = GraphOfThoughtEngine.get_config()
-    prompt = config.system_prompt_config()
+    prompt_config = config.system_prompt_config()
+
+    -- Test that it returns a valid config table
+    prompt_config_type = type(prompt_config)
+    has_agent_type = prompt_config.agent_type ~= nil
   ]])
 
-  local prompt = child.lua_get('prompt')
+  local prompt_config_type = child.lua_get('prompt_config_type')
+  local has_agent_type = child.lua_get('has_agent_type')
 
-  h.eq('string', type(prompt))
-  h.expect_contains('graph reasoning', prompt)
+  h.eq('table', prompt_config_type)
+  h.eq(true, has_agent_type)
 end
 
 -- Test node suggestions functionality

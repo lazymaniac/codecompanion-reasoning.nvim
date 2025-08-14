@@ -5,11 +5,11 @@ local new_set = MiniTest.new_set
 local child = MiniTest.new_child_neovim()
 local T = new_set({
   hooks = {
-    pre_case = function()
+    pre_once = function()
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        GoT = require('codecompanion.strategies.chat.tools.catalog.helpers.reasoning.graph_of_thoughts')
+        GoT = require('codecompanion._extensions.reasoning.reasoning.graph_of_thoughts')
         ThoughtNode = GoT.ThoughtNode
         Edge = GoT.Edge
         GraphOfThoughts = GoT.GraphOfThoughts

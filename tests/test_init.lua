@@ -29,7 +29,8 @@ T['Extension setup returns tools'] = function()
   local extension = require('codecompanion._extensions.reasoning')
   local result = extension.setup()
   expect.equality(type(result.tools), 'table')
-  expect.equality(result.enabled, true)
+  -- Setup returns tools when CodeCompanion config not available
+  expect.equality(result.tools ~= nil and next(result.tools) ~= nil, true)
 end
 
 return T

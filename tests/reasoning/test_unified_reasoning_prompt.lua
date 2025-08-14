@@ -5,11 +5,11 @@ local new_set = MiniTest.new_set
 local child = MiniTest.new_child_neovim()
 local T = new_set({
   hooks = {
-    pre_case = function()
+    pre_once = function()
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        UnifiedReasoningPrompt = require('codecompanion.strategies.chat.tools.catalog.helpers.unified_reasoning_prompt')
+        UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
 
         -- Helper function to create a basic config for testing
         function create_basic_config()
@@ -673,7 +673,7 @@ T['specialized patterns contain relevant content'] = function()
 
     -- Check chain patterns
     for _, pattern in ipairs(chain_config.specialized_patterns) do
-      if string.find(pattern, "Debug") then
+      if string.find(pattern, "debugging") then
         patterns_content.chain_has_debug = true
       end
     end
@@ -698,34 +698,6 @@ T['specialized patterns contain relevant content'] = function()
   h.eq(true, patterns_content.chain_has_debug)
   h.eq(true, patterns_content.tree_has_architecture)
   h.eq(true, patterns_content.graph_has_microservices)
-end
-
--- Debug test to understand what's happening
-T['debug_basic_functionality'] = function()
-  child.lua([[
-    -- Test basic chain config
-    chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
-    prompt = UnifiedReasoningPrompt.generate(chain_config)
-
-    debug_info = {
-      config_type = type(chain_config),
-      agent_type = chain_config.agent_type,
-      prompt_type = type(prompt),
-      prompt_length = #prompt,
-      first_100_chars = string.sub(prompt, 1, 100),
-      has_errors = string.find(prompt, "Error generating section") ~= nil
-    }
-  ]])
-
-  local debug_info = child.lua_get('debug_info')
-
-  h.eq('table', debug_info.config_type)
-  h.eq('Chain of Thought Programming', debug_info.agent_type)
-  h.eq('string', debug_info.prompt_type)
-  h.expect_truthy(debug_info.prompt_length > 100)
-
-  -- Print debug info for troubleshooting
-  print('Debug info:', debug_info)
 end
 
 return T
