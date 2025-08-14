@@ -25,7 +25,7 @@ This extension provides sophisticated AI reasoning capabilities including Chain 
 
 ```lua
 {
-  "your-username/codecompanion-reasoning.nvim",
+  "lazymaniac/codecompanion-reasoning.nvim",
   dependencies = {
     "olimorris/codecompanion.nvim",
   },
@@ -39,7 +39,7 @@ This extension provides sophisticated AI reasoning capabilities including Chain 
 
 ```lua
 use {
-  "your-username/codecompanion-reasoning.nvim",
+  "lazymaniac/codecompanion-reasoning.nvim",
   requires = { "olimorris/codecompanion.nvim" },
   config = function()
     require("codecompanion-reasoning").setup()
@@ -59,7 +59,8 @@ require("codecompanion-reasoning").setup({
 
 ### Integration with CodeCompanion
 
-The extension automatically registers with CodeCompanion when installed. You can also manually register it:
+The extension automatically registers with CodeCompanion when installed. You can
+also manually register it:
 
 ```lua
 require("codecompanion").setup({
@@ -199,4 +200,4 @@ MIT License - see LICENSE file for details.
 
 ## Credits
 
-This extension extracts and packages the reasoning tools originally developed for the CodeCompanion.nvim project.
+@olimorris for such a great plugin
