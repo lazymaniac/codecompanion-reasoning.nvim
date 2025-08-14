@@ -65,13 +65,7 @@ also manually register it:
 ```lua
 require("codecompanion").setup({
   extensions = {
-    reasoning = {
-      enabled = true,
-      opts = {
-        -- Extension-specific options
-      },
-      callback = require("codecompanion._extensions.reasoning"),
-    },
+    reasoning = { callback = 'codecompanion._extensions.reasoning', opts = { enabled = true } },
   },
 })
 ```
@@ -79,39 +73,48 @@ require("codecompanion").setup({
 ## Available Tools
 
 ### Chain of Thoughts Agent
+
 Sequential reasoning tool that breaks down complex problems into logical steps.
 
 **Use cases:**
+
 - Complex algorithmic problems
 - Step-by-step debugging
 - Methodical code refactoring
 
 ### Tree of Thoughts Agent
+
 Explores multiple solution paths simultaneously, evaluating different approaches.
 
 **Use cases:**
+
 - Design decisions with multiple viable options
 - Performance optimization with trade-offs
 - Architecture planning
 
 ### Graph of Thoughts Agent
+
 Network-based reasoning that connects related concepts and explores relationships.
 
 **Use cases:**
+
 - System integration problems
 - Dependency analysis
 - Complex refactoring across modules
 
 ### Ask User Tool
+
 Interactive tool that consults the user when multiple valid approaches exist.
 
 **Features:**
+
 - Clear question formatting
 - Multiple choice options
 - Context explanation
 - Custom response handling
 
 **Example usage:**
+
 ```
 The AI will automatically use this tool when it encounters:
 - Multiple valid solutions
@@ -121,9 +124,11 @@ The AI will automatically use this tool when it encounters:
 ```
 
 ### Meta Reasoning Governor
+
 Automatically selects the most appropriate reasoning agent based on the problem type.
 
 ### Tool Discovery
+
 Dynamically discovers and suggests relevant tools for the current task.
 
 ## Usage
@@ -149,40 +154,6 @@ make test  # Run tests
 
 ```bash
 make format  # Format code with stylua
-```
-
-### Project Structure
-
-```
-codecompanion-reasoning.nvim/
-├── lua/
-│   ├── codecompanion/
-│   │   └── _extensions/
-│   │       └── reasoning/
-│   │           ├── init.lua                    # Main extension entry point
-│   │           ├── reasoning/                  # Core reasoning engines
-│   │           │   ├── chain_of_thoughts.lua
-│   │           │   ├── tree_of_thoughts.lua
-│   │           │   ├── graph_of_thoughts.lua
-│   │           │   ├── reasoning_agent_base.lua
-│   │           │   └── reasoning_visualizer.lua
-│   │           ├── tools/                      # Tool implementations
-│   │           │   ├── ask_user.lua
-│   │           │   ├── chain_of_thoughts_agent.lua
-│   │           │   ├── tree_of_thoughts_agent.lua
-│   │           │   ├── graph_of_thoughts_agent.lua
-│   │           │   ├── meta_reasoning_governor.lua
-│   │           │   └── tool_discovery.lua
-│   │           └── unified_reasoning_prompt.lua
-│   └── codecompanion-reasoning.lua            # Main plugin interface
-├── plugin/
-│   └── codecompanion-reasoning.lua            # Plugin initialization
-├── tests/                                     # Test files
-├── scripts/
-│   └── minimal_init.lua                       # Test setup
-├── stylua.toml                               # Code formatting config
-├── Makefile                                  # Build tasks
-└── README.md
 ```
 
 ## Contributing
