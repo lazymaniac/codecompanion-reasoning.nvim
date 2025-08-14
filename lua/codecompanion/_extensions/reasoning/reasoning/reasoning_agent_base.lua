@@ -1,7 +1,14 @@
 ---@class CodeCompanion.ReasoningAgentBase
 
 local UnifiedReasoningPrompt = require("codecompanion._extensions.reasoning.unified_reasoning_prompt")
-local log = require("codecompanion.utils.log")
+local log_ok, log = pcall(require, "codecompanion.utils.log")
+if not log_ok then
+  -- Fallback logging when CodeCompanion log is not available
+  log = {
+    debug = function(...) end,
+    error = function(...) vim.notify(string.format(...), vim.log.levels.ERROR) end,
+  }
+end
 local fmt = string.format
 
 local ReasoningAgentBase = {}

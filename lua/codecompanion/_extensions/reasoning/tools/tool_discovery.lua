@@ -1,7 +1,25 @@
-local ToolFilter = require("codecompanion.strategies.chat.tools.tool_filter")
-local Tools = require("codecompanion.strategies.chat.tools.init")
-local config = require("codecompanion.config")
-local log = require("codecompanion.utils.log")
+local tool_filter_ok, ToolFilter = pcall(require, "codecompanion.strategies.chat.tools.tool_filter")
+if not tool_filter_ok then
+  ToolFilter = { filter = function() return {} end }
+end
+
+local tools_ok, Tools = pcall(require, "codecompanion.strategies.chat.tools.init")
+if not tools_ok then
+  Tools = { get_tools = function() return {} end }
+end
+
+local config_ok, config = pcall(require, "codecompanion.config")
+if not config_ok then
+  config = { strategies = { chat = { tools = {} } } }
+end
+
+local log_ok, log = pcall(require, "codecompanion.utils.log")
+if not log_ok then
+  log = {
+    debug = function(...) end,
+    error = function(...) vim.notify(string.format(...), vim.log.levels.ERROR) end,
+  }
+end
 local fmt = string.format
 
 ---Extract the first sentence from a description

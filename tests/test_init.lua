@@ -13,23 +13,23 @@ local T = MiniTest.new_set({
 
 T["Extension loads"] = function()
   local ok, extension = pcall(require, "codecompanion._extensions.reasoning")
-  expect.truthy(ok)
-  expect.truthy(extension.setup)
-  expect.truthy(extension.exports)
+  expect.equality(ok, true)
+  expect.equality(type(extension.setup), "function")
+  expect.equality(type(extension.exports), "table")
 end
 
 T["Main module loads"] = function()
   local ok, main = pcall(require, "codecompanion-reasoning")
-  expect.truthy(ok)
-  expect.truthy(main.setup)
-  expect.truthy(main.get_tools)
+  expect.equality(ok, true)
+  expect.equality(type(main.setup), "function")
+  expect.equality(type(main.get_tools), "function")
 end
 
 T["Extension setup returns tools"] = function()
   local extension = require("codecompanion._extensions.reasoning")
   local result = extension.setup()
-  expect.truthy(result.tools)
-  expect.truthy(result.enabled)
+  expect.equality(type(result.tools), "table")
+  expect.equality(result.enabled, true)
 end
 
 return T

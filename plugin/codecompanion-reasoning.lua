@@ -13,15 +13,24 @@ if not ok then
   return
 end
 
--- Register the reasoning extension
+-- Extension registration is handled through CodeCompanion configuration
+-- Users should add this to their CodeCompanion setup:
+--
+-- require("codecompanion").setup({
+--   extensions = {
+--     reasoning = {
+--       callback = require("codecompanion._extensions.reasoning"),
+--     }
+--   }
+-- })
+
+-- Test that the extension can be loaded
 local extension_ok, extension = pcall(require, "codecompanion._extensions.reasoning")
-if extension_ok then
-  codecompanion.register_extension("reasoning", {
-    callback = extension,
-    opts = {
-      enabled = true,
-    },
-  })
+if not extension_ok then
+  vim.notify("CodeCompanion Reasoning: Failed to load extension - " .. tostring(extension), vim.log.levels.ERROR)
+elseif type(extension.setup) ~= "function" then
+  vim.notify("CodeCompanion Reasoning: Extension missing setup function", vim.log.levels.ERROR)
 else
-  vim.notify("CodeCompanion Reasoning: Failed to load extension", vim.log.levels.ERROR)
+  -- Extension loaded successfully but not auto-registered
+  -- User needs to configure it in their CodeCompanion setup
 end

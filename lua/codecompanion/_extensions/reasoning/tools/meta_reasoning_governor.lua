@@ -1,5 +1,17 @@
-local config = require("codecompanion.config")
-local log = require("codecompanion.utils.log")
+local config_ok, config = pcall(require, "codecompanion.config")
+if not config_ok then
+  config = { strategies = { chat = { tools = {} } } }
+end
+
+local log_ok, log = pcall(require, "codecompanion.utils.log")
+if not log_ok then
+  log = {
+    debug = function(...) end,
+    error = function(...)
+      vim.notify(string.format(...), vim.log.levels.ERROR)
+    end,
+  }
+end
 local fmt = string.format
 
 -- Simple meta-reasoning governor: problem in, agent out

@@ -2,7 +2,14 @@
 
 local GoT = require("codecompanion._extensions.reasoning.reasoning.graph_of_thoughts")
 local ReasoningVisualizer = require("codecompanion._extensions.reasoning.reasoning.reasoning_visualizer")
-local log = require("codecompanion.utils.log")
+local log_ok, log = pcall(require, "codecompanion.utils.log")
+if not log_ok then
+  -- Fallback logging when CodeCompanion log is not available
+  log = {
+    debug = function(...) end,
+    error = function(...) vim.notify(string.format(...), vim.log.levels.ERROR) end,
+  }
+end
 local fmt = string.format
 
 local GraphOfThoughtEngine = {}
@@ -243,7 +250,7 @@ function GraphOfThoughtEngine.get_config()
     },
     system_prompt_config = function()
       local UnifiedReasoningPrompt = require("codecompanion._extensions.reasoning.unified_reasoning_prompt")
-      return UnifiedReasoningPrompt.generate_for_reasoning("graph")
+      return UnifiedReasoningPrompt.get_optimized_config("graph")
     end,
   }
 end
