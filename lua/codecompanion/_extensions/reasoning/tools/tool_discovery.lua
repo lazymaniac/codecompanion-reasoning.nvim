@@ -62,9 +62,21 @@ local function get_all_tools_with_schemas()
   local enabled_tools = ToolFilter.filter_enabled_tools(tools_config)
   local result = {}
 
+  -- Tools to exclude from discovery (these are automatically added or are primary agents)
+  local excluded_tools = {
+    -- Reasoning agents (selected directly, not addable)
+    ['chain_of_thoughts_agent'] = true,
+    ['tree_of_thoughts_agent'] = true,
+    ['graph_of_thoughts_agent'] = true,
+    ['meta_agent'] = true,
+    -- Companion tools (automatically added with reasoning agents)
+    ['ask_user'] = true,
+    ['tool_discovery'] = true,
+  }
+
   for tool_name, tool_config in pairs(tools_config) do
-    -- Skip special keys
-    if tool_name ~= 'opts' and tool_name ~= 'groups' then
+    -- Skip special keys and excluded tools
+    if tool_name ~= 'opts' and tool_name ~= 'groups' and not excluded_tools[tool_name] then
       local is_enabled = enabled_tools[tool_name] or false
 
       local tool_info = {
@@ -140,13 +152,24 @@ local function list_tools()
   local all_tools = get_all_tools_with_schemas()
 
   local output = {}
-  table.insert(output, '# Available Tools')
 
-  local tool_count = #all_tools
+  -- Count tools by status for summary
+  local enabled_count = 0
+  local total_count = 0
+  for _, tool_info in pairs(all_tools) do
+    total_count = total_count + 1
+    if tool_info.enabled then
+      enabled_count = enabled_count + 1
+    end
+  end
 
-  table.insert(output, fmt('**Total tools:** %d', tool_count))
-
-  table.insert(output, '\n## Tools:')
+  -- First line contains the most important summary
+  table.insert(
+    output,
+    fmt('✅ Found %d tools available (%d enabled) - Ready to enhance your workflow', total_count, enabled_count)
+  )
+  table.insert(output, '')
+  table.insert(output, '## Available Tools:')
 
   local tools_list = {}
   for tool_name, tool_info in pairs(all_tools) do
@@ -183,6 +206,36 @@ local pending_tool_addition = nil
 local function handle_add_tool(args)
   if not args.tool_name then
     return { status = 'error', data = 'tool_name is required' }
+  end
+
+  -- Tools that cannot be added (these are automatically added or are primary agents)
+  local excluded_tools = {
+    -- Reasoning agents (selected directly, not addable)
+    ['chain_of_thoughts_agent'] = true,
+    ['tree_of_thoughts_agent'] = true,
+    ['graph_of_thoughts_agent'] = true,
+    ['meta_agent'] = true,
+    -- Companion tools (automatically added with reasoning agents)
+    ['ask_user'] = true,
+    ['tool_discovery'] = true,
+  }
+
+  -- Check if trying to add an excluded tool
+  if excluded_tools[args.tool_name] then
+    if args.tool_name:match('_agent$') or args.tool_name == 'meta_agent' then
+      return {
+        status = 'error',
+        data = fmt(
+          "'%s' is a reasoning agent, not an addable tool. Reasoning agents are selected directly when starting a chat.",
+          args.tool_name
+        ),
+      }
+    else
+      return {
+        status = 'error',
+        data = fmt("'%s' is automatically added as a companion tool when using reasoning agents.", args.tool_name),
+      }
+    end
   end
 
   -- Get tool info including disabled tools
@@ -302,7 +355,7 @@ Use this tool to discover available tools and add them to the chat as needed for
           chat.tool_registry:add(tool_name, tool_config)
 
           local success_message = fmt(
-            [[# Tool %s added to the chat! 🔧
+            [[✅ Tool '%s' successfully added and ready to use! 🔧
 
 The %s has been dynamically added to this chat and is now available for use with its complete schema and instructions.
 
@@ -318,7 +371,7 @@ You can now use the %s directly. The tool comes with:
 
           chat:add_tool_output(self, success_message, success_message)
         else
-          chat:add_tool_output(self, fmt('[ERROR] Failed to add tool: %s', tool_name))
+          chat:add_tool_output(self, fmt('❌ FAILED to add tool: %s (tool config or registry unavailable)', tool_name))
         end
       else
         log:debug('[Tool Discovery] Success output generated, length: %d', #result)
@@ -335,7 +388,7 @@ You can now use the %s directly. The tool comes with:
       local errors = vim.iter(stderr):flatten():join('\n')
       pending_tool_addition = nil -- Clear pending state on error
       log:debug('[Tool Discovery] Error occurred: %s', errors)
-      chat:add_tool_output(self, fmt('[ERROR] Tool Discovery: %s', errors))
+      chat:add_tool_output(self, fmt('❌ Tool Discovery ERROR: %s', errors))
     end,
   },
 }

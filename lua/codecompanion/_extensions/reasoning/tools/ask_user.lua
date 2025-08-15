@@ -77,8 +77,13 @@ return {
       local result = vim.iter(stdout):flatten():join('\n')
       local question = self.args.question or 'No question provided'
 
-      -- Format the user response for chat
-      local output = fmt('**User Response:**\n%s\n\n**Original Question:** %s', result, question)
+      -- Format the user response for chat - put response summary first
+      local response_summary = result:gsub('\n.*', '') -- Get first line only for summary
+      if #response_summary > 80 then
+        response_summary = response_summary:sub(1, 77) .. '...'
+      end
+      local output = fmt('💬 User responded: %s\n\n**Full Response:**\n%s\n\n**Original Question:** %s', 
+        response_summary, result, question)
       chat:add_tool_output(self, output)
     end,
 
@@ -86,7 +91,7 @@ return {
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
       local question = self.args.question or 'No question provided'
-      local output = fmt('**User cancelled:** %s\n\n**Original Question:** %s', errors, question)
+      local output = fmt('❌ User cancelled or error occurred: %s\n\n**Original Question:** %s', errors, question)
       chat:add_tool_output(self, output)
     end,
   },

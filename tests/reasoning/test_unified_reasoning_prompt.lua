@@ -243,7 +243,7 @@ T['generate creates tool_mastery section'] = function()
   h.expect_contains('STRATEGIC OPTIMIZATION', prompt)
   h.expect_contains('DISCOVERY PROTOCOL', prompt)
   h.expect_contains('tool_discovery', prompt)
-  h.expect_contains('STRATEGIC USAGE PATTERNS', prompt)
+  h.expect_contains('STRATEGIC MINDSET', prompt)
 end
 
 T['generate creates execution_mastery section'] = function()

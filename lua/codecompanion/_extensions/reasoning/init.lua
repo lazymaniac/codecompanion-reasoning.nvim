@@ -7,7 +7,7 @@ local function register_tools()
     'chain_of_thoughts_agent',
     'tree_of_thoughts_agent',
     'graph_of_thoughts_agent',
-    'meta_reasoning_governor',
+    'meta_agent',
     'tool_discovery',
   }
 

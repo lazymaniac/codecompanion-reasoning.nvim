@@ -505,7 +505,7 @@ T['error handler adds error output to chat'] = function()
   local output_content = child.lua_get('output_content')
 
   h.eq(true, output_added)
-  h.expect_contains('[ERROR]', output_content)
+  h.expect_contains('ERROR', output_content)
   h.expect_contains('Test Agent', output_content)
   h.expect_contains('error1', output_content)
   h.expect_contains('error2', output_content)

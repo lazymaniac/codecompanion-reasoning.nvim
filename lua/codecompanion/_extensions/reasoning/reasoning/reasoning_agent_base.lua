@@ -29,6 +29,73 @@ ReasoningAgentBase.__index = ReasoningAgentBase
 
 local global_agent_states = {}
 
+-- Track which agents have had their companion tools added
+local companion_tools_added = {}
+
+-- Add companion tools (ask_user and tool_discovery) to the chat
+function ReasoningAgentBase.add_companion_tools(agent, agent_type)
+  local chat = agent.chat
+  if not chat or not chat.tool_registry then
+    log:debug('[%s] No tool registry available for companion tools', agent_type)
+    return
+  end
+
+  local chat_id = chat.id or 'default'
+
+  -- Check if we've already added tools for this chat
+  if companion_tools_added[chat_id] then
+    return
+  end
+
+  log:debug('[%s] Adding companion tools to chat', agent_type)
+
+  -- Get the config to access the tools
+  local config_ok, config = pcall(require, 'codecompanion.config')
+  if not config_ok then
+    log:debug('[%s] CodeCompanion config not available', agent_type)
+    return
+  end
+
+  local tools_to_add = { 'ask_user', 'tool_discovery' }
+  local added_tools = {}
+
+  for _, tool_name in ipairs(tools_to_add) do
+    local tool_config = config.strategies.chat.tools[tool_name]
+    if tool_config then
+      local success, err = pcall(function()
+        chat.tool_registry:add(tool_name, tool_config)
+        table.insert(added_tools, tool_name)
+        log:debug('[%s] Added companion tool: %s', agent_type, tool_name)
+      end)
+      if not success then
+        log:debug('[%s] Failed to add companion tool %s: %s', agent_type, tool_name, tostring(err))
+      end
+    else
+      log:debug('[%s] Tool config not found for: %s', agent_type, tool_name)
+    end
+  end
+
+  if #added_tools > 0 then
+    companion_tools_added[chat_id] = true
+
+    -- Notify user about added tools - put summary first
+    local tools_summary = table.concat(added_tools, ', ')
+    local message = string.format(
+      '🔧 Reasoning agent enhanced with %d companion tools: %s\n\nThese tools are now available to support your reasoning process:\n- **ask_user**: Get input when decisions require user expertise\n- **tool_discovery**: Find and add additional tools as needed',
+      #added_tools,
+      tools_summary
+    )
+
+    vim.schedule(function()
+      chat:add_message({
+        role = vim.g.codecompanion_role or 'user',
+        content = message,
+        tag = 'system_info',
+      })
+    end)
+  end
+end
+
 function ReasoningAgentBase.get_state(agent_type)
   if not global_agent_states[agent_type] then
     global_agent_states[agent_type] = {
@@ -70,6 +137,11 @@ function ReasoningAgentBase.create_tool_definition(agent_config)
 
     local agent_state = ReasoningAgentBase.get_state(agent_type)
     agent_state.tool_instance = tool_instance
+
+    -- Add companion tools when agent is first used
+    if tool_instance and tool_instance.chat then
+      ReasoningAgentBase.add_companion_tools(tool_instance, agent_type)
+    end
 
     -- Validate action and arguments
     local valid_actions = vim.tbl_keys(validation_rules)
@@ -150,7 +222,7 @@ function ReasoningAgentBase.create_output_handlers(agent_type)
       local agent_state = ReasoningAgentBase.get_state(agent_type)
       log:debug('[%s] Error occurred - session: %s', agent_type, agent_state.session_id or 'none')
       log:debug('[%s] Error details: %s', agent_type, errors)
-      local error_output = fmt('[ERROR] %s: %s', agent_type, errors)
+      local error_output = fmt('❌ %s ERROR: %s', agent_type, errors)
       chat:add_tool_output(self, error_output)
     end,
 
@@ -171,7 +243,7 @@ function ReasoningAgentBase.create_output_handlers(agent_type)
         self.args and self.args.action or 'unknown',
         feedback or 'none'
       )
-      local message = fmt('%s: User declined to execute %s', agent_type, self.args and self.args.action or 'action')
+      local message = fmt('❌ %s: User declined to execute %s', agent_type, self.args and self.args.action or 'action')
       if feedback and feedback ~= '' then
         message = message .. fmt(' with feedback: %s', feedback)
       end
