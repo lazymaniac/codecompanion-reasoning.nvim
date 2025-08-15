@@ -170,6 +170,9 @@ local function list_tools()
   )
   table.insert(output, '')
   table.insert(output, '## Available Tools:')
+  table.insert(output, '')
+  table.insert(output, '**NEXT STEP: After reviewing this list, immediately call this function with action="add_tool" to add the tools you need!**')
+  table.insert(output, '')
 
   local tools_list = {}
   for tool_name, tool_info in pairs(all_tools) do
@@ -188,6 +191,11 @@ local function list_tools()
     local trimmed_description = extract_first_sentence(tool_info.description)
     table.insert(output, fmt('- %s **%s:** %s', status, tool_name, trimmed_description))
   end
+
+  table.insert(output, '')
+  table.insert(output, '---')
+  table.insert(output, '**TO ADD A TOOL:** Call this function again with action="add_tool" and tool_name="exact_name_from_above"')
+  table.insert(output, '**Example:** Call with action="add_tool" and tool_name="edit" to add file editing capability')
 
   return table.concat(output, '\n')
 end
@@ -289,13 +297,13 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tool_discovery',
-      description = 'Discover and add coding tools: list available tools and add them to enhance your capabilities for the current task.',
+      description = 'Two-step tool management: STEP 1: list_tools to see available tools, STEP 2: add_tool to add specific tools to your chat. Always complete both steps.',
       parameters = {
         type = 'object',
         properties = {
           action = {
             type = 'string',
-            description = "'list_tools' to see available tools, 'add_tool' to add a specific tool to current chat",
+            description = "STEP 1: 'list_tools' to see available tools, STEP 2: 'add_tool' to actually add a specific tool to current chat",
             enum = { 'list_tools', 'add_tool' },
           },
           tool_name = {
@@ -312,30 +320,33 @@ return {
   system_prompt = [[# ROLE
 You discover and add coding tools to enhance task capabilities.
 
-# USAGE PATTERN
-1. When facing unfamiliar tasks → Use 'list_tools' to see what's available
-2. When you need specific capability → Use 'add_tool' with exact tool name
-3. Proactively discover tools before asking user to add them manually
+# MANDATORY 2-STEP WORKFLOW
+STEP 1: Call tool_discovery with action="list_tools" to see available tools
+STEP 2: Call tool_discovery with action="add_tool" and tool_name="exact_name" to add specific tools
+
+CRITICAL: You MUST make TWO separate tool_discovery calls - first to list, then to add!
+
+# USAGE PATTERN FOR OPEN-SOURCE MODELS
+1. Need file editing? → list_tools → add_tool with "edit" or "write" tool
+2. Need testing tools? → list_tools → add_tool with specific test tool name
+3. NEVER just list tools - ALWAYS follow with add_tool calls
+
+# AFTER LISTING TOOLS
+When you see the tool list, immediately call add_tool for the tools you need:
+- For file changes: add_tool with name like "edit", "write", "file_editor"
+- For testing: add_tool with testing tool names
+- For builds: add_tool with build tool names
 
 # DECISION LOGIC
-- File operations mentioned → Look for "edit", "write", "modify" tools
-- Code changes needed → ALWAYS suggest file editing tools first
-- Testing/CI/CD mentioned → Look for testing tools
-- Analysis/debugging → Look for analysis tools
-- Build/deploy → Look for build tools
-- User says "I need X" → Discover X instead of asking them to add it
-
-# PRIORITY TOOLS FOR CODING
-- File editing tools (edit, write, modify) should be suggested immediately for any code changes
-- Always prefer automated tools over manual user actions
-
-# WORKFLOW
-list_tools → review capabilities → add_tool [name] → use new tool
+- Code changes needed → list_tools → add_tool "edit" (or similar)
+- Testing needed → list_tools → add_tool [test tool name]
+- Analysis needed → list_tools → add_tool [analysis tool name]
 
 # CONSTRAINTS
-- Always use exact tool names for add_tool
-- Don't add reasoning agents (they're selected via meta_agent)
-- Don't add ask_user/tool_discovery (auto-added)]],
+- ALWAYS make add_tool calls after listing
+- Use exact tool names from the list
+- Don't add reasoning agents (use meta_agent)
+- Complete the workflow: list → add → use]],
   output = {
     ---@param self CodeCompanion.Tool.ToolDiscovery
     ---@param agent CodeCompanion.Tools.Tool
