@@ -9,10 +9,10 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        GraphOfThoughtEngine = require('codecompanion._extensions.reasoning.reasoning.graph_of_thought_engine')
+        GraphOfThoughtsAgent = require('codecompanion._extensions.reasoning.tools.graph_of_thoughts_agent')
 
         -- Mock the ReasoningVisualizer to avoid dependency issues in tests
-        package.loaded['codecompanion._extensions.reasoning.reasoning.reasoning_visualizer'] = {
+        package.loaded['codecompanion._extensions.reasoning.helpers.reasoning_visualizer'] = {
           visualize_graph = function(graph)
             local node_count = 0
             for _ in pairs(graph.nodes or {}) do

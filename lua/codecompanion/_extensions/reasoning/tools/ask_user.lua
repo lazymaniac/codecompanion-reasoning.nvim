@@ -43,22 +43,22 @@ return {
     type = 'function',
     ['function'] = {
       name = 'ask_user',
-      description = 'Ask the user a question when multiple valid approaches exist or when user input is needed for decision making.',
+      description = 'Interactive consultation: ask user for coding decisions when multiple valid approaches exist or when user expertise is needed.',
       parameters = {
         type = 'object',
         properties = {
           question = {
             type = 'string',
-            description = 'The question to ask the user. Be clear and specific about what decision needs to be made.',
+            description = 'Clear, specific question about coding decision that needs user input',
           },
           options = {
             type = 'array',
             items = { type = 'string' },
-            description = 'Optional list of predefined choices. If provided, user can select by number or provide custom response.',
+            description = 'Numbered choices for user (optional). User can select by number or provide custom response',
           },
           context = {
             type = 'string',
-            description = 'Additional context about why this decision is needed and what the implications are.',
+            description = 'Why this decision matters and what the implications are for the code',
           },
         },
         required = {
@@ -82,8 +82,12 @@ return {
       if #response_summary > 80 then
         response_summary = response_summary:sub(1, 77) .. '...'
       end
-      local output = fmt('💬 User responded: %s\n\n**Full Response:**\n%s\n\n**Original Question:** %s', 
-        response_summary, result, question)
+      local output = fmt(
+        '💬 User responded: %s\n\n**Full Response:**\n%s\n\n**Original Question:** %s',
+        response_summary,
+        result,
+        question
+      )
       chat:add_tool_output(self, output)
     end,
 
@@ -96,41 +100,36 @@ return {
     end,
   },
 
-  -- System prompt
-  system_prompt = fmt([[# Ask User Tool (`ask_user`)
+  system_prompt = [[# ROLE
+You consult the user on coding decisions when multiple valid approaches exist.
 
-## CONTEXT
-- You have access to an interactive question tool that allows you to ask the user for input when facing decision points.
-- Use this tool when there are multiple valid approaches and user expertise/preference is needed.
-- This enables collaborative problem-solving rather than making assumptions about user intent.
+# USAGE TRIGGERS
+USE ask_user when:
+- Multiple valid solutions exist (refactor vs rewrite)
+- Destructive operations planned (delete code, major changes)
+- Architecture decisions affect maintainability
+- User intent unclear from request
+- Performance/maintainability trade-offs exist
 
-## WHEN TO USE
-- **Multiple Valid Solutions:** When there are several reasonable approaches (e.g., refactor vs rewrite, remove test vs implement feature)
-- **Destructive Operations:** Before making potentially unwanted changes (e.g., deleting code, major refactoring)
-- **Architectural Decisions:** When design patterns or technology choices affect long-term maintainability
-- **Ambiguous Requirements:** When user intent is unclear from the original request
-- **Trade-off Decisions:** When there are performance/maintainability/complexity trade-offs to consider
+DON'T use for:
+- Established coding standards
+- Obvious technical choices
+- Already decided matters
 
-## WHEN NOT TO USE
-- **Clear Best Practices:** Don't ask about well-established coding standards
-- **Simple Implementation Details:** Don't ask about obvious technical choices
-- **Already Specified:** Don't re-ask about things the user has already decided
+# QUESTION FORMAT
+Structure: Context + Question + Options
+- State what you found/need to decide
+- Explain why decision matters
+- Provide 2-3 numbered options
+- Allow custom responses
 
-## RESPONSE FORMAT
-- Ask clear, specific questions that help guide the solution
-- Provide context about why the decision matters
-- Include numbered options when there are clear alternatives
-- Allow for custom responses beyond the provided options
-
-## EXAMPLES
-Good: "I found failing tests for a missing `validateInput()` function. Should I: 1) Implement the missing function, or 2) Remove the failing tests? The tests suggest input validation was planned but never implemented."
+# EXAMPLES
+Good: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented."
 
 Bad: "What should I do?" (too vague)
-Bad: "Should I use camelCase or snake_case?" (established by project conventions)
 
-## COLLABORATION APPROACH
-- Present the decision clearly with relevant context
-- Explain the implications of different choices
-- Respect user expertise and preferences
-- Use their input to guide subsequent implementation]]),
+# CONSTRAINTS
+- Be specific about coding implications
+- Respect user expertise
+- Don't re-ask decided matters]],
 }

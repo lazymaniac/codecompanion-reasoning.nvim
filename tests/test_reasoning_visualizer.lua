@@ -1,4 +1,4 @@
-local ReasoningVisualizer = require('codecompanion._extensions.reasoning.reasoning.reasoning_visualizer')
+local ReasoningVisualizer = require('codecompanion._extensions.reasoning.helpers.reasoning_visualizer')
 local h = require('tests.helpers')
 
 local new_set = MiniTest.new_set

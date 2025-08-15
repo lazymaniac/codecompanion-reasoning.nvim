@@ -1,6 +1,6 @@
 ---@class CodeCompanion.ReasoningAgentBase
 
-local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
+local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
 local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   -- Fallback logging when CodeCompanion log is not available

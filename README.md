@@ -10,7 +10,7 @@ This extension provides sophisticated AI reasoning capabilities including Chain 
 - **Tree of Thoughts Agent**: Explores multiple solution branches
 - **Graph of Thoughts Agent**: Network-based reasoning with interconnected thoughts
 - **Ask User Tool**: Interactive decision-making with user consultation
-- **Meta Reasoning Governor**: Automatically selects the best reasoning approach
+- **Meta Agent**: Automatically selects the best reasoning approach
 - **Tool Discovery**: Dynamic tool exploration and selection
 - **Reasoning Visualization**: Visual representation of thought processes
 
@@ -123,7 +123,7 @@ The AI will automatically use this tool when it encounters:
 - Ambiguous requirements
 ```
 
-### Meta Reasoning Governor
+### Meta Agent
 
 Automatically selects the most appropriate reasoning agent based on the problem type.
 

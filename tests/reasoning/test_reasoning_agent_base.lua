@@ -9,7 +9,7 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        ReasoningAgentBase = require('codecompanion._extensions.reasoning.reasoning.reasoning_agent_base').ReasoningAgentBase
+        ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base').ReasoningAgentBase
 
         -- Mock the unified reasoning prompt to avoid dependency issues
         package.loaded['codecompanion.strategies.chat.tools.catalog.helpers.unified_reasoning_prompt'] = {

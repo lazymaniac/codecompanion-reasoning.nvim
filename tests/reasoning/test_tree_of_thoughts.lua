@@ -9,7 +9,7 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        ToT = require('codecompanion._extensions.reasoning.reasoning.tree_of_thoughts')
+        ToT = require('codecompanion._extensions.reasoning.helpers.tree_of_thoughts')
         TreeNode = ToT.TreeNode
         TreeOfThoughts = ToT.TreeOfThoughts
       ]])

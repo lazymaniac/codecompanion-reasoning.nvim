@@ -9,7 +9,7 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
+        UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
 
         -- Helper function to create a basic config for testing
         function create_basic_config()
@@ -199,8 +199,8 @@ T['get_optimized_config throws error for invalid type'] = function()
   h.expect_contains("Must be 'chain', 'tree', or 'graph'", error_msg)
 end
 
--- Test section generation (internal function behavior via generate)
-T['generate creates identity_mission section'] = function()
+-- Test streamlined prompt generation
+T['generate creates streamlined prompt'] = function()
   child.lua([[
     config = create_basic_config()
     prompt = UnifiedReasoningPrompt.generate(config)
@@ -208,11 +208,10 @@ T['generate creates identity_mission section'] = function()
 
   local prompt = child.lua_get('prompt')
 
-  h.expect_contains('TEST AGENT ARCHITECT', prompt)
-  h.expect_contains('IDENTITY ACTIVATION', prompt)
-  h.expect_contains('MISSION CRITICAL', prompt)
-  h.expect_contains('SUCCESS METRICS', prompt)
-  h.expect_contains('Zero production incidents', prompt)
+  h.expect_contains('ROLE', prompt)
+  h.expect_contains('APPROACH', prompt)
+  h.expect_contains('WORKFLOW', prompt)
+  h.expect_contains('production-ready', prompt)
 end
 
 T['generate creates cognitive_prime section'] = function()

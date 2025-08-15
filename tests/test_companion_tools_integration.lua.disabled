@@ -9,7 +9,7 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        ReasoningAgentBase = require('codecompanion._extensions.reasoning.reasoning.reasoning_agent_base').ReasoningAgentBase
+        ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base').ReasoningAgentBase
 
         -- Mock CodeCompanion config and chat
         package.loaded['codecompanion.config'] = {
@@ -159,7 +159,7 @@ end
 -- Test system prompt integration
 T['unified prompt includes collaboration protocol section'] = function()
   child.lua([[
-    UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
+    UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
 
     -- Test chain of thought config
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
@@ -185,7 +185,7 @@ end
 
 T['collaboration protocol appears in all reasoning types'] = function()
   child.lua([[
-    UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.unified_reasoning_prompt')
+    UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
 
     -- Test all three reasoning types
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()

@@ -32,30 +32,18 @@ local function handle_action(args)
     return {
       status = 'success',
       data = fmt(
-        [[# Algorithm Selection for Problem
+        [[# CODING TASK ANALYSIS
+Problem: %s
 
-**Problem:** %s
+## ALGORITHM OPTIONS
+• **Chain**: Sequential tasks (debug → implement → refactor → fix)
+• **Tree**: Design decisions (architecture, API patterns, solution exploration)
+• **Graph**: Complex systems (microservices, dependencies, integrations)
 
-## Available Reasoning Algorithms:
+## WORKFLOW
+1. Analyze problem → 2. Pick optimal algorithm → 3. Deploy immediately
 
-### chain_of_thoughts_agent
-**Best for:** Step-by-step problems, debugging, sequential analysis, linear reasoning
-**Description:** Follows logical steps one by one, good for systematic problem solving
-
-### tree_of_thoughts_agent
-**Best for:** Exploring multiple solutions, creative problems, coding tasks, when you need different approaches
-**Description:** Explores multiple solution paths in a tree structure, evaluates different approaches
-
-### graph_of_thoughts_agent
-**Best for:** Complex workflows, operations with dependencies, parallel processing, structured tasks
-**Description:** Creates operation graphs with dependencies, handles complex multi-step workflows
-
-## Instructions:
-1. Read the problem and algorithm descriptions above
-2. Pick the algorithm that best matches the problem type
-3. Use 'add_algorithm' action with the selected algorithm name
-
-The selected algorithm will be dynamically added to this chat and become available for use.]],
+Analyzing and selecting optimal approach...]],
         args.problem
       ),
     }
@@ -98,21 +86,23 @@ return {
     type = 'function',
     ['function'] = {
       name = 'meta_agent',
-      description = 'Algorithm selector that shows available reasoning algorithms and dynamically adds the selected one to the chat',
+      description = 'Analyzes coding tasks and immediately deploys optimal reasoning algorithm. Use select_algorithm to analyze, then add_algorithm to deploy.',
       parameters = {
         type = 'object',
         properties = {
           action = {
             type = 'string',
-            description = "The action to perform: 'select_algorithm' or 'add_algorithm'",
+            description = "STEP 1: 'select_algorithm' to analyze problem, STEP 2: 'add_algorithm' to deploy chosen algorithm",
+            enum = { 'select_algorithm', 'add_algorithm' },
           },
           problem = {
             type = 'string',
-            description = "The problem to solve (required for 'select_algorithm')",
+            description = 'Your coding task: be specific about what you need to accomplish',
           },
           algorithm = {
             type = 'string',
-            description = "The algorithm to add to chat (required for 'add_algorithm'): 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', or 'graph_of_thoughts_agent'",
+            description = 'Selected algorithm: chain_of_thoughts_agent (sequential), tree_of_thoughts_agent (design), graph_of_thoughts_agent (systems)',
+            enum = { 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' },
           },
         },
         required = { 'action' },
@@ -121,16 +111,54 @@ return {
       strict = true,
     },
   },
-  system_prompt = [[# Meta Agent: Algorithm Selector & Dynamic Tool Manager
+  system_prompt = [[# ROLE
+Expert coding algorithm selector. Analyze problems and immediately deploy the optimal reasoning approach.
 
-You help select the best reasoning algorithm for a problem and dynamically add it to the chat.
+# DECISION MATRIX
+Chain: Sequential tasks (debug, implement, refactor, fix)
+Tree: Design choices (architecture, API, multiple solutions)  
+Graph: Complex systems (microservices, dependencies, integrations)
 
-**Instructions**:
-1. First call `select_algorithm` with the problem - shows algorithm options
-2. Then call `add_algorithm` with chosen algorithm - adds it to the chat dynamically
+# MANDATORY WORKFLOW
+1. When user asks for algorithm selection:
+   → First call: meta_agent with select_algorithm
+   → Analyze problem and pick algorithm  
+   → Second call: meta_agent with add_algorithm
+   → Deploy the chosen algorithm
 
-**Result**:
-After adding, selected algorithm will be available in the chat.]],
+# OUTPUT FORMAT (for select_algorithm)
+Problem: [task type in 3-4 words]
+Algorithm: [chain|tree|graph] [confidence%]  
+Reason: [why this algorithm in 5-6 words]
+
+# ALGORITHM MAPPING
+chain → chain_of_thoughts_agent
+tree → tree_of_thoughts_agent  
+graph → graph_of_thoughts_agent
+
+# CRITICAL: After select_algorithm analysis, you MUST immediately call add_algorithm
+
+# EXAMPLES
+Input: "Fix authentication bug"
+Step 1 Output:
+Problem: Authentication bug troubleshooting  
+Algorithm: chain 95%
+Reason: Sequential debugging steps required
+
+Step 2: IMMEDIATELY call add_algorithm with algorithm="chain_of_thoughts_agent"
+
+Input: "Design REST API"  
+Step 1 Output:
+Problem: REST API design patterns
+Algorithm: tree 90% 
+Reason: Multiple design approaches to explore
+
+Step 2: IMMEDIATELY call add_algorithm with algorithm="tree_of_thoughts_agent"
+
+# CONSTRAINTS  
+- NEVER stop after step 1
+- ALWAYS follow analysis with deployment
+- Be decisive and complete workflow]],
   output = {
     success = function(self, agent, cmd, stdout)
       local chat = agent.chat
@@ -163,22 +191,8 @@ After adding, selected algorithm will be available in the chat.]],
             end
           end
 
-          local companions_list = #added_companions > 0 and (', ' .. table.concat(added_companions, ', ')) or ''
-          local success_message = fmt(
-            [[✅ Reasoning agent '%s' selected and ready! 🎯
-
-The %s%s have been dynamically added to this chat.
-
-## Next Steps:
-You can now use the %s directly to solve your problem. The algorithm will act as the governor and coordinate the entire problem-solving workflow.
-
-**Available companion tools:** %s - Use these for interactive decision-making and tool discovery.]],
-            algorithm,
-            algorithm,
-            companions_list,
-            algorithm,
-            table.concat(added_companions, ', ')
-          )
+          local success_message =
+            fmt([[✅ %s ready! Companion tools: %s]], algorithm, table.concat(added_companions, ', '))
 
           chat:add_tool_output(self, success_message, success_message)
         else

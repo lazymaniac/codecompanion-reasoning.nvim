@@ -9,7 +9,7 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        GoT = require('codecompanion._extensions.reasoning.reasoning.graph_of_thoughts')
+        GoT = require('codecompanion._extensions.reasoning.helpers.graph_of_thoughts')
         ThoughtNode = GoT.ThoughtNode
         Edge = GoT.Edge
         GraphOfThoughts = GoT.GraphOfThoughts
