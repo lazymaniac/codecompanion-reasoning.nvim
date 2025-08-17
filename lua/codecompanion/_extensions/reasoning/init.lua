@@ -8,7 +8,8 @@ local function register_tools()
     'tree_of_thoughts_agent',
     'graph_of_thoughts_agent',
     'meta_agent',
-    'tool_discovery',
+    'add_tools',
+    'memory_insight',
   }
 
   local registered_tools = {}

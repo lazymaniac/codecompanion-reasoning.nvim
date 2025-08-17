@@ -71,7 +71,7 @@ local function get_all_tools_with_schemas()
     ['meta_agent'] = true,
     -- Companion tools (automatically added with reasoning agents)
     ['ask_user'] = true,
-    ['tool_discovery'] = true,
+    ['add_tools'] = true,
   }
 
   for tool_name, tool_config in pairs(tools_config) do
@@ -171,7 +171,10 @@ local function list_tools()
   table.insert(output, '')
   table.insert(output, '## Available Tools:')
   table.insert(output, '')
-  table.insert(output, '**NEXT STEP: After reviewing this list, immediately call this function with action="add_tool" to add the tools you need!**')
+  table.insert(
+    output,
+    '**NEXT STEP: After reviewing this list, immediately call add_tools with action="add_tool" to add the tools you need!**'
+  )
   table.insert(output, '')
 
   local tools_list = {}
@@ -194,8 +197,11 @@ local function list_tools()
 
   table.insert(output, '')
   table.insert(output, '---')
-  table.insert(output, '**TO ADD A TOOL:** Call this function again with action="add_tool" and tool_name="exact_name_from_above"')
-  table.insert(output, '**Example:** Call with action="add_tool" and tool_name="edit" to add file editing capability')
+  table.insert(
+    output,
+    '**TO ADD A TOOL:** Call add_tools again with action="add_tool" and tool_name="exact_name_from_above"'
+  )
+  table.insert(output, '**Example:** Call add_tools with action="add_tool" and tool_name="edit" to add file editing capability')
 
   return table.concat(output, '\n')
 end
@@ -225,7 +231,7 @@ local function handle_add_tool(args)
     ['meta_agent'] = true,
     -- Companion tools (automatically added with reasoning agents)
     ['ask_user'] = true,
-    ['tool_discovery'] = true,
+    ['add_tools'] = true,
   }
 
   -- Check if trying to add an excluded tool
@@ -258,7 +264,7 @@ local function handle_add_tool(args)
     return { status = 'error', data = fmt("'%s' is not an addable tool", args.tool_name) }
   end
 
-  log:debug('[Tool Discovery] Preparing to add tool: %s', args.tool_name)
+  log:debug('[Add Tools] Preparing to add tool: %s', args.tool_name)
 
   -- Store tool for success handler to process
   pending_tool_addition = args.tool_name
@@ -269,17 +275,17 @@ local function handle_add_tool(args)
   }
 end
 
----@class CodeCompanion.Tool.ToolDiscovery: CodeCompanion.Agent.Tool
+---@class CodeCompanion.Tool.AddTools: CodeCompanion.Agent.Tool
 return {
-  name = 'tool_discovery',
+  name = 'add_tools',
   cmds = {
-    ---Execute tool discovery commands
-    ---@param self CodeCompanion.Tool.ToolDiscovery
+    ---Execute add tools commands
+    ---@param self CodeCompanion.Tool.AddTools
     ---@param args table The arguments from the LLM's tool call
     ---@param input? any The output from the previous function call
     ---@return { status: "success"|"error", data: string }
     function(self, args, input)
-      log:debug('[Tool Discovery] Action: %s', args.action or 'none')
+      log:debug('[Add Tools] Action: %s', args.action or 'none')
 
       if args.action == 'list_tools' then
         return handle_list_tools(args)
@@ -296,7 +302,7 @@ return {
   schema = {
     type = 'function',
     ['function'] = {
-      name = 'tool_discovery',
+      name = 'add_tools',
       description = 'Two-step tool management: STEP 1: list_tools to see available tools, STEP 2: add_tool to add specific tools to your chat. Always complete both steps.',
       parameters = {
         type = 'object',
@@ -318,13 +324,13 @@ return {
     },
   },
   system_prompt = [[# ROLE
-You discover and add coding tools to enhance task capabilities.
+You add coding tools to enhance task capabilities.
 
 # MANDATORY 2-STEP WORKFLOW
-STEP 1: Call tool_discovery with action="list_tools" to see available tools
-STEP 2: Call tool_discovery with action="add_tool" and tool_name="exact_name" to add specific tools
+STEP 1: Call add_tools with action="list_tools" to see available tools
+STEP 2: Call add_tools with action="add_tool" and tool_name="exact_name" to add specific tools
 
-CRITICAL: You MUST make TWO separate tool_discovery calls - first to list, then to add!
+CRITICAL: You MUST make TWO separate add_tools calls - first to list, then to add!
 
 # USAGE PATTERN FOR OPEN-SOURCE MODELS
 1. Need file editing? → list_tools → add_tool with "edit" or "write" tool
@@ -332,7 +338,7 @@ CRITICAL: You MUST make TWO separate tool_discovery calls - first to list, then 
 3. NEVER just list tools - ALWAYS follow with add_tool calls
 
 # AFTER LISTING TOOLS
-When you see the tool list, immediately call add_tool for the tools you need:
+When you see the tool list, immediately call add_tools with add_tool for the tools you need:
 - For file changes: add_tool with name like "edit", "write", "file_editor"
 - For testing: add_tool with testing tool names
 - For builds: add_tool with build tool names
@@ -348,7 +354,7 @@ When you see the tool list, immediately call add_tool for the tools you need:
 - Don't add reasoning agents (use meta_agent)
 - Complete the workflow: list → add → use]],
   output = {
-    ---@param self CodeCompanion.Tool.ToolDiscovery
+    ---@param self CodeCompanion.Tool.AddTools
     ---@param agent CodeCompanion.Tools.Tool
     ---@param cmd table The command that was executed
     ---@param stdout table The output from the command
@@ -361,7 +367,7 @@ When you see the tool list, immediately call add_tool for the tools you need:
         local tool_name = pending_tool_addition
         pending_tool_addition = nil -- Clear the pending state
 
-        log:debug('[Tool Discovery] Adding tool to chat: %s', tool_name)
+        log:debug('[Add Tools] Adding tool to chat: %s', tool_name)
 
         -- Get the tool configuration
         local raw_tools_config = config.strategies.chat.tools
@@ -377,12 +383,12 @@ When you see the tool list, immediately call add_tool for the tools you need:
           chat:add_tool_output(self, fmt('❌ FAILED to add tool: %s (tool config or registry unavailable)', tool_name))
         end
       else
-        log:debug('[Tool Discovery] Success output generated, length: %d', #result)
+        log:debug('[Add Tools] Success output generated, length: %d', #result)
         chat:add_tool_output(self, result, result)
       end
     end,
 
-    ---@param self CodeCompanion.Tool.ToolDiscovery
+    ---@param self CodeCompanion.Tool.AddTools
     ---@param agent CodeCompanion.Tools.Tool
     ---@param cmd table
     ---@param stderr table The error output from the command
@@ -390,8 +396,8 @@ When you see the tool list, immediately call add_tool for the tools you need:
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
       pending_tool_addition = nil -- Clear pending state on error
-      log:debug('[Tool Discovery] Error occurred: %s', errors)
-      chat:add_tool_output(self, fmt('❌ Tool Discovery ERROR: %s', errors))
+      log:debug('[Add Tools] Error occurred: %s', errors)
+      chat:add_tool_output(self, fmt('❌ Add Tools ERROR: %s', errors))
     end,
   },
 }

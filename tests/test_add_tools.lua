@@ -16,7 +16,7 @@ local T = new_set({
             chat = {
               tools = {
                 ask_user = { description = 'Ask user for input' },
-                tool_discovery = { description = 'Discover tools' },
+                add_tools = { description = 'Add tools to chat' },
                 chain_of_thoughts_agent = { description = 'Chain reasoning agent' },
                 tree_of_thoughts_agent = { description = 'Tree reasoning agent' },
                 graph_of_thoughts_agent = { description = 'Graph reasoning agent' },
@@ -53,18 +53,18 @@ local T = new_set({
   },
 })
 
--- Test tool discovery filtering
-T['tool_discovery excludes reasoning agents and companion tools'] = function()
+-- Test add_tools filtering
+T['add_tools excludes reasoning agents and companion tools'] = function()
   child.lua([[
-    ToolDiscovery = require('codecompanion._extensions.reasoning.tools.tool_discovery')
+    AddTools = require('codecompanion._extensions.reasoning.tools.add_tools')
 
     -- Test list_tools action
-    result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'list_tools'}, nil)
+    result = AddTools.cmds[1](AddTools, {action = 'list_tools'}, nil)
 
     tool_list_info = {
       status = result.status,
       contains_ask_user = string.find(result.data, 'ask_user') ~= nil,
-      contains_tool_discovery = string.find(result.data, 'tool_discovery') ~= nil,
+      contains_add_tools = string.find(result.data, '✓ %*%*add_tools%*%*:') ~= nil,
       contains_chain_agent = string.find(result.data, 'chain_of_thoughts_agent') ~= nil,
       contains_tree_agent = string.find(result.data, 'tree_of_thoughts_agent') ~= nil,
       contains_graph_agent = string.find(result.data, 'graph_of_thoughts_agent') ~= nil,
@@ -77,7 +77,7 @@ T['tool_discovery excludes reasoning agents and companion tools'] = function()
 
   h.eq('success', tool_list_info.status)
   h.eq(false, tool_list_info.contains_ask_user)
-  h.eq(false, tool_list_info.contains_tool_discovery)
+  h.eq(false, tool_list_info.contains_add_tools)
   h.eq(false, tool_list_info.contains_chain_agent)
   h.eq(false, tool_list_info.contains_tree_agent)
   h.eq(false, tool_list_info.contains_graph_agent)
@@ -88,12 +88,12 @@ end
 -- Test add_tool rejection for excluded tools
 T['add_tool rejects reasoning agents'] = function()
   child.lua([[
-    ToolDiscovery = require('codecompanion._extensions.reasoning.tools.tool_discovery')
+    AddTools = require('codecompanion._extensions.reasoning.tools.add_tools')
 
-    chain_result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'add_tool', tool_name = 'chain_of_thoughts_agent'}, nil)
-    tree_result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'add_tool', tool_name = 'tree_of_thoughts_agent'}, nil)
-    graph_result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'add_tool', tool_name = 'graph_of_thoughts_agent'}, nil)
-    meta_result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'add_tool', tool_name = 'meta_agent'}, nil)
+    chain_result = AddTools.cmds[1](AddTools, {action = 'add_tool', tool_name = 'chain_of_thoughts_agent'}, nil)
+    tree_result = AddTools.cmds[1](AddTools, {action = 'add_tool', tool_name = 'tree_of_thoughts_agent'}, nil)
+    graph_result = AddTools.cmds[1](AddTools, {action = 'add_tool', tool_name = 'graph_of_thoughts_agent'}, nil)
+    meta_result = AddTools.cmds[1](AddTools, {action = 'add_tool', tool_name = 'meta_agent'}, nil)
 
     rejection_info = {
       chain_status = chain_result.status,
@@ -122,27 +122,26 @@ end
 
 T['add_tool rejects companion tools'] = function()
   child.lua([[
-    ToolDiscovery = require('codecompanion._extensions.reasoning.tools.tool_discovery')
+    AddTools = require('codecompanion._extensions.reasoning.tools.add_tools')
 
-    ask_user_result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'add_tool', tool_name = 'ask_user'}, nil)
-    tool_discovery_result = ToolDiscovery.cmds[1](ToolDiscovery, {action = 'add_tool', tool_name = 'tool_discovery'}, nil)
+    ask_user_result = AddTools.cmds[1](AddTools, {action = 'add_tool', tool_name = 'ask_user'}, nil)
+    add_tools_result = AddTools.cmds[1](AddTools, {action = 'add_tool', tool_name = 'add_tools'}, nil)
 
     companion_rejection_info = {
       ask_user_status = ask_user_result.status,
-      tool_discovery_status = tool_discovery_result.status,
+      add_tools_status = add_tools_result.status,
       ask_user_message = ask_user_result.data,
-      tool_discovery_message = tool_discovery_result.data
+      add_tools_message = add_tools_result.data
     }
   ]])
 
   local companion_rejection_info = child.lua_get('companion_rejection_info')
 
   h.eq('error', companion_rejection_info.ask_user_status)
-  h.eq('error', companion_rejection_info.tool_discovery_status)
+  h.eq('error', companion_rejection_info.add_tools_status)
 
   h.expect_contains('automatically added', companion_rejection_info.ask_user_message)
-  h.expect_contains('automatically added', companion_rejection_info.tool_discovery_message)
+  h.expect_contains('automatically added', companion_rejection_info.add_tools_message)
 end
 
 return T
-

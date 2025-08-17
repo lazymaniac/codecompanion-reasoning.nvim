@@ -218,8 +218,9 @@ function Popup.ask_question(question, context, options, callback)
     local input_win = vim.api.nvim_open_win(input_buf, true, input_opts)
     vim.api.nvim_win_set_option(input_win, 'winhl', 'FloatBorder:' .. UI_CONFIG.colors.border)
 
-    -- Position cursor after the input icon
-    vim.api.nvim_win_set_cursor(input_win, { 1, 4 })
+    -- Position cursor at the end of the input line
+    local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
+    vim.api.nvim_win_set_cursor(input_win, { 1, #input_line })
     vim.api.nvim_win_set_option(input_win, 'cursorline', false)
 
     -- Animation: fade in effect (simple implementation)
@@ -323,8 +324,9 @@ function Popup.ask_question(question, context, options, callback)
             silent = true,
             callback = function()
               -- Clear current input and set the number
-              vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { fmt('  %s %d', UI_CONFIG.icons.input, i) })
-              vim.api.nvim_win_set_cursor(input_win, { 1, 6 })
+              local new_line = fmt('  %s %d', UI_CONFIG.icons.input, i)
+              vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { new_line })
+              vim.api.nvim_win_set_cursor(input_win, { 1, #new_line })
             end,
           })
         end
@@ -337,15 +339,6 @@ function Popup.ask_question(question, context, options, callback)
         callback = function()
           local response = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)[1] or ''
           handle_response(response)
-        end,
-      })
-
-      -- Escape to cancel with confirmation
-      vim.api.nvim_buf_set_keymap(input_buf, 'i', '<Esc>', '', {
-        noremap = true,
-        silent = true,
-        callback = function()
-          handle_response(nil)
         end,
       })
 
@@ -378,8 +371,9 @@ function Popup.ask_question(question, context, options, callback)
             local current_num = tonumber(current_text:match('(%d+)')) or 0
             local next_num = (current_num % #options) + 1
 
-            vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { fmt('  %s %d', UI_CONFIG.icons.input, next_num) })
-            vim.api.nvim_win_set_cursor(input_win, { 1, 6 })
+            local new_line = fmt('  %s %d', UI_CONFIG.icons.input, next_num)
+            vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { new_line })
+            vim.api.nvim_win_set_cursor(input_win, { 1, #new_line })
           end,
         })
       end
@@ -394,7 +388,8 @@ function Popup.ask_question(question, context, options, callback)
     vim.cmd('startinsert')
     vim.defer_fn(function()
       if vim.api.nvim_win_is_valid(input_win) then
-        vim.api.nvim_win_set_cursor(input_win, { 1, 4 })
+        local current_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
+        vim.api.nvim_win_set_cursor(input_win, { 1, #current_line })
       end
     end, 50)
   end)

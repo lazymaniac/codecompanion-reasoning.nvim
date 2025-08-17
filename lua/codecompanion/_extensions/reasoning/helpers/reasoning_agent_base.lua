@@ -108,6 +108,15 @@ function ReasoningAgentBase.get_state(agent_type)
   return global_agent_states[agent_type]
 end
 
+function ReasoningAgentBase.clear_state(agent_type)
+  global_agent_states[agent_type] = {
+    current_instance = nil,
+    session_id = nil,
+    tool_instance = nil,
+    sub_chats = {},
+  }
+end
+
 local function create_validator(action_rules)
   return function(action, args)
     local required = action_rules[action]

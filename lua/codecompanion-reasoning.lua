@@ -6,7 +6,7 @@
 local M = {}
 
 --- Semantic version of the wrapper (mirrors the underlying extension if available).
-M.version = "0.1.0"
+M.version = '0.1.0'
 
 --- Cached reference to the internal reasoning extension.
 ---@type table|nil
@@ -18,15 +18,12 @@ local function load_extension()
   if _extension then
     return _extension
   end
-  local ok, ext = pcall(require, "codecompanion._extensions.reasoning")
+  local ok, ext = pcall(require, 'codecompanion._extensions.reasoning')
   if ok then
     _extension = ext
     return _extension
   else
-    vim.notify(
-      "[codecompanion-reasoning] Failed to load reasoning extension: " .. tostring(ext),
-      vim.log.levels.ERROR
-    )
+    vim.notify('[codecompanion-reasoning] Failed to load reasoning extension: ' .. tostring(ext), vim.log.levels.ERROR)
     return nil
   end
 end
@@ -60,11 +57,5 @@ setmetatable(M, {
     error(string.format("[codecompanion-reasoning] Attempt to modify read‑only field '%s'", key), 2)
   end,
 })
-
----[[ Example usage:
----   local reasoning = require('codecompanion-reasoning')
----   local cfg = reasoning.setup({ enable = true })
----   local tools = reasoning.get_tools()
---- ]]
 
 return M

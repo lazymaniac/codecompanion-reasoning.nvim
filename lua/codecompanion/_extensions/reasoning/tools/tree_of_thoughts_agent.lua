@@ -16,60 +16,9 @@ local fmt = string.format
 
 local Actions = {}
 
-function Actions.initialize(args, agent_state)
-  log:debug('[Tree of Thoughts Agent] Initializing with problem: %s', args.problem)
-
-  agent_state.session_id = tostring(os.time())
-  agent_state.current_instance = ToT.TreeOfThoughts:new(args.problem)
-  agent_state.current_instance.agent_type = 'Tree of Thoughts Agent'
-
-  -- Add interface methods for base class compatibility
-  agent_state.current_instance.get_element = function(self, id)
-    if self.nodes then
-      for _, node in ipairs(self.nodes) do
-        if node.id == id then
-          return node
-        end
-      end
-    end
-    return nil
-  end
-
-  agent_state.current_instance.update_element_score = function(self, id, boost)
-    local node = self:get_element(id)
-    if node then
-      node.value = (node.value or 0) + boost
-      return true
-    end
-    return false
-  end
-
-  return {
-    status = 'success',
-    data = fmt(
-      [[# Tree of Thoughts Initialized
-
-**Problem:** %s
-**Session ID:** %s
-
-NEXT: Begin reasoning immediately by calling add_thought with:
-- action: "add_thought"
-- content: "Your initial analysis of the problem"  
-- type: "analysis"
-- parent_id: "root"
-
-Continue exploring multiple paths with more add_thought calls.
-
-Actions: add_thought, view_tree]],
-      args.problem,
-      agent_state.session_id
-    ),
-  }
-end
-
 function Actions.add_thought(args, agent_state)
   if not agent_state.current_instance then
-    return { status = 'error', data = 'No active tree. Initialize first.' }
+    return { status = 'error', data = 'Agent not initialized. This should not happen with auto-initialization.' }
   end
 
   local content = args.content
@@ -100,7 +49,9 @@ function Actions.add_thought(args, agent_state)
 **💡 Suggested next steps:**
 %s
 
-**Node ID:** %s (for adding child thoughts)]],
+**Node ID:** %s (for adding child thoughts)
+
+**NEXT: Continue exploring! Call add_thought again to add more thoughts and build the solution tree!**]],
     string.upper(node_type:sub(1, 1)) .. node_type:sub(2),
     content,
     table.concat(suggestions, '\n'),
@@ -113,53 +64,99 @@ function Actions.add_thought(args, agent_state)
   }
 end
 
-function Actions.view_tree(args, agent_state)
-  if not agent_state.current_instance then
-    return { status = 'error', data = 'No active tree. Initialize first.' }
+-- Auto-initialize agent on first use
+local function auto_initialize(agent_state, problem)
+  if agent_state.current_instance then
+    return nil -- Already initialized
   end
 
-  log:debug('[Tree of Thoughts Agent] Viewing tree structure')
+  log:debug('[Tree of Thoughts Agent] Auto-initializing with problem: %s', problem)
 
-  local tree_view = ''
+  agent_state.session_id = tostring(os.time())
+  agent_state.current_instance = ToT.TreeOfThoughts:new(problem)
+  agent_state.current_instance.agent_type = 'Tree of Thoughts Agent'
 
-  -- If we have a root node, visualize from there
-  if agent_state.current_instance.root then
-    tree_view = ReasoningVisualizer.visualize_tree(agent_state.current_instance.root)
-  else
-    -- Fallback to original method if no root
-    local tree_lines = {}
-    local original_print = print
-    print = function(line)
-      table.insert(tree_lines, line or '')
+  -- Load project context
+  local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
+  local context_summary, context_files = ContextDiscovery.load_project_context()
+  agent_state.project_context = context_files
+
+  -- Add interface methods for base class compatibility
+  agent_state.current_instance.get_element = function(self, id)
+    if self.nodes then
+      for _, node in ipairs(self.nodes) do
+        if node.id == id then
+          return node
+        end
+      end
     end
-
-    agent_state.current_instance:print_tree()
-    print = original_print
-
-    tree_view = table.concat(tree_lines, '\n')
+    return nil
   end
 
-  return {
-    status = 'success',
-    data = tree_view,
-  }
+  agent_state.current_instance.update_element_score = function(self, id, boost)
+    local node = self:get_element(id)
+    if node then
+      node.value = (node.value or 0) + boost
+      return true
+    end
+    return false
+  end
+
+  local init_message = fmt(
+    [[🌳 Tree of Thoughts Agent activated for: %s
+
+AUTO-INITIALIZED: Ready for multi-path exploration!
+
+START: Call add_thought to explore first approach:
+- action: "add_thought"
+- content: "[your first small exploration]"
+- type: "task"|"analysis"|"reasoning"|"validation"
+- parent_id: "root" (optional)
+
+REMEMBER: Explore multiple small approaches - try approach A → try approach B → compare → refine]],
+    problem
+  )
+
+  -- Add context if found
+  if #context_files > 0 then
+    init_message = init_message .. '\n\n' .. context_summary
+  end
+
+  return init_message
 end
 
--- Create the tool definition directly (replacing engine approach)
+-- Create the tool definition with auto-initialization
 local function handle_action(args)
   local agent_state = _G._codecompanion_tree_of_thoughts_state or {}
   _G._codecompanion_tree_of_thoughts_state = agent_state
+
+  -- Auto-initialize if needed
+  if not agent_state.current_instance then
+    local problem = args.content or 'Coding task exploration requested'
+    local init_message = auto_initialize(agent_state, problem)
+
+    if init_message then
+      -- If this was an add_thought call that triggered initialization, continue with the thought
+      if args.action == 'add_thought' then
+        local thought_result = Actions.add_thought(args, agent_state)
+        return {
+          status = 'success',
+          data = init_message .. '\n\n---\n\n' .. thought_result.data,
+        }
+      else
+        return { status = 'success', data = init_message }
+      end
+    end
+  end
 
   local action = Actions[args.action]
   if not action then
     return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
   end
 
-  -- Validate required parameters
+  -- Validate required parameters (removed 'initialize' from validation)
   local validation_rules = {
-    initialize = { 'problem' },
     add_thought = { 'content' },
-    view_tree = {},
   }
 
   local required_fields = validation_rules[args.action] or {}
@@ -184,17 +181,13 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = 'Explores multiple coding approaches: ideal for architecture decisions, API design, and comparing alternative solutions.',
+      description = 'Explores multiple coding approaches: auto-initializes on first use, ideal for architecture decisions, API design, comparing solutions.',
       parameters = {
         type = 'object',
         properties = {
           action = {
             type = 'string',
-            description = "The tree action to perform: 'initialize', 'add_thought', 'view_tree'",
-          },
-          problem = {
-            type = 'string',
-            description = "The problem to solve using tree of thoughts (required for 'initialize' action)",
+            description = "The tree action to perform: 'add_thought'",
           },
           content = {
             type = 'string',

@@ -6,32 +6,49 @@ local fmt = string.format
 
 ---Generate optimized prompt for reasoning agent
 ---@param reasoning_type string Type: 'chain', 'tree', or 'graph'
+---@param include_context? boolean Whether to include project context (default: true)
 ---@return string Complete system prompt
-function UnifiedReasoningPrompt.generate_for_reasoning(reasoning_type)
+function UnifiedReasoningPrompt.generate_for_reasoning(reasoning_type, include_context)
   local configs = {
     chain = {
-      role = 'Sequential coding problem solver',
-      approach = 'step-by-step debugging and implementation',
-      strengths = 'systematic debugging, feature implementation, refactoring',
-      workflow = '1. Analyze → 2. Plan step → 3. Execute → 4. Validate → REPEAT UNTIL SOLUTION FOUND',
+      role = 'Incremental coding problem solver',
+      approach = 'micro-step progression with careful analysis',
+      strengths = 'small focused changes, continuous validation, user collaboration',
+      workflow = 'Take ONE small action → Analyze result → Ask user if needed → Next micro-step → REPEAT',
     },
     tree = {
-      role = 'Multi-approach coding architect',
-      approach = 'exploring multiple solution paths',
-      strengths = 'architecture decisions, API design, solution comparison',
-      workflow = '1. Generate options → 2. Evaluate → 3. Compare trade-offs → 4. Select optimal → 5. Execute → REPEAT UNTIL SOLUTION FOUND',
+      role = 'Multi-path incremental explorer',
+      approach = 'exploring alternatives through small experiments',
+      strengths = 'testing multiple approaches, comparing small changes, iterative refinement',
+      workflow = 'Try small approach → Evaluate outcome → Compare with alternatives → Refine → Next experiment',
     },
     graph = {
-      role = 'System complexity manager',
-      approach = 'interconnected system analysis',
-      strengths = 'microservices, dependencies, complex integrations',
-      workflow = '1. Map dependencies → 2. Identify relationships → 3. Optimize connections → 4. Validate system',
+      role = 'System evolution manager',
+      approach = 'incremental system building with interconnected changes',
+      strengths = 'building systems step-by-step, managing dependencies, evolving architecture',
+      workflow = 'Add one component → Test connections → Validate dependencies → Evolve gradually',
     },
   }
 
   local config = configs[reasoning_type]
   if not config then
     error('Invalid reasoning type: ' .. tostring(reasoning_type))
+  end
+
+  -- Get project context if requested (default: true)
+  include_context = include_context ~= false
+  local context_section = ''
+
+  if include_context then
+    local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
+    local available, error = ContextDiscovery.check_availability()
+
+    if available then
+      local enhanced_context = ContextDiscovery.get_enhanced_context()
+      if enhanced_context then
+        context_section = '\n\n' .. enhanced_context .. '\n'
+      end
+    end
   end
 
   return fmt(
@@ -47,37 +64,60 @@ You are a %s specializing in %s.
 # MANDATORY WORKFLOW
 %s
 
-# CRITICAL: AFTER INITIALIZATION
-After calling initialize, you MUST immediately begin reasoning by calling add_step/add_thought repeatedly until the problem is solved.
+# MANDATORY WORKFLOW FOR OPEN-SOURCE MODELS
+You MUST follow this exact sequence after initialization:
 
-NEVER stop after initialization - continue with reasoning steps:
-1. Call add_step/add_thought with analysis
-2. Call add_step/add_thought with reasoning  
-3. Call add_step/add_thought with implementation tasks
-4. Call add_step/add_thought with validation
-5. REPEAT until problem is fully solved
+STEP 1: Call add_step/add_thought with your FIRST micro-action
+STEP 2: Call add_step/add_thought with your SECOND micro-action
+STEP 3: Call add_step/add_thought with your THIRD micro-action
+...continue until problem is solved
 
-# TOOL USAGE REQUIREMENTS
-- ALWAYS use file editing tools to make code changes
-- NEVER ask user to make changes manually
-- Use `tool_discovery` to find file editing tools
-- For file changes: search for tools like "edit", "write", "modify"
+CRITICAL: You must make MULTIPLE calls to add_step/add_thought - do NOT stop after just one!
 
-# IMPLEMENTATION RULES
-- Write actual code using file editing tools
-- Make real file modifications, not just suggestions
-- Complete the full implementation workflow
-- Test your changes when possible
+MICRO-STEP EXAMPLES (each is a separate add_step/add_thought call):
+- "Find file containing authentication logic"
+- "Read lines 45-60 to understand current function structure"
+- "Identify the specific bug in error handling"
+- "Refactor just the validateUser() function"
+- "Test the single function change"
+- "Ask user about preferred error message format"
+
+WORKFLOW RULES:
+1. After initialization → immediately call add_step/add_thought
+2. After each step result → call add_step/add_thought again
+3. Continue until you have completely solved the problem
+4. NEVER stop after one step - keep building the reasoning chain
+
+# TOOL USAGE FOR INCREMENTAL WORK
+- Use `add_tools` to find file editing tools for each small change
+- Use `ask_user` when facing choices: "Should I refactor this function or create a new one?"
+- Make small file edits, not large rewrites
+- Read files in sections, don't try to understand everything at once
+
+# COLLABORATION APPROACH
+- Ask user for guidance on approach alternatives
+- Confirm before making significant changes
+- Show progress through small demonstrations
+- Get feedback on intermediate results
+
+# INCREMENTAL IMPLEMENTATION
+- Change one function at a time
+- Test each small change when possible
+- Build features incrementally
+- Validate assumptions through small experiments
+- Document insights as you discover them
 
 # CONSTRAINTS
-- Deliver production-ready code via tool usage
-- Complete tasks automatically without user intervention
-- Use tools proactively for all file operations]],
+- ONE focused action per reasoning step
+- Collaborate with user on decisions
+- Progress through many small validated steps
+- Build towards complete solution gradually%s]],
     config.role,
     config.approach,
     config.approach:gsub('^%w', string.upper),
     config.strengths,
-    config.workflow
+    config.workflow,
+    context_section
   )
 end
 
@@ -185,4 +225,3 @@ function UnifiedReasoningPrompt.generate(config)
 end
 
 return UnifiedReasoningPrompt
-

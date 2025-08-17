@@ -16,53 +16,9 @@ local fmt = string.format
 
 local Actions = {}
 
-function Actions.initialize(args, agent_state)
-  log:debug('[Graph of Thoughts Agent] Initializing with goal: %s', args.goal)
-
-  agent_state.session_id = tostring(os.time())
-  agent_state.current_instance = GoT.GraphOfThoughts.new()
-  agent_state.current_instance.agent_type = 'Graph of Thoughts Agent'
-
-  agent_state.current_instance.get_element = function(self, id)
-    return self:get_node(id)
-  end
-
-  agent_state.current_instance.update_element_score = function(self, id, boost)
-    local node = self:get_node(id)
-    if node then
-      node.score = node.score + boost
-      return true
-    end
-    return false
-  end
-
-  local goal_id = agent_state.current_instance:add_node(args.goal, 'goal')
-
-  return {
-    status = 'success',
-    data = fmt(
-      [[# Graph of Thoughts Initialized
-
-**Goal:** %s
-**Root Node ID:** %s
-
-NEXT: Begin reasoning immediately by calling add_node with:
-- action: "add_node"
-- content: "Your analysis of system components"
-- node_type: "analysis"
-
-Continue building the graph with add_node and add_edge calls.
-
-Actions: add_node, add_edge, view_graph, merge_nodes]],
-      args.goal,
-      goal_id
-    ),
-  }
-end
-
 function Actions.add_node(args, agent_state)
   if not agent_state.current_instance then
-    return { status = 'error', data = 'No active graph. Initialize first.' }
+    return { status = 'error', data = 'Agent not initialized. This should not happen with auto-initialization.' }
   end
 
   log:debug('[Graph of Thoughts Agent] Adding node: %s (type: %s)', args.content, args.node_type or 'analysis')
@@ -102,7 +58,7 @@ end
 
 function Actions.add_edge(args, agent_state)
   if not agent_state.current_instance then
-    return { status = 'error', data = 'No active graph. Initialize first.' }
+    return { status = 'error', data = 'Agent not initialized. This should not happen with auto-initialization.' }
   end
 
   log:debug('[Graph of Thoughts Agent] Adding edge: %s -> %s', args.source_id, args.target_id)
@@ -141,25 +97,9 @@ The dependency has been created. The target node will wait for the source node t
   }
 end
 
-function Actions.view_graph(args, agent_state)
-  if not agent_state.current_instance then
-    return { status = 'error', data = 'No active graph. Initialize first.' }
-  end
-
-  log:debug('[Graph of Thoughts Agent] Viewing graph structure')
-
-  -- Use the new reasoning visualizer with sane defaults
-  local graph_view = ReasoningVisualizer.visualize_graph(agent_state.current_instance)
-
-  return {
-    status = 'success',
-    data = graph_view,
-  }
-end
-
 function Actions.merge_nodes(args, agent_state)
   if not agent_state.current_instance then
-    return { status = 'error', data = 'No active graph. Initialize first.' }
+    return { status = 'error', data = 'Agent not initialized. This should not happen with auto-initialization.' }
   end
 
   log:debug('[Graph of Thoughts Agent] Merging nodes: %s', table.concat(args.source_nodes, ', '))
@@ -188,22 +128,111 @@ The nodes have been combined into a single reasoning unit.]],
   }
 end
 
--- Create the tool definition directly (replacing engine approach)
+-- Auto-initialize agent on first use
+local function auto_initialize(agent_state, goal)
+  if agent_state.current_instance then
+    return nil -- Already initialized
+  end
+
+  log:debug('[Graph of Thoughts Agent] Auto-initializing with goal: %s', goal)
+
+  agent_state.session_id = tostring(os.time())
+  agent_state.current_instance = GoT.GraphOfThoughts.new()
+  agent_state.current_instance.agent_type = 'Graph of Thoughts Agent'
+
+  -- Load project context
+  local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
+  local context_summary, context_files = ContextDiscovery.load_project_context()
+  agent_state.project_context = context_files
+
+  agent_state.current_instance.get_element = function(self, id)
+    return self:get_node(id)
+  end
+
+  agent_state.current_instance.update_element_score = function(self, id, boost)
+    local node = self:get_node(id)
+    if node then
+      node.score = node.score + boost
+      return true
+    end
+    return false
+  end
+
+  local goal_id = agent_state.current_instance:add_node(goal, 'goal')
+
+  local init_message = fmt(
+    [[🕸️ Graph of Thoughts Agent activated for: %s
+
+AUTO-INITIALIZED: Ready for system building! (Root: %s)
+
+START: Call add_node to add first component:
+- action: "add_node"
+- content: "[identify first component/file/module]"
+- node_type: "task"|"analysis"|"reasoning"|"validation"|"synthesis"
+
+THEN: Call add_edge to connect components:
+- action: "add_edge"
+- source_id: "[node1_id]"
+- target_id: "[node2_id]"
+
+REMEMBER: Build system incrementally - add component → connect dependencies → evolve architecture]],
+    goal,
+    goal_id
+  )
+
+  -- Add context if found
+  if #context_files > 0 then
+    init_message = init_message .. '\n\n' .. context_summary
+  end
+
+  return init_message
+end
+
+-- Create the tool definition with auto-initialization
 local function handle_action(args)
   local agent_state = _G._codecompanion_graph_of_thoughts_state or {}
   _G._codecompanion_graph_of_thoughts_state = agent_state
+
+  -- Auto-initialize if needed
+  if not agent_state.current_instance then
+    local goal = args.content or 'System building task requested'
+    local init_message = auto_initialize(agent_state, goal)
+
+    if init_message then
+      -- If this was an action call that triggered initialization, continue with the action
+      if args.action == 'add_node' then
+        local node_result = Actions.add_node(args, agent_state)
+        return {
+          status = 'success',
+          data = init_message .. '\n\n---\n\n' .. node_result.data,
+        }
+      elseif args.action == 'add_edge' then
+        local edge_result = Actions.add_edge(args, agent_state)
+        return {
+          status = 'success',
+          data = init_message .. '\n\n---\n\n' .. edge_result.data,
+        }
+      elseif args.action == 'merge_nodes' then
+        local merge_result = Actions.merge_nodes(args, agent_state)
+        return {
+          status = 'success',
+          data = init_message .. '\n\n---\n\n' .. merge_result.data,
+        }
+      else
+        return { status = 'success', data = init_message }
+      end
+    end
+  end
 
   local action = Actions[args.action]
   if not action then
     return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
   end
 
-  -- Validate required parameters
+  -- Validate required parameters (removed 'initialize' from validation)
   local validation_rules = {
-    initialize = { 'goal' },
     add_node = { 'content' },
     add_edge = { 'source_id', 'target_id' },
-    view_graph = {},
     merge_nodes = { 'source_nodes', 'merged_content' },
   }
 
@@ -229,17 +258,13 @@ return {
     type = 'function',
     ['function'] = {
       name = 'graph_of_thoughts_agent',
-      description = 'Manages complex coding systems: ideal for microservices, dependencies, integrations, and interconnected architectures.',
+      description = 'Manages complex coding systems: auto-initializes on first use, ideal for microservices, dependencies, integrations, architectures.',
       parameters = {
         type = 'object',
         properties = {
           action = {
             type = 'string',
-            description = "The graph action to perform: 'initialize', 'add_node', 'add_edge', 'view_graph', 'merge_nodes'",
-          },
-          goal = {
-            type = 'string',
-            description = "The primary goal/problem to solve (required for 'initialize')",
+            description = "The graph action to perform: 'add_node', 'add_edge', 'merge_nodes'",
           },
           content = {
             type = 'string',

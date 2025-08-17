@@ -9,8 +9,23 @@ local NODE_TYPES = {
   synthesis = 'Combining multiple thoughts or ideas',
 }
 
+-- Simple counter for predictable node IDs in tests
+local node_counter = 0
+
 local function generate_id()
-  return tostring(os.time()) .. '_' .. tostring(math.random(1000, 9999))
+  if _G._codecompanion_test_mode then
+    -- Use simple sequential IDs during testing
+    node_counter = node_counter + 1
+    return 'node_' .. node_counter
+  else
+    -- Use timestamp-based IDs in production
+    return tostring(os.time()) .. '_' .. tostring(math.random(1000, 9999))
+  end
+end
+
+-- Reset counter for tests
+local function reset_test_counter()
+  node_counter = 0
 end
 
 -- ThoughtNode Class
@@ -386,4 +401,5 @@ return {
   ThoughtNode = Node,
   Edge = Edge,
   GraphOfThoughts = GraphOfThoughts,
+  reset_test_counter = reset_test_counter,
 }

@@ -65,7 +65,8 @@ function helpers.child_start(child)
 
   -- Set up runtime path in child process
   local root = vim.fn.fnamemodify(debug.getinfo(1).source:match('@(.*)'), ':h:h')
-  child.lua(string.format([[local root = %q
+  child.lua(string.format(
+    [[local root = %q
     local deps_path = root .. "/deps"
     local deps = {"plenary.nvim", "mini.nvim"}
     for _, dep in ipairs(deps) do
@@ -75,7 +76,9 @@ function helpers.child_start(child)
       end
     end
     vim.opt.runtimepath:append(root)
-  ]], root))
+  ]],
+    root
+  ))
 end
 
 return helpers
