@@ -17,18 +17,15 @@ local STEP_TYPES = {
 }
 
 -- Add a step to the chain
-function ChainOfThoughts:add_step(step_type, content, reasoning, step_id)
-  -- Validate step type
+function ChainOfThoughts:add_step(step_type, content, step_id)
   if STEP_TYPES[step_type] == nil then
     return false, 'Invalid step type. Valid types are: ' .. table.concat(vim.tbl_keys(STEP_TYPES), ', ')
   end
 
-  -- Validate content
   if not content or content == '' then
     return false, 'Step content cannot be empty'
   end
 
-  -- Validate step_id
   if not step_id or step_id == '' then
     return false, 'Step ID cannot be empty'
   end
@@ -38,7 +35,6 @@ function ChainOfThoughts:add_step(step_type, content, reasoning, step_id)
     id = step_id,
     type = step_type,
     content = content,
-    reasoning = reasoning or '',
     step_number = self.current_step,
     timestamp = os.time(),
   }

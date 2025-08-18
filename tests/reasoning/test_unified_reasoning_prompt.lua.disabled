@@ -241,7 +241,7 @@ T['generate creates tool_mastery section'] = function()
   h.expect_contains('TOOL MASTERY', prompt)
   h.expect_contains('STRATEGIC OPTIMIZATION', prompt)
   h.expect_contains('DISCOVERY PROTOCOL', prompt)
-  h.expect_contains('tool_discovery', prompt)
+  h.expect_contains('add_tools', prompt)
   h.expect_contains('STRATEGIC MINDSET', prompt)
 end
 
@@ -561,7 +561,7 @@ T['generated prompts contain essential keywords'] = function()
 
     -- Essential keywords that should appear in all prompts
     essential_keywords = {
-      "tool_discovery",
+      "add_tools",
       "production",
       "quality",
       "performance"

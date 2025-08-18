@@ -1,6 +1,6 @@
----@class CodeCompanion.ContextDiscovery
----Discovers and loads AI context files from popular tools with smart memory system
-local ContextDiscovery = {}
+---@class CodeCompanion.MemoryEngine
+---Memory engine for AI context discovery and project knowledge management
+local MemoryEngine = {}
 
 local fmt = string.format
 
@@ -59,16 +59,13 @@ local DEFAULT_MEMORY = {
   created = 0,
   updated = 0,
   file_knowledge = {}, -- File purposes and insights
-  reasoning_patterns = {}, -- Successful reasoning sequences
   user_preferences = {}, -- Discovered user patterns
-  problem_solutions = {}, -- Problem-solution mappings
-  tool_usage_patterns = {}, -- Which tools work best for what
 }
 
 ---Find AI context files in the project
 ---@param start_path? string Starting directory (defaults to cwd)
 ---@return table[] Array of found context files with metadata
-function ContextDiscovery.find_context_files(start_path)
+function MemoryEngine.find_context_files(start_path)
   start_path = start_path or vim.fn.getcwd()
   local found_files = {}
 
@@ -137,7 +134,7 @@ end
 ---@param file_info table File information from find_context_files
 ---@return string? content File content, nil if failed to read
 ---@return string? error Error message if reading failed
-function ContextDiscovery.read_context_file(file_info)
+function MemoryEngine.read_context_file(file_info)
   local file_path = file_info.path
 
   -- Check file size (avoid reading huge files)
@@ -172,7 +169,7 @@ end
 ---Generate context summary for chat
 ---@param context_files table[] Array of context file info with content
 ---@return string Formatted context summary
-function ContextDiscovery.format_context_summary(context_files)
+function MemoryEngine.format_context_summary(context_files)
   if #context_files == 0 then
     return '🔍 No AI context files found in project'
   end
@@ -211,12 +208,6 @@ function ContextDiscovery.format_context_summary(context_files)
     table.insert(output, '')
   end
 
-  -- Usage guidance
-  table.insert(output, '💡 **Context is now available for all reasoning agents**')
-  table.insert(output, '• Agents will use this context to understand project conventions')
-  table.insert(output, '• File patterns, coding standards, and preferences are loaded')
-  table.insert(output, '• Context helps agents make better decisions for your specific project')
-
   return table.concat(output, '\n')
 end
 
@@ -224,15 +215,15 @@ end
 ---@param start_path? string Starting directory (defaults to cwd)
 ---@return string Formatted context summary
 ---@return table[] Raw context files data
-function ContextDiscovery.load_project_context(start_path)
-  local context_files = ContextDiscovery.find_context_files(start_path)
+function MemoryEngine.load_project_context(start_path)
+  local context_files = MemoryEngine.find_context_files(start_path)
 
   -- Read content for each file
   for _, file_info in ipairs(context_files) do
-    file_info.content, file_info.error = ContextDiscovery.read_context_file(file_info)
+    file_info.content, file_info.error = MemoryEngine.read_context_file(file_info)
   end
 
-  local summary = ContextDiscovery.format_context_summary(context_files)
+  local summary = MemoryEngine.format_context_summary(context_files)
 
   log:debug('[Context Discovery] Generated summary with %d files', #context_files)
   return summary, context_files
@@ -241,8 +232,8 @@ end
 ---Get project context as a system message for reasoning agents
 ---@param start_path? string Starting directory (defaults to cwd)
 ---@return string? System message with project context, nil if no context
-function ContextDiscovery.get_system_context(start_path)
-  local context_files = ContextDiscovery.find_context_files(start_path)
+function MemoryEngine.get_system_context(start_path)
+  local context_files = MemoryEngine.find_context_files(start_path)
 
   if #context_files == 0 then
     return nil
@@ -255,7 +246,7 @@ function ContextDiscovery.get_system_context(start_path)
   table.insert(system_parts, '')
 
   for _, file_info in ipairs(context_files) do
-    local content, error = ContextDiscovery.read_context_file(file_info)
+    local content, error = MemoryEngine.read_context_file(file_info)
 
     if content then
       table.insert(system_parts, fmt('## %s (%s)', file_info.relative_path, file_info.source))
@@ -285,7 +276,7 @@ end
 ---Check if context discovery is available in current environment
 ---@return boolean available True if context discovery can be used
 ---@return string? error Error message if not available
-function ContextDiscovery.check_availability()
+function MemoryEngine.check_availability()
   -- Check if we can access file system
   if not vim.fn or not vim.fn.getcwd then
     return false, 'Vim functions not available'
@@ -308,7 +299,7 @@ end
 ---Get memory file path relative to project root
 ---@return string Memory file path
 ---@return string Memory directory path
-function ContextDiscovery.get_memory_paths()
+function MemoryEngine.get_memory_paths()
   local cwd = vim.fn.getcwd()
   local memory_dir = cwd .. '/' .. MEMORY_DIR
   local memory_file = cwd .. '/' .. MEMORY_FILE
@@ -317,8 +308,8 @@ end
 
 ---Load memory from disk
 ---@return table Memory data
-function ContextDiscovery.load_memory()
-  local memory_file, _ = ContextDiscovery.get_memory_paths()
+function MemoryEngine.load_memory()
+  local memory_file, _ = MemoryEngine.get_memory_paths()
 
   -- Check if memory file exists
   if vim.fn.filereadable(memory_file) ~= 1 then
@@ -363,8 +354,8 @@ end
 ---Save memory to disk
 ---@param memory table Memory data to save
 ---@return boolean success True if saved successfully
-function ContextDiscovery.save_memory(memory)
-  local memory_file, memory_dir = ContextDiscovery.get_memory_paths()
+function MemoryEngine.save_memory(memory)
+  local memory_file, memory_dir = MemoryEngine.get_memory_paths()
 
   -- Create memory directory if it doesn't exist
   if vim.fn.isdirectory(memory_dir) ~= 1 then
@@ -405,8 +396,8 @@ end
 ---Store file knowledge (what files are for, key functions, etc.)
 ---@param file_path string File path
 ---@param knowledge table Knowledge about the file
-function ContextDiscovery.store_file_knowledge(file_path, knowledge)
-  local memory = ContextDiscovery.load_memory()
+function MemoryEngine.store_file_knowledge(file_path, knowledge)
+  local memory = MemoryEngine.load_memory()
 
   -- Normalize file path
   local relative_path = vim.fn.fnamemodify(file_path, ':~:.')
@@ -428,15 +419,15 @@ function ContextDiscovery.store_file_knowledge(file_path, knowledge)
     entry[key] = value
   end
 
-  ContextDiscovery.save_memory(memory)
+  MemoryEngine.save_memory(memory)
   log:debug('[Context Discovery] Stored knowledge for file: %s', relative_path)
 end
 
 ---Get file knowledge
 ---@param file_path string File path
 ---@return table? Knowledge about the file, nil if not found
-function ContextDiscovery.get_file_knowledge(file_path)
-  local memory = ContextDiscovery.load_memory()
+function MemoryEngine.get_file_knowledge(file_path)
+  local memory = MemoryEngine.load_memory()
   local relative_path = vim.fn.fnamemodify(file_path, ':~:.')
   return memory.file_knowledge[relative_path]
 end
@@ -444,8 +435,8 @@ end
 ---Store user preference
 ---@param preference_key string Preference identifier
 ---@param preference_value any Preference value
-function ContextDiscovery.store_user_preference(preference_key, preference_value)
-  local memory = ContextDiscovery.load_memory()
+function MemoryEngine.store_user_preference(preference_key, preference_value)
+  local memory = MemoryEngine.load_memory()
 
   memory.user_preferences[preference_key] = {
     value = preference_value,
@@ -455,25 +446,51 @@ function ContextDiscovery.store_user_preference(preference_key, preference_value
     ) + 1,
   }
 
-  ContextDiscovery.save_memory(memory)
+  MemoryEngine.save_memory(memory)
   log:debug('[Context Discovery] Stored user preference: %s', preference_key)
 end
 
 ---Get user preference
 ---@param preference_key string Preference identifier
 ---@return any? Preference value, nil if not found
-function ContextDiscovery.get_user_preference(preference_key)
-  local memory = ContextDiscovery.load_memory()
+function MemoryEngine.get_user_preference(preference_key)
+  local memory = MemoryEngine.load_memory()
   local pref = memory.user_preferences[preference_key]
   return pref and pref.value or nil
 end
 
----Get enhanced context with memory insights
+---Get lightweight context (project files only, no memory)
+---@param start_path? string Starting directory
+---@return string? Lightweight context, nil if no context files
+function MemoryEngine.get_lightweight_context(start_path)
+  local context_files = MemoryEngine.find_context_files(start_path)
+
+  if #context_files == 0 then
+    return nil
+  end
+
+  -- Only include the primary context file (highest priority)
+  local primary_file = context_files[1]
+  local content, error = MemoryEngine.read_context_file(primary_file)
+
+  if not content then
+    return nil
+  end
+
+  -- Truncate content if too long (keep first 2000 chars)
+  if #content > 2000 then
+    content = content:sub(1, 2000) .. '\n[...truncated for token efficiency]'
+  end
+
+  return fmt('# PROJECT CONTEXT\n\n%s', content)
+end
+
+---Get enhanced context with memory insights (full version)
 ---@param start_path? string Starting directory
 ---@return string Enhanced context including memory insights
-function ContextDiscovery.get_enhanced_context(start_path)
-  local base_context = ContextDiscovery.get_system_context(start_path)
-  local memory = ContextDiscovery.load_memory()
+function MemoryEngine.get_enhanced_context(start_path)
+  local base_context = MemoryEngine.get_system_context(start_path)
+  local memory = MemoryEngine.load_memory()
 
   local context_parts = {}
 
@@ -482,21 +499,16 @@ function ContextDiscovery.get_enhanced_context(start_path)
     table.insert(context_parts, '')
   end
 
-  -- Add memory insights if available
-  local has_memory = vim.tbl_count(memory.file_knowledge) > 0
-    or vim.tbl_count(memory.reasoning_patterns) > 0
-    or vim.tbl_count(memory.user_preferences) > 0
+  local has_memory = vim.tbl_count(memory.file_knowledge) > 0 or vim.tbl_count(memory.user_preferences) > 0
 
   if has_memory then
     table.insert(context_parts, '# PROJECT MEMORY INSIGHTS')
     table.insert(context_parts, '')
 
-    -- File knowledge summary
     local file_count = vim.tbl_count(memory.file_knowledge)
     if file_count > 0 then
       table.insert(context_parts, fmt('**File Knowledge:** %d files with stored insights', file_count))
 
-      -- Show most accessed files
       local files_by_access = {}
       for path, knowledge in pairs(memory.file_knowledge) do
         table.insert(files_by_access, { path = path, access_count = knowledge.access_count or 0 })
@@ -505,41 +517,34 @@ function ContextDiscovery.get_enhanced_context(start_path)
         return a.access_count > b.access_count
       end)
 
-      for i = 1, math.min(3, #files_by_access) do
+      for i = 1, math.min(5, #files_by_access) do -- Reduced from 10 to 5
         local file = files_by_access[i]
-        table.insert(context_parts, fmt('- %s (accessed %d times)', file.path, file.access_count))
+        table.insert(context_parts, fmt('- %s (%dx)', file.path, file.access_count))
       end
       table.insert(context_parts, '')
     end
 
-    -- User preferences
+    -- User preferences (limit to 3 most recent)
     local pref_count = vim.tbl_count(memory.user_preferences)
     if pref_count > 0 then
-      table.insert(context_parts, fmt('**User Preferences:** %d stored preferences', pref_count))
+      table.insert(context_parts, fmt('**User Preferences:** %d stored', pref_count))
+      local pref_list = {}
       for key, pref in pairs(memory.user_preferences) do
-        table.insert(context_parts, fmt('- %s: %s', key, tostring(pref.value)))
+        table.insert(pref_list, { key = key, value = pref.value, updated = pref.updated or 0 })
+      end
+      table.sort(pref_list, function(a, b)
+        return a.updated > b.updated
+      end)
+
+      for i = 1, math.min(3, #pref_list) do
+        local pref = pref_list[i]
+        table.insert(context_parts, fmt('- %s: %s', pref.key, tostring(pref.value)))
       end
       table.insert(context_parts, '')
     end
-
-    -- Reasoning patterns
-    local pattern_count = vim.tbl_count(memory.reasoning_patterns)
-    if pattern_count > 0 then
-      table.insert(
-        context_parts,
-        fmt('**Reasoning Patterns:** %d problem types with successful patterns', pattern_count)
-      )
-      table.insert(context_parts, '')
-    end
-
-    table.insert(
-      context_parts,
-      '💡 **Memory Usage:** Use stored insights to make better decisions and follow established patterns.'
-    )
-    table.insert(context_parts, '')
   end
 
   return table.concat(context_parts, '\n')
 end
 
-return ContextDiscovery
+return MemoryEngine

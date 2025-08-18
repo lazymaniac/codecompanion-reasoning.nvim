@@ -32,7 +32,7 @@ local global_agent_states = {}
 -- Track which agents have had their companion tools added
 local companion_tools_added = {}
 
--- Add companion tools (ask_user and tool_discovery) to the chat
+-- Add companion tools (ask_user and add_tools) to the chat
 function ReasoningAgentBase.add_companion_tools(agent, agent_type)
   local chat = agent.chat
   if not chat or not chat.tool_registry then
@@ -56,7 +56,7 @@ function ReasoningAgentBase.add_companion_tools(agent, agent_type)
     return
   end
 
-  local tools_to_add = { 'ask_user', 'tool_discovery' }
+  local tools_to_add = { 'ask_user', 'add_tool', 'memory' }
   local added_tools = {}
 
   for _, tool_name in ipairs(tools_to_add) do
@@ -81,7 +81,7 @@ function ReasoningAgentBase.add_companion_tools(agent, agent_type)
     -- Notify user about added tools - put summary first
     local tools_summary = table.concat(added_tools, ', ')
     local message = string.format(
-      '🔧 Reasoning agent enhanced with %d companion tools: %s\n\nThese tools are now available to support your reasoning process:\n- **ask_user**: Get input when decisions require user expertise\n- **tool_discovery**: Find and add additional tools as needed',
+      '🔧 Reasoning agent enhanced with %d companion tools: %s\n\nThese tools are now available to support your reasoning process:\n- **ask_user**: Get input when decisions require user expertise\n- **add_tools**: Find and add additional tools as needed',
       #added_tools,
       tools_summary
     )
@@ -137,7 +137,6 @@ function ReasoningAgentBase.create_tool_definition(agent_config)
   local agent_type = agent_config.agent_type
   local actions = agent_config.actions
   local validation_rules = agent_config.validation_rules
-  local system_prompt_config = agent_config.system_prompt_config
 
   local validator = create_validator(validation_rules)
 
@@ -194,17 +193,6 @@ function ReasoningAgentBase.create_tool_definition(agent_config)
         strict = true,
       },
     },
-    system_prompt = function()
-      local success, result = pcall(function()
-        return UnifiedReasoningPrompt.generate(system_prompt_config())
-      end)
-      if success then
-        return result
-      else
-        log:error('[%s] Failed to generate system prompt: %s', agent_type, tostring(result))
-        return 'You are a helpful AI assistant specialized in ' .. agent_type .. '.'
-      end
-    end,
     handlers = {
       on_exit = function(agent)
         local agent_state = ReasoningAgentBase.get_state(agent_type)

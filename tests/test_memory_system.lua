@@ -9,8 +9,8 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
-        MemoryInsight = require('codecompanion._extensions.reasoning.tools.memory_insight')
+        MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
+        Memory = require('codecompanion._extensions.reasoning.tools.memory')
       ]])
     end,
     post_once = child.stop,
@@ -21,14 +21,14 @@ local T = new_set({
 T['memory system stores and retrieves file knowledge'] = function()
   child.lua([[
     -- Store file knowledge
-    ContextDiscovery.store_file_knowledge('test.lua', {
+    MemoryEngine.store_file_knowledge('test.lua', {
       purpose = 'Test file',
       key_functions = {'test_function'},
       patterns = {'testing_pattern'}
     })
 
     -- Retrieve file knowledge
-    knowledge = ContextDiscovery.get_file_knowledge('test.lua')
+    knowledge = MemoryEngine.get_file_knowledge('test.lua')
 
     memory_test_info = {
       has_knowledge = knowledge ~= nil,
@@ -49,10 +49,10 @@ end
 T['memory system stores and retrieves user preferences'] = function()
   child.lua([[
     -- Store user preference
-    ContextDiscovery.store_user_preference('coding_style', 'incremental')
+    MemoryEngine.store_user_preference('coding_style', 'incremental')
 
     -- Retrieve user preference
-    preference = ContextDiscovery.get_user_preference('coding_style')
+    preference = MemoryEngine.get_user_preference('coding_style')
 
     pref_test_info = {
       has_preference = preference ~= nil,
@@ -66,58 +66,47 @@ T['memory system stores and retrieves user preferences'] = function()
   h.eq(true, pref_test_info.correct_value)
 end
 
-T['memory system stores reasoning patterns'] = function()
+T['memory tool handles discover_context action'] = function()
   child.lua([[
-    -- Store reasoning pattern
-    ContextDiscovery.store_reasoning_pattern('test_problem',
-      {'step1', 'step2', 'step3'},
-      'Successfully solved test problem')
+    -- Test context discovery
+    result = Memory.cmds[1](Memory, {
+      action = 'discover_context'
+    }, nil)
 
-    -- Retrieve reasoning patterns
-    patterns = ContextDiscovery.get_reasoning_patterns('test_problem')
-
-    pattern_test_info = {
-      has_patterns = patterns ~= nil and #patterns > 0,
-      correct_steps = patterns and patterns[1] and patterns[1].steps and #patterns[1].steps == 3,
-      correct_outcome = patterns and patterns[1] and patterns[1].outcome == 'Successfully solved test problem'
+    discover_test_info = {
+      status = result.status,
+      has_discover_data = string.find(result.data, 'DISCOVERED') ~= nil
     }
   ]])
 
-  local pattern_test_info = child.lua_get('pattern_test_info')
+  local discover_test_info = child.lua_get('discover_test_info')
 
-  h.eq(true, pattern_test_info.has_patterns)
-  h.eq(true, pattern_test_info.correct_steps)
-  h.eq(true, pattern_test_info.correct_outcome)
+  h.eq('success', discover_test_info.status)
+  h.eq(true, discover_test_info.has_discover_data)
 end
 
-T['memory system searches similar problems'] = function()
+T['memory tool handles get_enhanced_context action'] = function()
   child.lua([[
-    -- Store problem-solution
-    ContextDiscovery.store_problem_solution(
-      'Authentication token expires too quickly',
-      'Increased token expiry time in config',
-      {'config/auth.lua', 'utils/jwt.lua'}
-    )
+    -- Test enhanced context
+    result = Memory.cmds[1](Memory, {
+      action = 'get_enhanced_context'
+    }, nil)
 
-    -- Search for similar problems
-    matches = ContextDiscovery.search_similar_problems({'authentication', 'token'})
-
-    search_test_info = {
-      has_matches = matches ~= nil and #matches > 0,
-      correct_match = matches and matches[1] and
-                     string.find(matches[1].problem, 'Authentication') ~= nil
+    enhanced_test_info = {
+      status = result.status,
+      has_data = result.data ~= nil and result.data ~= ''
     }
   ]])
 
-  local search_test_info = child.lua_get('search_test_info')
+  local enhanced_test_info = child.lua_get('enhanced_test_info')
 
-  h.eq(true, search_test_info.has_matches)
-  h.eq(true, search_test_info.correct_match)
+  h.eq('success', enhanced_test_info.status)
+  h.eq(true, enhanced_test_info.has_data)
 end
 
-T['memory insight tool handles store_file_knowledge action'] = function()
+T['memory tool handles store_file_knowledge action'] = function()
   child.lua([[
-    result = MemoryInsight.cmds[1](MemoryInsight, {
+    result = Memory.cmds[1](Memory, {
       action = 'store_file_knowledge',
       file_path = 'example.lua',
       knowledge = {
@@ -128,7 +117,7 @@ T['memory insight tool handles store_file_knowledge action'] = function()
 
     tool_test_info = {
       status = result.status,
-      has_success_message = string.find(result.data, 'Stored knowledge') ~= nil
+      has_success_message = string.find(result.data, 'STORED') ~= nil
     }
   ]])
 
@@ -138,10 +127,10 @@ T['memory insight tool handles store_file_knowledge action'] = function()
   h.eq(true, tool_test_info.has_success_message)
 end
 
-T['memory insight tool handles get_file_knowledge action'] = function()
+T['memory tool handles get_file_knowledge action'] = function()
   child.lua([[
     -- First store some knowledge
-    MemoryInsight.cmds[1](MemoryInsight, {
+    Memory.cmds[1](Memory, {
       action = 'store_file_knowledge',
       file_path = 'retrieve_test.lua',
       knowledge = {
@@ -150,7 +139,7 @@ T['memory insight tool handles get_file_knowledge action'] = function()
     }, nil)
 
     -- Then retrieve it
-    result = MemoryInsight.cmds[1](MemoryInsight, {
+    result = Memory.cmds[1](Memory, {
       action = 'get_file_knowledge',
       file_path = 'retrieve_test.lua'
     }, nil)

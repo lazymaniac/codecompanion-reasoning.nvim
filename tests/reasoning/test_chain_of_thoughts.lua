@@ -44,7 +44,7 @@ end
 T['can add analysis step'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", "Analyze the problem", "Breaking down requirements", "step1")
+    success, message = cot:add_step("analysis", "Analyze the problem", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -58,7 +58,6 @@ T['can add analysis step'] = function()
   h.eq(1, current_step)
   h.eq('analysis', steps[1].type)
   h.eq('Analyze the problem', steps[1].content)
-  h.eq('Breaking down requirements', steps[1].reasoning)
   h.eq('step1', steps[1].id)
   h.eq(1, steps[1].step_number)
 end
@@ -66,7 +65,7 @@ end
 T['can add reasoning step'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("reasoning", "Logical deduction", "Using inference", "step1")
+    success, message = cot:add_step("reasoning", "Logical deduction", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -79,7 +78,7 @@ end
 T['can add task step'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("task", "Implement solution", "Code the feature", "step1")
+    success, message = cot:add_step("task", "Implement solution", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -92,7 +91,7 @@ end
 T['can add validation step'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("validation", "Test solution", "Verify correctness", "step1")
+    success, message = cot:add_step("validation", "Test solution", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -105,22 +104,21 @@ end
 T['can add step without reasoning'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", "Simple analysis", nil, "step1")
+    success, message = cot:add_step("analysis", "Simple analysis", "step1")
   ]])
 
   local success = child.lua_get('success')
   local steps = child.lua_get('cot.steps')
 
   h.eq(true, success)
-  h.eq('', steps[1].reasoning)
 end
 
 T['can add multiple steps'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "First step", "Reasoning 1", "step1")
-    cot:add_step("reasoning", "Second step", "Reasoning 2", "step2")
-    cot:add_step("task", "Third step", "Reasoning 3", "step3")
+    cot:add_step("analysis", "First step", "step1")
+    cot:add_step("reasoning", "Second step", "step2")
+    cot:add_step("task", "Third step", "step3")
   ]])
 
   local steps = child.lua_get('cot.steps')
@@ -137,7 +135,7 @@ end
 T['rejects invalid step type'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("invalid", "Content", "Reasoning", "step1")
+    success, message = cot:add_step("invalid", "Content", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -152,7 +150,7 @@ end
 T['rejects empty content'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", "", "Reasoning", "step1")
+    success, message = cot:add_step("analysis", "", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -165,7 +163,7 @@ end
 T['rejects nil content'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", nil, "Reasoning", "step1")
+    success, message = cot:add_step("analysis", nil, "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -178,7 +176,7 @@ end
 T['rejects empty step_id'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", "Content", "Reasoning", "")
+    success, message = cot:add_step("analysis", "Content", "")
   ]])
 
   local success = child.lua_get('success')
@@ -191,7 +189,7 @@ end
 T['rejects nil step_id'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", "Content", "Reasoning", nil)
+    success, message = cot:add_step("analysis", "Content", nil)
   ]])
 
   local success = child.lua_get('success')
@@ -205,7 +203,7 @@ end
 T['creates step with correct structure'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Test content", "Test reasoning", "test_id")
+    cot:add_step("analysis", "Test content", "test_id")
     step = cot.steps[1]
   ]])
 
@@ -214,7 +212,6 @@ T['creates step with correct structure'] = function()
   h.eq('test_id', step.id)
   h.eq('analysis', step.type)
   h.eq('Test content', step.content)
-  h.eq('Test reasoning', step.reasoning)
   h.eq(1, step.step_number)
   h.eq('number', type(step.timestamp))
 end
@@ -239,7 +236,7 @@ end
 T['reflects on analysis-only chain'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Analyze", "Detail", "step1")
+    cot:add_step("analysis", "Analyze", "step1")
     reflection = cot:reflect()
   ]])
 
@@ -254,7 +251,7 @@ end
 T['reflects on reasoning-only chain'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("reasoning", "Reason", "Detail", "step1")
+    cot:add_step("reasoning", "Reason", "step1")
     reflection = cot:reflect()
   ]])
 
@@ -269,9 +266,9 @@ end
 T['reflects on well-structured chain'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Analyze", "Detailed analysis", "step1")
-    cot:add_step("reasoning", "Reason", "Logical deduction", "step2")
-    cot:add_step("task", "Implement", "Code solution", "step3")
+    cot:add_step("analysis", "Analyze", "step1")
+    cot:add_step("reasoning", "Reason", "step2")
+    cot:add_step("task", "Implement", "step3")
     reflection = cot:reflect()
   ]])
 
@@ -285,10 +282,10 @@ end
 T['reflects on complete chain with validation'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Analyze", "Detailed analysis", "step1")
-    cot:add_step("reasoning", "Reason", "Logical deduction", "step2")
-    cot:add_step("task", "Implement", "Code solution", "step3")
-    cot:add_step("validation", "Test", "Verify solution", "step4")
+    cot:add_step("analysis", "Analyze", "step1")
+    cot:add_step("reasoning", "Reason", "step2")
+    cot:add_step("task", "Implement", "step3")
+    cot:add_step("validation", "Test", "step4")
     reflection = cot:reflect()
   ]])
 
@@ -305,38 +302,40 @@ end
 T['reflects on steps with poor reasoning coverage'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Step 1", "", "step1")  -- no reasoning
-    cot:add_step("reasoning", "Step 2", "", "step2")  -- no reasoning
-    cot:add_step("task", "Step 3", "Good reasoning", "step3")  -- has reasoning
+    cot:add_step("analysis", "Step 1", "step1")
+    cot:add_step("reasoning", "Step 2", "step2")
+    cot:add_step("task", "Step 3", "step3")
     reflection = cot:reflect()
   ]])
 
   local reflection = child.lua_get('reflection')
 
-  h.expect_contains('more detailed reasoning', table.concat(reflection.improvements, ' '))
+  -- Since reasoning field doesn't exist, the logic is different now
+  h.eq(3, reflection.total_steps)
 end
 
 T['reflects on steps with good reasoning coverage'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Step 1", "Good reasoning 1", "step1")
-    cot:add_step("reasoning", "Step 2", "Good reasoning 2", "step2")
-    cot:add_step("task", "Step 3", "Good reasoning 3", "step3")
+    cot:add_step("analysis", "Step 1", "step1")
+    cot:add_step("reasoning", "Step 2", "step2")
+    cot:add_step("task", "Step 3", "step3")
     reflection = cot:reflect()
   ]])
 
   local reflection = child.lua_get('reflection')
 
-  h.expect_contains('Good coverage of reasoning', table.concat(reflection.insights, ' '))
+  -- Since reasoning field doesn't exist, this test should expect different behavior
+  h.eq(3, reflection.total_steps)
 end
 
 -- Test step distribution analysis
 T['reflects on step distribution'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Step 1", "Reasoning", "step1")
-    cot:add_step("analysis", "Step 2", "Reasoning", "step2")
-    cot:add_step("task", "Step 3", "Reasoning", "step3")
+    cot:add_step("analysis", "Step 1", "step1")
+    cot:add_step("analysis", "Step 2", "step2")
+    cot:add_step("task", "Step 3", "step3")
     reflection = cot:reflect()
   ]])
 
@@ -379,7 +378,7 @@ end
 T['handles steps with whitespace-only content'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    success, message = cot:add_step("analysis", "   ", "Reasoning", "step1")
+    success, message = cot:add_step("analysis", "   ", "step1")
   ]])
 
   local success = child.lua_get('success')
@@ -392,10 +391,10 @@ end
 T['preserves step order across operations'] = function()
   child.lua([[
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "First", "R1", "step1")
-    cot:add_step("reasoning", "Second", "R2", "step2")
-    cot:add_step("validation", "Third", "R3", "step3")
-    cot:add_step("task", "Fourth", "R4", "step4")
+    cot:add_step("analysis", "First", "step1")
+    cot:add_step("reasoning", "Second", "step2")
+    cot:add_step("validation", "Third", "step3")
+    cot:add_step("task", "Fourth", "step4")
   ]])
 
   local steps = child.lua_get('cot.steps')
@@ -414,7 +413,7 @@ T['timestamps are reasonable'] = function()
   child.lua([[
     before_time = os.time()
     cot = ChainOfThoughts.new("Test problem")
-    cot:add_step("analysis", "Test", "Reasoning", "step1")
+    cot:add_step("analysis", "Test", "step1")
     after_time = os.time()
     timestamp = cot.steps[1].timestamp
   ]])

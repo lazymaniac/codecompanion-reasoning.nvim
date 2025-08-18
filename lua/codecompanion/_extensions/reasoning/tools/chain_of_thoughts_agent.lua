@@ -80,7 +80,7 @@ function Actions.add_step(args, agent_state)
   end
 
   local success, message =
-    agent_state.current_instance:add_step(args.step_type, args.content, args.reasoning or '', args.step_id)
+    agent_state.current_instance:add_step(args.step_type, args.content, args.step_id)
   if not success then
     return { status = 'error', data = message }
   end
@@ -88,7 +88,7 @@ function Actions.add_step(args, agent_state)
   return {
     status = 'success',
     data = fmt(
-      [[Added step %d: %s
+      [[Step %d: %s
 
 NEXT: Continue reasoning! Call add_step again with step_id="%s" for your next micro-action.
 Keep building the chain until problem is solved!]],
@@ -102,36 +102,31 @@ end
 -- Auto-initialize agent on first use
 local function auto_initialize(agent_state, problem)
   if agent_state.current_instance then
-    return nil -- Already initialized
+    return nil
   end
 
-  log:debug('[Chain of Thought Agent] Auto-initializing with problem: %s', problem)
+  log:debug('[Chain of Thought Agent] Initializing with problem: %s', problem)
 
   agent_state.session_id = tostring(os.time())
   agent_state.current_instance = ChainOfThoughts.new(problem)
   agent_state.current_instance.agent_type = 'Chain of Thought Agent'
 
   -- Load project context
-  local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
-  local context_summary, context_files = ContextDiscovery.load_project_context()
+  local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
+  local context_summary, context_files = MemoryEngine.load_project_context()
   agent_state.project_context = context_files
 
   local init_message = fmt(
     [[🔗 Chain of Thoughts Agent activated for: %s
 
-AUTO-INITIALIZED: Ready for micro-step reasoning!
+INITIALIZED: Ready for micro step-by-step reasoning!
 
-START: Call add_step with your first micro-action:
-- action: "add_step"
-- step_id: "step1"
-- content: "[your first small action]"
-- step_type: "task"|"analysis"|"reasoning"|"validation"
+START: Call add_step with your first micro-action, than continue to build the problem solving chain.
 
-REMEMBER: Take small focused steps - find file → read section → make change → test]],
+REMEMBER: Take small focused steps - find file → read content → make change → test → ...]],
     problem
   )
 
-  -- Add context if found
   if #context_files > 0 then
     init_message = init_message .. '\n\n' .. context_summary
   end
@@ -144,13 +139,11 @@ local function handle_action(args)
   local agent_state = _G._codecompanion_chain_of_thoughts_state or {}
   _G._codecompanion_chain_of_thoughts_state = agent_state
 
-  -- Auto-initialize if needed (when any action is called)
   if not agent_state.current_instance then
     local problem = args.content or 'Coding task requested'
     local init_message = auto_initialize(agent_state, problem)
 
     if init_message then
-      -- If this was an add_step call that triggered initialization, continue with the step
       if args.action == 'add_step' then
         local step_result = Actions.add_step(args, agent_state)
         return {
@@ -174,7 +167,6 @@ local function handle_action(args)
     return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
   end
 
-  -- Validate required parameters (removed 'initialize' from validation)
   local validation_rules = {
     add_step = { 'step_id', 'content', 'step_type' },
     reflect = {},
@@ -202,7 +194,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = 'Sequential micro-step coding solver: auto-initializes on first use, ideal for debugging, implementing features, refactoring step-by-step.',
+      description = 'Sequential micro-step coding solver: auto-initializes on first use. Use for debugging, implementing features, refactoring step-by-step. WORKFLOW: Take ONE small action → Analyze result → Ask user if needed → Next micro-step → REPEAT. Call add_step with your FIRST action, then CONTINUE with multiple calls. Take small focused steps: find file → read → change → test. Use ask_user for decisions.',
       parameters = {
         type = 'object',
         properties = {
@@ -222,10 +214,6 @@ return {
             type = 'string',
             description = "Type of reasoning step: 'analysis', 'reasoning', 'task', 'validation' (required for 'add_step')",
           },
-          reasoning = {
-            type = 'string',
-            description = "Detailed explanation of the reasoning behind this step (for 'add_step')",
-          },
           reflection = {
             type = 'string',
             description = "Reflection on the reasoning process and outcomes (optional for 'reflect')",
@@ -237,8 +225,4 @@ return {
       strict = true,
     },
   },
-  system_prompt = function()
-    local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
-    return UnifiedReasoningPrompt.generate_for_reasoning('chain')
-  end,
 }

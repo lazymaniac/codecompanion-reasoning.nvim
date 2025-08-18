@@ -141,8 +141,8 @@ local function auto_initialize(agent_state, goal)
   agent_state.current_instance.agent_type = 'Graph of Thoughts Agent'
 
   -- Load project context
-  local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
-  local context_summary, context_files = ContextDiscovery.load_project_context()
+  local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
+  local context_summary, context_files = MemoryEngine.load_project_context()
   agent_state.project_context = context_files
 
   agent_state.current_instance.get_element = function(self, id)
@@ -258,7 +258,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'graph_of_thoughts_agent',
-      description = 'Manages complex coding systems: auto-initializes on first use, ideal for microservices, dependencies, integrations, architectures.',
+      description = 'Manages complex coding systems: auto-initializes on first use. Use for microservices, dependencies, integrations, architectures. WORKFLOW: Add one component → Test connections → Validate dependencies → Evolve gradually. Call add_node for components, add_edge for dependencies. Build system incrementally through connected components.',
       parameters = {
         type = 'object',
         properties = {
@@ -303,8 +303,4 @@ return {
       strict = true,
     },
   },
-  system_prompt = function()
-    local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
-    return UnifiedReasoningPrompt.generate_for_reasoning('graph')
-  end,
 }

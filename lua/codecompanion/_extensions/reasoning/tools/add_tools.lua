@@ -88,11 +88,10 @@ local function get_all_tools_with_schemas()
         opts = tool_config.opts or {},
         resolved = nil,
         schema = nil,
-        system_prompt = nil,
         error = nil,
       }
 
-      -- Try to resolve the tool to get schema and system prompt
+      -- Try to resolve the tool to get schema
       if is_enabled and tool_config.callback then
         local ok, resolved_tool = pcall(function()
           return Tools.resolve(tool_config)
@@ -101,20 +100,6 @@ local function get_all_tools_with_schemas()
         if ok and resolved_tool then
           tool_info.resolved = true
           tool_info.schema = resolved_tool.schema
-
-          -- Get system prompt (can be function or string)
-          if resolved_tool.system_prompt then
-            if type(resolved_tool.system_prompt) == 'function' then
-              local prompt_ok, system_prompt = pcall(resolved_tool.system_prompt, resolved_tool.schema)
-              if prompt_ok then
-                tool_info.system_prompt = system_prompt
-              else
-                tool_info.system_prompt = 'Error evaluating system prompt function'
-              end
-            elseif type(resolved_tool.system_prompt) == 'string' then
-              tool_info.system_prompt = resolved_tool.system_prompt
-            end
-          end
 
           -- Additional metadata from resolved tool
           if resolved_tool.handlers then
@@ -323,36 +308,6 @@ return {
       strict = true,
     },
   },
-  system_prompt = [[# ROLE
-You add coding tools to enhance task capabilities.
-
-# MANDATORY 2-STEP WORKFLOW
-STEP 1: Call add_tools with action="list_tools" to see available tools
-STEP 2: Call add_tools with action="add_tool" and tool_name="exact_name" to add specific tools
-
-CRITICAL: You MUST make TWO separate add_tools calls - first to list, then to add!
-
-# USAGE PATTERN FOR OPEN-SOURCE MODELS
-1. Need file editing? → list_tools → add_tool with "edit" or "write" tool
-2. Need testing tools? → list_tools → add_tool with specific test tool name
-3. NEVER just list tools - ALWAYS follow with add_tool calls
-
-# AFTER LISTING TOOLS
-When you see the tool list, immediately call add_tools with add_tool for the tools you need:
-- For file changes: add_tool with name like "edit", "write", "file_editor"
-- For testing: add_tool with testing tool names
-- For builds: add_tool with build tool names
-
-# DECISION LOGIC
-- Code changes needed → list_tools → add_tool "edit" (or similar)
-- Testing needed → list_tools → add_tool [test tool name]
-- Analysis needed → list_tools → add_tool [analysis tool name]
-
-# CONSTRAINTS
-- ALWAYS make add_tool calls after listing
-- Use exact tool names from the list
-- Don't add reasoning agents (use meta_agent)
-- Complete the workflow: list → add → use]],
   output = {
     ---@param self CodeCompanion.Tool.AddTools
     ---@param agent CodeCompanion.Tools.Tool

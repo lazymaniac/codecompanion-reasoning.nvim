@@ -40,11 +40,11 @@ function UnifiedReasoningPrompt.generate_for_reasoning(reasoning_type, include_c
   local context_section = ''
 
   if include_context then
-    local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
-    local available, error = ContextDiscovery.check_availability()
+    local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
+    local available, error = MemoryEngine.check_availability()
 
     if available then
-      local enhanced_context = ContextDiscovery.get_enhanced_context()
+      local enhanced_context = MemoryEngine.get_enhanced_context()
       if enhanced_context then
         context_section = '\n\n' .. enhanced_context .. '\n'
       end
@@ -120,6 +120,7 @@ WORKFLOW RULES:
     context_section
   )
 end
+
 
 ---Chain of Thought configuration (for compatibility)
 ---@return table Configuration

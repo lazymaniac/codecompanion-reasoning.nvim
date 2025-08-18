@@ -9,22 +9,14 @@ local NODE_TYPES = {
   synthesis = 'Combining multiple thoughts or ideas',
 }
 
--- Simple counter for predictable node IDs in tests
 local node_counter = 0
 
 local function generate_id()
-  if _G._codecompanion_test_mode then
-    -- Use simple sequential IDs during testing
-    node_counter = node_counter + 1
-    return 'node_' .. node_counter
-  else
-    -- Use timestamp-based IDs in production
-    return tostring(os.time()) .. '_' .. tostring(math.random(1000, 9999))
-  end
+  node_counter = node_counter + 1
+  return 'node_' .. node_counter
 end
 
--- Reset counter for tests
-local function reset_test_counter()
+local function reset_id_counter()
   node_counter = 0
 end
 
@@ -54,10 +46,10 @@ function Node:generate_suggestions()
   local generators = {
     analysis = function(content)
       return {
-        '🔍 **Sub-questions**: What are the key components of: ' .. content .. '?',
         '🤔 **Assumptions**: What assumptions are being made about this analysis?',
         '📊 **Data needed**: What information or data would help validate this analysis?',
-        '🔗 **Related cases**: Are there similar problems that have been analyzed before?',
+        '❓ **Sub-questions**: What specific questions need to be answered?',
+        '🔗 **Related cases**: Are there similar situations or precedents to consider?',
       }
     end,
 
@@ -74,7 +66,7 @@ function Node:generate_suggestions()
       return {
         '📋 **Implementation steps**: Break this task into specific, actionable sub-steps',
         '🔄 **Alternative approaches**: Consider different ways to accomplish this task',
-        '🛠️ **Resources needed**: What tools, time, or materials are required?',
+        '🛠️ **Resources needed**: What tools, skills, or materials are required?',
         '✅ **Success criteria**: How will you know when this task is completed successfully?',
       }
     end,
@@ -134,7 +126,6 @@ end
 
 -- Node Management
 function GraphOfThoughts:add_node(content, id, node_type)
-  -- Validate node type
   if node_type and not NODE_TYPES[node_type] then
     local valid_types = {}
     for type_name, _ in pairs(NODE_TYPES) do
@@ -160,14 +151,12 @@ function GraphOfThoughts:add_edge(source_id, target_id, weight, relationship_typ
     return false, 'Source or target node does not exist'
   end
 
-  -- Prevent self-loops
   if source_id == target_id then
     return false, 'Self-loops are not allowed'
   end
 
   local edge = Edge.new(source_id, target_id, weight, relationship_type)
 
-  -- Add to adjacency lists
   self.edges[source_id][target_id] = edge
   self.reverse_edges[target_id][source_id] = edge
 
@@ -213,52 +202,55 @@ function GraphOfThoughts:has_cycle()
   return false
 end
 
--- Topological Sort
+-- Topological Sort using Kahn's algorithm
 function GraphOfThoughts:topological_sort()
-  local in_degree = {}
-  local queue = {}
-  local result = {}
+  if self:has_cycle() then
+    return nil, 'Graph contains cycles, topological sort not possible'
+  end
 
-  -- Initialize in-degrees to 0
+  local in_degree = {}
+  local result = {}
+  local queue = {}
+
+  -- Initialize in-degree for all nodes
   for node_id, _ in pairs(self.nodes) do
     in_degree[node_id] = 0
   end
 
-  -- Calculate in-degrees from reverse edges
-  for node_id, sources in pairs(self.reverse_edges) do
-    in_degree[node_id] = 0
-    for _, _ in pairs(sources) do
-      in_degree[node_id] = in_degree[node_id] + 1
+  -- Calculate in-degree for each node
+  for source_id, targets in pairs(self.edges) do
+    for target_id, _ in pairs(targets) do
+      in_degree[target_id] = in_degree[target_id] + 1
     end
   end
 
-  -- Find nodes with no dependencies
+  -- Find all nodes with in-degree 0
   for node_id, degree in pairs(in_degree) do
     if degree == 0 then
       table.insert(queue, node_id)
     end
   end
 
-  -- Process queue
+  -- Process nodes
   while #queue > 0 do
     local current = table.remove(queue, 1)
     table.insert(result, current)
 
-    -- Update dependents
-    for target_id, _ in pairs(self.edges[current]) do
-      in_degree[target_id] = in_degree[target_id] - 1
-      if in_degree[target_id] == 0 then
-        table.insert(queue, target_id)
+    -- For each neighbor of current node
+    for neighbor_id, _ in pairs(self.edges[current] or {}) do
+      in_degree[neighbor_id] = in_degree[neighbor_id] - 1
+      if in_degree[neighbor_id] == 0 then
+        table.insert(queue, neighbor_id)
       end
     end
   end
 
-  -- Check if all nodes are included (no cycles)
+  -- Check if all nodes were processed (no cycles)
   if #result ~= self:get_node_count() then
-    return nil, 'Graph contains cycles'
+    return nil, 'Unexpected error in topological sort'
   end
 
-  return result
+  return result, nil
 end
 
 -- Evaluation System
@@ -401,5 +393,5 @@ return {
   ThoughtNode = Node,
   Edge = Edge,
   GraphOfThoughts = GraphOfThoughts,
-  reset_test_counter = reset_test_counter,
+  reset_test_counter = reset_id_counter,
 }

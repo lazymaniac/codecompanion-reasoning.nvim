@@ -21,10 +21,10 @@ local T = new_set({
                   description = 'Ask user for input',
                   callback = { name = 'ask_user' }
                 },
-                tool_discovery = {
-                  id = 'reasoning:tool_discovery',
+                add_tools = {
+                  id = 'reasoning:add_tools',
                   description = 'Discover and add tools',
-                  callback = { name = 'tool_discovery' }
+                  callback = { name = 'add_tools' }
                 }
               }
             }

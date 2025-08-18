@@ -235,7 +235,6 @@ T['create_tool_definition creates valid tool structure'] = function()
       cmds_type = type(tool_def.cmds),
       cmds_count = #tool_def.cmds,
       schema_type = type(tool_def.schema),
-      system_prompt_type = type(tool_def.system_prompt),
       handlers_type = type(tool_def.handlers),
       output_type = type(tool_def.output)
     }
@@ -247,7 +246,7 @@ T['create_tool_definition creates valid tool structure'] = function()
   h.eq('table', structure.cmds_type)
   h.eq(1, structure.cmds_count)
   h.eq('table', structure.schema_type)
-  h.eq('function', structure.system_prompt_type)
+  -- system_prompt no longer exists after removal
   h.eq('table', structure.handlers_type)
   h.eq('table', structure.output_type)
 end
@@ -275,40 +274,44 @@ T['create_tool_definition has correct schema structure'] = function()
   h.eq(true, schema_info.strict)
 end
 
-T['create_tool_definition system_prompt function works'] = function()
+T['create_tool_definition has correct handlers structure'] = function()
   child.lua([[
     config = create_sample_agent_config()
     tool_def = ReasoningAgentBase.create_tool_definition(config)
 
-    prompt = tool_def.system_prompt()
-    prompt_type = type(prompt)
-    prompt_length = #prompt
+    handlers_info = {
+      has_on_exit = tool_def.handlers.on_exit ~= nil,
+      on_exit_type = type(tool_def.handlers.on_exit)
+    }
   ]])
 
-  local prompt_type = child.lua_get('prompt_type')
-  local prompt_length = child.lua_get('prompt_length')
+  local handlers_info = child.lua_get('handlers_info')
 
-  h.eq('string', prompt_type)
-  h.expect_truthy(prompt_length > 0)
+  h.eq(true, handlers_info.has_on_exit)
+  h.eq('function', handlers_info.on_exit_type)
 end
 
-T['create_tool_definition system_prompt handles errors gracefully'] = function()
+T['create_tool_definition validates actions correctly'] = function()
   child.lua([[
     config = create_sample_agent_config()
-    -- Make system_prompt_config throw an error
-    config.system_prompt_config = function()
-      error("Test error")
-    end
-
     tool_def = ReasoningAgentBase.create_tool_definition(config)
-    prompt = tool_def.system_prompt()
+
+    -- Test invalid action
+    invalid_result = tool_def.cmds[1](tool_def, { action = 'invalid_action' }, nil)
+    
+    -- Test valid action with missing required param
+    missing_param_result = tool_def.cmds[1](tool_def, { action = 'test_action' }, nil)
+    
+    validation_results = {
+      invalid_status = invalid_result.status,
+      missing_param_status = missing_param_result.status
+    }
   ]])
 
-  local prompt = child.lua_get('prompt')
+  local validation_results = child.lua_get('validation_results')
 
-  h.eq('string', type(prompt))
-  h.expect_contains('Test Agent', prompt)
-  h.expect_contains('helpful AI assistant', prompt)
+  h.eq('error', validation_results.invalid_status)
+  h.eq('error', validation_results.missing_param_status)
 end
 
 -- Test action handling

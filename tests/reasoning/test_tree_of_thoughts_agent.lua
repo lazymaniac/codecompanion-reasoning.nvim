@@ -35,8 +35,7 @@ T['tool has correct basic configuration'] = function()
     tool_info = {
       name = TreeOfThoughtsAgent.name,
       has_cmds = TreeOfThoughtsAgent.cmds ~= nil and #TreeOfThoughtsAgent.cmds > 0,
-      has_schema = TreeOfThoughtsAgent.schema ~= nil,
-      has_system_prompt = TreeOfThoughtsAgent.system_prompt ~= nil
+      has_schema = TreeOfThoughtsAgent.schema ~= nil
     }
   ]])
 
@@ -45,7 +44,7 @@ T['tool has correct basic configuration'] = function()
   h.eq('tree_of_thoughts_agent', tool_info.name)
   h.eq(true, tool_info.has_cmds)
   h.eq(true, tool_info.has_schema)
-  h.eq(true, tool_info.has_system_prompt)
+  -- System prompt removed for token efficiency
 end
 
 -- Test schema structure
@@ -77,23 +76,24 @@ T['tool schema has correct structure'] = function()
   h.eq(true, schema_info.action_required)
 end
 
--- Test system prompt function
-T['system prompt function works'] = function()
+-- System prompt functionality moved to tool schema descriptions for token efficiency
+T['tool description contains workflow guidance'] = function()
   child.lua([[
-    prompt_result = TreeOfThoughtsAgent.system_prompt()
+    schema = TreeOfThoughtsAgent.schema
+    description = schema['function'].description
 
-    prompt_info = {
-      is_string = type(prompt_result) == 'string',
-      has_content = prompt_result and #prompt_result > 0,
-      contains_tree = prompt_result and string.find(prompt_result, 'tree') ~= nil
+    description_info = {
+      has_workflow = description and string.find(description, 'WORKFLOW') ~= nil,
+      has_guidance = description and string.find(description, 'approach') ~= nil,
+      is_comprehensive = description and #description > 100
     }
   ]])
 
-  local prompt_info = child.lua_get('prompt_info')
+  local description_info = child.lua_get('description_info')
 
-  h.eq(true, prompt_info.is_string)
-  h.eq(true, prompt_info.has_content)
-  h.eq(true, prompt_info.contains_tree)
+  h.eq(true, description_info.has_workflow)
+  h.eq(true, description_info.has_guidance)
+  h.eq(true, description_info.is_comprehensive)
 end
 
 -- Test successful add_thought action

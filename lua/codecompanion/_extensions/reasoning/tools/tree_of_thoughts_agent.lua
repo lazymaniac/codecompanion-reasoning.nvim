@@ -77,8 +77,8 @@ local function auto_initialize(agent_state, problem)
   agent_state.current_instance.agent_type = 'Tree of Thoughts Agent'
 
   -- Load project context
-  local ContextDiscovery = require('codecompanion._extensions.reasoning.helpers.context_discovery')
-  local context_summary, context_files = ContextDiscovery.load_project_context()
+  local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
+  local context_summary, context_files = MemoryEngine.load_project_context()
   agent_state.project_context = context_files
 
   -- Add interface methods for base class compatibility
@@ -181,7 +181,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = 'Explores multiple coding approaches: auto-initializes on first use, ideal for architecture decisions, API design, comparing solutions.',
+      description = 'Explores multiple coding approaches: auto-initializes on first use. Use for architecture decisions, API design, comparing solutions. WORKFLOW: Try small approach → Evaluate outcome → Compare with alternatives → Refine → Next experiment. Call add_thought to explore first approach, then continue exploring multiple paths. Build solution tree through exploration.',
       parameters = {
         type = 'object',
         properties = {
@@ -208,8 +208,4 @@ return {
       strict = true,
     },
   },
-  system_prompt = function()
-    local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
-    return UnifiedReasoningPrompt.generate_for_reasoning('tree')
-  end,
 }

@@ -86,7 +86,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'meta_agent',
-      description = 'Analyzes coding tasks and immediately deploys optimal reasoning algorithm. Use select_algorithm to analyze, then add_algorithm to deploy.',
+      description = 'Analyzes coding tasks and immediately deploys optimal reasoning algorithm. WORKFLOW: Use select_algorithm to analyze, then add_algorithm to deploy. Chain: Step-by-step progression (find→read→change→test). Tree: Explore alternatives (try experiments, compare approaches). Graph: System building (map components, trace connections). CRITICAL: After select_algorithm analysis, you MUST immediately call add_algorithm to deploy.',
       parameters = {
         type = 'object',
         properties = {
@@ -111,54 +111,6 @@ return {
       strict = true,
     },
   },
-  system_prompt = [[# ROLE
-Expert coding algorithm selector. Analyze problems and immediately deploy the optimal reasoning approach.
-
-# DECISION MATRIX
-Chain: Step-by-step progression (find→read→change→test one thing at a time)
-Tree: Explore alternatives (try small experiments, compare approaches, ask user)
-Graph: System building (map components, trace connections, evolve architecture)
-
-# MANDATORY WORKFLOW
-1. When user asks for algorithm selection:
-   → First call: meta_agent with select_algorithm
-   → Analyze problem and pick algorithm
-   → Second call: meta_agent with add_algorithm
-   → Deploy the chosen algorithm
-
-# OUTPUT FORMAT (for select_algorithm)
-Problem: [task type in 3-4 words]
-Algorithm: [chain|tree|graph] [confidence%]
-Reason: [why this algorithm in 5-6 words]
-
-# ALGORITHM MAPPING
-chain → chain_of_thoughts_agent
-tree → tree_of_thoughts_agent
-graph → graph_of_thoughts_agent
-
-# CRITICAL: After select_algorithm analysis, you MUST immediately call add_algorithm
-
-# EXAMPLES
-Input: "Fix authentication bug"
-Step 1 Output:
-Problem: Authentication bug troubleshooting
-Algorithm: chain 95%
-Reason: Sequential debugging steps required
-
-Step 2: IMMEDIATELY call add_algorithm with algorithm="chain_of_thoughts_agent"
-
-Input: "Design REST API"
-Step 1 Output:
-Problem: REST API design patterns
-Algorithm: tree 90%
-Reason: Multiple design approaches to explore
-
-Step 2: IMMEDIATELY call add_algorithm with algorithm="tree_of_thoughts_agent"
-
-# CONSTRAINTS
-- NEVER stop after step 1
-- ALWAYS follow analysis with deployment
-- Be decisive and complete workflow]],
   output = {
     success = function(self, agent, cmd, stdout)
       local chat = agent.chat
