@@ -31,7 +31,12 @@ local UI_CONFIG = {
   -- Styling
   border_style = 'rounded',
   padding = 1,
+  max_width_ratio = 0.7,
+  min_width = 50,
+  default_width = 80,
 }
+
+-- Utility Functions
 
 ---Wrap text to fit within specified width
 ---@param text string Text to wrap
@@ -68,230 +73,410 @@ local function wrap_text(text, width)
   return lines
 end
 
----Create and show an interactive question popup
----@param question string The question to ask
+---Calculate optimal popup dimensions based on content and screen size
+---@param content_lines string[] Content lines to display
+---@return number width, number height, number content_width
+local function calculate_dimensions(content_lines)
+  local max_width = math.floor(vim.o.columns * UI_CONFIG.max_width_ratio)
+  local min_width = UI_CONFIG.min_width
+  local content_width = math.max(min_width, math.min(max_width, UI_CONFIG.default_width))
+
+  local display_width = content_width + 4
+  local display_height = #content_lines + 4 -- Extra space for input and padding
+
+  -- Ensure popup fits on screen
+  display_width = math.min(display_width, vim.o.columns - 4)
+  display_height = math.min(display_height, vim.o.lines - 4)
+
+  return display_width, display_height, content_width
+end
+
+---Build formatted content lines and highlights for the popup
+---@param question string The question to display
 ---@param context? string Additional context
----@param options? string[] List of options
----@param callback function Callback with user response (response_text, cancelled)
-function Popup.ask_question(question, context, options, callback)
-  vim.schedule(function()
-    question = question or 'No question provided'
-    context = context or ''
-    options = options or {}
+---@param options string[] List of options
+---@param content_width number Available content width
+---@return string[] lines, table[] highlights
+local function build_content(question, context, options, content_width)
+  local popup_lines = {}
+  local highlights = {}
 
-    -- Calculate optimal width based on content and screen size
-    local max_width = math.floor(vim.o.columns * 0.7)
-    local min_width = 50
-    local content_width = math.max(min_width, math.min(max_width, 80))
-
-    -- Create enhanced content with proper formatting and icons
-    local popup_lines = {}
-    local highlights = {}
-
-    -- Header with AI icon
-    table.insert(popup_lines, '')
-    table.insert(popup_lines, fmt('  🤖 AI Assistant'))
-    table.insert(highlights, { line = #popup_lines - 1, col = 2, end_col = -1, group = UI_CONFIG.colors.title })
-    table.insert(popup_lines, '')
-
-    -- Question section with icon and proper wrapping
-    table.insert(popup_lines, fmt('  %s Question', UI_CONFIG.icons.question))
-    table.insert(highlights, { line = #popup_lines - 1, col = 2, end_col = 4, group = UI_CONFIG.colors.question })
-    table.insert(popup_lines, '')
-
-    local question_lines = wrap_text(question, content_width - 6)
-    for _, line in ipairs(question_lines) do
-      table.insert(popup_lines, fmt('    %s', line))
-      table.insert(highlights, { line = #popup_lines - 1, col = 4, end_col = -1, group = UI_CONFIG.colors.question })
+  -- Helper function to add highlighted line
+  local function add_line(text, highlight_group, indent)
+    indent = indent or 0
+    local indented_text = string.rep(' ', indent) .. text
+    table.insert(popup_lines, indented_text)
+    if highlight_group then
+      table.insert(highlights, {
+        line = #popup_lines - 1,
+        col = indent,
+        end_col = -1,
+        group = highlight_group,
+      })
     end
+  end
 
-    -- Context section (if provided)
-    if context and context ~= '' then
-      table.insert(popup_lines, '')
-      table.insert(popup_lines, fmt('  %s Context', UI_CONFIG.icons.context))
-      table.insert(highlights, { line = #popup_lines - 1, col = 2, end_col = 4, group = UI_CONFIG.colors.context })
-      table.insert(popup_lines, '')
+  -- Header
+  add_line('', nil)
+  add_line('🤖 AI Assistant', UI_CONFIG.colors.title, 2)
+  add_line('', nil)
 
-      local context_lines = wrap_text(context, content_width - 6)
-      for _, line in ipairs(context_lines) do
-        table.insert(popup_lines, fmt('    %s', line))
-        table.insert(highlights, { line = #popup_lines - 1, col = 4, end_col = -1, group = UI_CONFIG.colors.context })
+  -- Question section
+  add_line(fmt('%s Question', UI_CONFIG.icons.question), UI_CONFIG.colors.question, 2)
+  add_line('', nil)
+
+  local question_lines = wrap_text(question, content_width - 6)
+  for _, line in ipairs(question_lines) do
+    add_line(line, UI_CONFIG.colors.question, 4)
+  end
+
+  -- Context section
+  if context and context ~= '' then
+    add_line('', nil)
+    add_line(fmt('%s Context', UI_CONFIG.icons.context), UI_CONFIG.colors.context, 2)
+    add_line('', nil)
+
+    local context_lines = wrap_text(context, content_width - 6)
+    for _, line in ipairs(context_lines) do
+      add_line(line, UI_CONFIG.colors.context, 4)
+    end
+  end
+
+  -- Options section
+  if options and #options > 0 then
+    add_line('', nil)
+    add_line('📋 Options', UI_CONFIG.colors.title, 2)
+    add_line('', nil)
+
+    for i, option in ipairs(options) do
+      local option_lines = wrap_text(option, content_width - 12)
+      for j, opt_line in ipairs(option_lines) do
+        if j == 1 then
+          local option_prefix = fmt('[%d] ', i)
+          local full_line = option_prefix .. opt_line
+          add_line(full_line, nil, 4)
+          -- Add separate highlights for number and text with proper bounds checking
+          local line_idx = #popup_lines - 1
+          local actual_line = popup_lines[line_idx + 1] -- 1-based indexing for the actual line
+          local line_len = #actual_line
+
+          -- Highlight the option number part
+          local number_end_col = math.min(4 + #option_prefix, line_len)
+          if number_end_col > 4 then
+            table.insert(highlights, {
+              line = line_idx,
+              col = 4,
+              end_col = number_end_col,
+              group = UI_CONFIG.colors.option,
+            })
+          end
+
+          -- Highlight the option text part
+          local text_start_col = 4 + #option_prefix
+          if text_start_col < line_len then
+            table.insert(highlights, {
+              line = line_idx,
+              col = text_start_col,
+              end_col = -1,
+              group = UI_CONFIG.colors.option_text,
+            })
+          end
+        else
+          add_line(opt_line, UI_CONFIG.colors.option_text, 8)
+        end
       end
     end
 
-    -- Options section (if provided)
-    if #options > 0 then
-      table.insert(popup_lines, '')
-      table.insert(popup_lines, '  📋 Options')
-      table.insert(highlights, { line = #popup_lines - 1, col = 2, end_col = -1, group = UI_CONFIG.colors.title })
-      table.insert(popup_lines, '')
+    add_line('', nil)
+    add_line('💬 Type a number (1-' .. #options .. ') or your custom response', UI_CONFIG.colors.hint, 2)
+  else
+    add_line('', nil)
+    add_line('💬 Your response', UI_CONFIG.colors.hint, 2)
+  end
 
-      for i, option in ipairs(options) do
-        local option_lines = wrap_text(option, content_width - 12)
-        local first_line = true
-        for _, opt_line in ipairs(option_lines) do
-          if first_line then
-            table.insert(popup_lines, fmt('    [%d] %s', i, opt_line))
-            table.insert(highlights, { line = #popup_lines - 1, col = 4, end_col = 7, group = UI_CONFIG.colors.option })
-            first_line = false
-          else
-            table.insert(popup_lines, fmt('        %s', opt_line))
-          end
-          table.insert(
-            highlights,
-            { line = #popup_lines - 1, col = 8, end_col = -1, group = UI_CONFIG.colors.option_text }
+  -- Instructions
+  add_line('', nil)
+  add_line('', nil)
+  add_line(
+    fmt('%s Enter to submit  •  %s Esc to cancel', UI_CONFIG.icons.success, UI_CONFIG.icons.cancel),
+    UI_CONFIG.colors.hint,
+    2
+  )
+
+  return popup_lines, highlights
+end
+
+---Create and configure popup buffers and windows
+---@param popup_lines string[] Content lines
+---@param highlights table[] Highlight definitions
+---@param width number Window width
+---@param height number Window height
+---@return number popup_buf, number input_buf, number popup_win, number input_win
+local function create_windows(popup_lines, highlights, width, height)
+  -- Create main content buffer
+  local popup_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(popup_buf, 0, -1, false, popup_lines)
+  vim.bo[popup_buf].bufhidden = 'wipe'
+  vim.bo[popup_buf].filetype = 'markdown'
+
+  -- Apply syntax highlighting using extmarks
+  local ns_id = vim.api.nvim_create_namespace('ai_question_popup')
+  for _, hl in ipairs(highlights) do
+    -- Get the actual line content to validate bounds
+    local line_content = vim.api.nvim_buf_get_lines(popup_buf, hl.line, hl.line + 1, false)[1] or ''
+    local line_len = #line_content
+
+    -- Validate and adjust column positions for 0-based indexing
+    -- start_col must be < line_len (or == 0 for empty lines)
+    local start_col = hl.col
+    if line_len == 0 then
+      start_col = math.min(start_col, 0)
+    else
+      start_col = math.min(start_col, line_len - 1)
+    end
+
+    local end_col = hl.end_col
+    if end_col ~= -1 then
+      -- end_col can be equal to line_len (exclusive end position)
+      end_col = math.min(end_col, line_len)
+      -- Ensure end_col is not before start_col
+      end_col = math.max(end_col, start_col + 1)
+    end
+
+    -- Only create extmark if start_col is valid
+    if start_col >= 0 and (line_len == 0 or start_col < line_len) then
+      -- Ensure buffer is modifiable before adding extmarks
+      local was_modifiable = vim.bo[popup_buf].modifiable
+      if not was_modifiable then
+        vim.bo[popup_buf].modifiable = true
+      end
+
+      -- Additional safety check before creating extmark
+      local extmark_opts = {
+        hl_group = hl.group,
+        strict = false,
+      }
+
+      -- Only add end_col if it's valid and greater than start_col
+      if end_col ~= -1 and end_col > start_col and end_col <= line_len then
+        extmark_opts.end_col = end_col
+      end
+
+      -- Ensure line number is valid
+      local line_count = vim.api.nvim_buf_line_count(popup_buf)
+      if hl.line >= 0 and hl.line < line_count then
+        local success, err = pcall(vim.api.nvim_buf_set_extmark, popup_buf, ns_id, hl.line, start_col, extmark_opts)
+        if not success then
+          -- Log debug info if extmark fails
+          vim.notify(
+            string.format(
+              "Extmark failed: line=%d, start_col=%d, end_col=%s, line_len=%d, line_content='%s', error=%s",
+              hl.line,
+              start_col,
+              end_col == -1 and 'nil' or tostring(end_col),
+              line_len,
+              line_content:gsub('\n', '\\n'),
+              err
+            ),
+            vim.log.levels.WARN
           )
         end
       end
-      table.insert(popup_lines, '')
-      table.insert(popup_lines, '  💬 Type a number (1-' .. #options .. ') or your custom response')
-    else
-      table.insert(popup_lines, '')
-      table.insert(popup_lines, '  💬 Your response')
+
+      -- Restore original modifiable state
+      if not was_modifiable then
+        vim.bo[popup_buf].modifiable = false
+      end
     end
-    table.insert(highlights, { line = #popup_lines - 1, col = 2, end_col = -1, group = UI_CONFIG.colors.hint })
+  end
 
-    -- Add some spacing and instructions
-    table.insert(popup_lines, '')
-    table.insert(popup_lines, '')
-    table.insert(
-      popup_lines,
-      fmt('  %s Enter to submit  •  %s Esc to cancel', UI_CONFIG.icons.success, UI_CONFIG.icons.cancel)
-    )
-    table.insert(highlights, { line = #popup_lines - 1, col = 2, end_col = -1, group = UI_CONFIG.colors.hint })
+  -- Make buffer non-modifiable after all setup is complete
+  vim.bo[popup_buf].modifiable = false
 
-    -- Calculate dimensions
-    local display_width = content_width + 4
-    local display_height = #popup_lines + 4 -- Extra space for input and padding
+  -- Create input buffer
+  local input_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[input_buf].bufhidden = 'wipe'
+  vim.bo[input_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { '  ' .. UI_CONFIG.icons.input .. ' ' })
 
-    -- Ensure popup fits on screen
-    display_width = math.min(display_width, vim.o.columns - 4)
-    display_height = math.min(display_height, vim.o.lines - 4)
+  -- Main popup window
+  local popup_opts = {
+    relative = 'editor',
+    width = width,
+    height = height - 3,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - height) / 2),
+    style = 'minimal',
+    border = UI_CONFIG.border_style,
+    title = fmt(' %s AI Question %s ', '🤖', '❓'),
+    title_pos = 'center',
+    zindex = 100,
+  }
 
-    -- Create main content buffer
-    local popup_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(popup_buf, 0, -1, false, popup_lines)
-    vim.api.nvim_buf_set_option(popup_buf, 'modifiable', false)
-    vim.api.nvim_buf_set_option(popup_buf, 'bufhidden', 'wipe')
-    vim.api.nvim_buf_set_option(popup_buf, 'filetype', 'markdown')
+  local popup_win = vim.api.nvim_open_win(popup_buf, false, popup_opts)
+  vim.wo[popup_win].winhl = 'FloatBorder:' .. UI_CONFIG.colors.border
 
-    -- Apply syntax highlighting
-    local ns_id = vim.api.nvim_create_namespace('ai_question_popup')
-    for _, hl in ipairs(highlights) do
-      vim.api.nvim_buf_add_highlight(popup_buf, ns_id, hl.group, hl.line, hl.col, hl.end_col)
+  -- Input window
+  local input_opts = {
+    relative = 'editor',
+    width = width - 2,
+    height = 1,
+    col = popup_opts.col + 1,
+    row = popup_opts.row + height - 2,
+    style = 'minimal',
+    border = { '─', '─', '─', '│', '┘', '─', '└', '│' },
+    zindex = 101,
+  }
+
+  local input_win = vim.api.nvim_open_win(input_buf, true, input_opts)
+  vim.wo[input_win].winhl = 'FloatBorder:' .. UI_CONFIG.colors.border
+
+  return popup_buf, input_buf, popup_win, input_win
+end
+
+---Apply fade-in animation to windows
+---@param popup_win number Popup window handle
+---@param input_win number Input window handle
+local function apply_fade_in(popup_win, input_win)
+  vim.wo[popup_win].winblend = 20
+  vim.wo[input_win].winblend = 20
+
+  vim.defer_fn(function()
+    if vim.api.nvim_win_is_valid(popup_win) then
+      vim.wo[popup_win].winblend = 0
+    end
+    if vim.api.nvim_win_is_valid(input_win) then
+      vim.wo[input_win].winblend = 0
+    end
+  end, 150)
+end
+
+---Set up keyboard mappings for the input buffer
+---@param input_buf number Input buffer handle
+---@param input_win number Input window handle
+---@param options string[] Available options
+---@param callback function Response callback
+local function setup_key_mappings(input_buf, input_win, options, callback)
+  -- Number shortcuts for options
+  if #options > 0 then
+    for i = 1, math.min(#options, 9) do
+      vim.api.nvim_buf_set_keymap(input_buf, 'i', tostring(i), '', {
+        noremap = true,
+        silent = true,
+        callback = function()
+          local new_line = fmt('  %s %d', UI_CONFIG.icons.input, i)
+          vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { new_line })
+          vim.api.nvim_win_set_cursor(input_win, { 1, #new_line })
+        end,
+      })
     end
 
-    -- Create input buffer with better styling
-    local input_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_option(input_buf, 'bufhidden', 'wipe')
-    vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { '  ' .. UI_CONFIG.icons.input .. ' ' })
+    -- Tab completion for cycling through options
+    vim.api.nvim_buf_set_keymap(input_buf, 'i', '<Tab>', '', {
+      noremap = true,
+      silent = true,
+      callback = function()
+        local current_text = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)[1] or ''
+        local current_num = tonumber(current_text:match('(%d+)')) or 0
+        local next_num = (current_num % #options) + 1
 
-    -- Main popup window with enhanced styling
-    local popup_opts = {
-      relative = 'editor',
-      width = display_width,
-      height = display_height - 3,
-      col = math.floor((vim.o.columns - display_width) / 2),
-      row = math.floor((vim.o.lines - display_height) / 2),
-      style = 'minimal',
-      border = UI_CONFIG.border_style,
-      title = fmt(' %s AI Question %s ', '🤖', '❓'),
-      title_pos = 'center',
-      zindex = 100,
-    }
+        local new_line = fmt('  %s %d', UI_CONFIG.icons.input, next_num)
+        vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { new_line })
+        vim.api.nvim_win_set_cursor(input_win, { 1, #new_line })
+      end,
+    })
+  end
 
-    local popup_win = vim.api.nvim_open_win(popup_buf, false, popup_opts)
-    vim.api.nvim_win_set_option(popup_win, 'winhl', 'FloatBorder:' .. UI_CONFIG.colors.border)
+  -- Enter to submit (both insert and normal mode)
+  local submit_handler = function()
+    local response = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)[1] or ''
+    callback(response)
+  end
 
-    -- Input window with border
-    local input_opts = {
-      relative = 'editor',
-      width = display_width - 2,
-      height = 1,
-      col = popup_opts.col + 1,
-      row = popup_opts.row + display_height - 2,
-      style = 'minimal',
-      border = { '─', '─', '─', '│', '┘', '─', '└', '│' },
-      zindex = 101,
-    }
+  vim.api.nvim_buf_set_keymap(input_buf, 'i', '<CR>', '', {
+    noremap = true,
+    silent = true,
+    callback = submit_handler,
+  })
 
-    local input_win = vim.api.nvim_open_win(input_buf, true, input_opts)
-    vim.api.nvim_win_set_option(input_win, 'winhl', 'FloatBorder:' .. UI_CONFIG.colors.border)
+  vim.api.nvim_buf_set_keymap(input_buf, 'n', '<CR>', '', {
+    noremap = true,
+    silent = true,
+    callback = submit_handler,
+  })
 
-    -- Position cursor at the end of the input line
-    local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
-    vim.api.nvim_win_set_cursor(input_win, { 1, #input_line })
-    vim.api.nvim_win_set_option(input_win, 'cursorline', false)
+  -- Escape to cancel
+  vim.api.nvim_buf_set_keymap(input_buf, 'n', '<Esc>', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      callback(nil)
+    end,
+  })
+end
 
-    -- Animation: fade in effect (simple implementation)
-    vim.api.nvim_win_set_option(popup_win, 'winblend', 20)
-    vim.api.nvim_win_set_option(input_win, 'winblend', 20)
+---Handle response processing and window cleanup
+---@param response? string User response
+---@param options string[] Available options
+---@param popup_win number Popup window handle
+---@param input_win number Input window handle
+---@param input_buf number Input buffer handle
+---@param final_callback function Final callback to execute
+local function process_response(response, options, popup_win, input_win, input_buf, final_callback)
+  -- Extract actual response text (remove the input icon)
+  if response then
+    response = response:gsub('^%s*' .. UI_CONFIG.icons.input .. '%s*', '')
+    response = vim.trim(response)
+    if response == '' then
+      response = nil
+    end
+  end
+
+  -- Show feedback
+  local feedback_icon = response and UI_CONFIG.icons.success or UI_CONFIG.icons.cancel
+  local feedback_text = response and 'Response submitted!' or 'Cancelled'
+
+  vim.bo[input_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { fmt('  %s %s', feedback_icon, feedback_text) })
+  vim.bo[input_buf].modifiable = false
+
+  -- Highlight feedback using extmarks
+  local feedback_ns = vim.api.nvim_create_namespace('feedback')
+  local hl_group = response and 'DiagnosticOk' or 'DiagnosticWarn'
+  
+  -- Get line content to validate bounds
+  local line_content = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
+  local line_len = #line_content
+  
+  -- Only create extmark if line has content
+  if line_len > 0 then
+    vim.api.nvim_buf_set_extmark(input_buf, feedback_ns, 0, 0, {
+      end_col = line_len,
+      hl_group = hl_group,
+      strict = false,
+    })
+  end
+
+  -- Close windows after delay
+  vim.defer_fn(function()
+    -- Apply fade out
+    if vim.api.nvim_win_is_valid(popup_win) then
+      vim.wo[popup_win].winblend = 20
+    end
+    if vim.api.nvim_win_is_valid(input_win) then
+      vim.wo[input_win].winblend = 20
+    end
+
     vim.defer_fn(function()
       if vim.api.nvim_win_is_valid(popup_win) then
-        vim.api.nvim_win_set_option(popup_win, 'winblend', 0)
+        vim.api.nvim_win_close(popup_win, true)
       end
       if vim.api.nvim_win_is_valid(input_win) then
-        vim.api.nvim_win_set_option(input_win, 'winblend', 0)
-      end
-    end, 150)
-
-    -- Enhanced response handling
-    local function handle_response(response, show_feedback)
-      show_feedback = show_feedback ~= false
-
-      -- Extract actual response text (remove the input icon)
-      if response then
-        response = response:gsub('^%s*' .. UI_CONFIG.icons.input .. '%s*', '')
-        response = vim.trim(response)
-        if response == '' then
-          response = nil
-        end
+        vim.api.nvim_win_close(input_win, true)
       end
 
-      -- Show brief feedback before closing
-      if show_feedback and (response or not response) then
-        local feedback_icon = response and UI_CONFIG.icons.success or UI_CONFIG.icons.cancel
-        local feedback_text = response and 'Response submitted!' or 'Cancelled'
-
-        -- Update input buffer to show feedback
-        vim.api.nvim_buf_set_option(input_buf, 'modifiable', true)
-        vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { fmt('  %s %s', feedback_icon, feedback_text) })
-        vim.api.nvim_buf_set_option(input_buf, 'modifiable', false)
-
-        -- Highlight feedback
-        local feedback_ns = vim.api.nvim_create_namespace('feedback')
-        local hl_group = response and 'DiagnosticOk' or 'DiagnosticWarn'
-        vim.api.nvim_buf_add_highlight(input_buf, feedback_ns, hl_group, 0, 0, -1)
-
-        -- Close after brief delay
-        vim.defer_fn(function()
-          handle_response(response, false)
-        end, 800)
-        return
-      end
-
-      -- Close windows with fade out
-      local function close_windows()
-        if vim.api.nvim_win_is_valid(popup_win) then
-          vim.api.nvim_win_close(popup_win, true)
-        end
-        if vim.api.nvim_win_is_valid(input_win) then
-          vim.api.nvim_win_close(input_win, true)
-        end
-      end
-
-      -- Fade out effect
-      if vim.api.nvim_win_is_valid(popup_win) then
-        vim.api.nvim_win_set_option(popup_win, 'winblend', 20)
-      end
-      if vim.api.nvim_win_is_valid(input_win) then
-        vim.api.nvim_win_set_option(input_win, 'winblend', 20)
-      end
-
-      vim.defer_fn(close_windows, 100)
-
+      -- Parse and return response
       if response and response ~= '' then
-        -- Parse response for option selection
         local selected_option = nil
         local parsed_response = response
 
@@ -303,89 +488,54 @@ function Popup.ask_question(question, context, options, callback)
           end
         end
 
-        vim.defer_fn(function()
-          callback(parsed_response, false, selected_option)
-        end, 150)
+        final_callback(parsed_response, false, selected_option)
       else
-        -- User cancelled
-        vim.defer_fn(function()
-          callback(nil, true)
-        end, 150)
+        final_callback(nil, true)
       end
-    end
+    end, 100)
+  end, 800)
+end
 
-    -- Enhanced key mappings with better user experience
-    local function setup_mappings()
-      -- Number key shortcuts for options
-      if #options > 0 then
-        for i = 1, math.min(#options, 9) do
-          vim.api.nvim_buf_set_keymap(input_buf, 'i', tostring(i), '', {
-            noremap = true,
-            silent = true,
-            callback = function()
-              -- Clear current input and set the number
-              local new_line = fmt('  %s %d', UI_CONFIG.icons.input, i)
-              vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { new_line })
-              vim.api.nvim_win_set_cursor(input_win, { 1, #new_line })
-            end,
-          })
-        end
-      end
+-- Main API
 
-      -- Enhanced Enter to submit
-      vim.api.nvim_buf_set_keymap(input_buf, 'i', '<CR>', '', {
-        noremap = true,
-        silent = true,
-        callback = function()
-          local response = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)[1] or ''
-          handle_response(response)
-        end,
-      })
+---Create and show an interactive question popup
+---@param question string The question to ask
+---@param context? string Additional context
+---@param options? string[] List of options
+---@param callback function Callback with user response (response_text, cancelled)
+function Popup.ask_question(question, context, options, callback)
+  vim.schedule(function()
+    -- Validate and set defaults
+    question = question or 'No question provided'
+    context = context or ''
+    options = options or {}
 
-      -- Normal mode mappings
-      vim.api.nvim_buf_set_keymap(input_buf, 'n', '<CR>', '', {
-        noremap = true,
-        silent = true,
-        callback = function()
-          local response = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)[1] or ''
-          handle_response(response)
-        end,
-      })
+    -- Calculate dimensions and build content
+    local width, height, content_width = calculate_dimensions({})
+    local popup_lines, highlights = build_content(question, context, options, content_width)
 
-      vim.api.nvim_buf_set_keymap(input_buf, 'n', '<Esc>', '', {
-        noremap = true,
-        silent = true,
-        callback = function()
-          handle_response(nil)
-        end,
-      })
+    -- Recalculate dimensions with actual content
+    width, height = calculate_dimensions(popup_lines)
 
-      -- Tab completion for options
-      if #options > 0 then
-        vim.api.nvim_buf_set_keymap(input_buf, 'i', '<Tab>', '', {
-          noremap = true,
-          silent = true,
-          callback = function()
-            -- Cycle through options
-            local current_text = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)[1] or ''
-            local current_num = tonumber(current_text:match('(%d+)')) or 0
-            local next_num = (current_num % #options) + 1
+    -- Create windows and buffers
+    local popup_buf, input_buf, popup_win, input_win = create_windows(popup_lines, highlights, width, height)
 
-            local new_line = fmt('  %s %d', UI_CONFIG.icons.input, next_num)
-            vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, { new_line })
-            vim.api.nvim_win_set_cursor(input_win, { 1, #new_line })
-          end,
-        })
-      end
-    end
+    -- Set up interactions
+    apply_fade_in(popup_win, input_win)
 
-    setup_mappings()
+    -- Position cursor and start insert mode
+    local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
+    vim.api.nvim_win_set_cursor(input_win, { 1, #input_line })
+    vim.wo[input_win].cursorline = false
 
-    -- Auto-complete setup for better UX
-    vim.api.nvim_buf_set_option(input_buf, 'modifiable', true)
-
-    -- Start in insert mode at the right position
     vim.cmd('startinsert')
+
+    -- Set up key mappings with response handler
+    setup_key_mappings(input_buf, input_win, options, function(response)
+      process_response(response, options, popup_win, input_win, input_buf, callback)
+    end)
+
+    -- Ensure cursor is properly positioned
     vim.defer_fn(function()
       if vim.api.nvim_win_is_valid(input_win) then
         local current_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
