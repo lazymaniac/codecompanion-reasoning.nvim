@@ -11,7 +11,6 @@ local UI_CONFIG = {
     border = 'FloatBorder',
     title = 'FloatTitle',
     question = 'Question',
-    context = 'Comment',
     option = 'Number',
     option_text = 'Normal',
     selected = 'CursorLine',
@@ -21,7 +20,6 @@ local UI_CONFIG = {
   -- Icons
   icons = {
     question = '❓',
-    context = '💡',
     option = '▸',
     selected = '▶',
     input = '✏️',
@@ -93,11 +91,10 @@ end
 
 ---Build formatted content lines and highlights for the popup
 ---@param question string The question to display
----@param context? string Additional context
 ---@param options string[] List of options
 ---@param content_width number Available content width
 ---@return string[] lines, table[] highlights
-local function build_content(question, context, options, content_width)
+local function build_content(question, options, content_width)
   local popup_lines = {}
   local highlights = {}
 
@@ -128,18 +125,6 @@ local function build_content(question, context, options, content_width)
   local question_lines = wrap_text(question, content_width - 6)
   for _, line in ipairs(question_lines) do
     add_line(line, UI_CONFIG.colors.question, 4)
-  end
-
-  -- Context section
-  if context and context ~= '' then
-    add_line('', nil)
-    add_line(fmt('%s Context', UI_CONFIG.icons.context), UI_CONFIG.colors.context, 2)
-    add_line('', nil)
-
-    local context_lines = wrap_text(context, content_width - 6)
-    for _, line in ipairs(context_lines) do
-      add_line(line, UI_CONFIG.colors.context, 4)
-    end
   end
 
   -- Options section
@@ -443,11 +428,11 @@ local function process_response(response, options, popup_win, input_win, input_b
   -- Highlight feedback using extmarks
   local feedback_ns = vim.api.nvim_create_namespace('feedback')
   local hl_group = response and 'DiagnosticOk' or 'DiagnosticWarn'
-  
+
   -- Get line content to validate bounds
   local line_content = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
   local line_len = #line_content
-  
+
   -- Only create extmark if line has content
   if line_len > 0 then
     vim.api.nvim_buf_set_extmark(input_buf, feedback_ns, 0, 0, {
@@ -500,25 +485,23 @@ end
 
 ---Create and show an interactive question popup
 ---@param question string The question to ask
----@param context? string Additional context
 ---@param options? string[] List of options
 ---@param callback function Callback with user response (response_text, cancelled)
-function Popup.ask_question(question, context, options, callback)
+function Popup.ask_question(question, options, callback)
   vim.schedule(function()
     -- Validate and set defaults
     question = question or 'No question provided'
-    context = context or ''
     options = options or {}
 
     -- Calculate dimensions and build content
     local width, height, content_width = calculate_dimensions({})
-    local popup_lines, highlights = build_content(question, context, options, content_width)
+    local popup_lines, highlights = build_content(question, options, content_width)
 
     -- Recalculate dimensions with actual content
     width, height = calculate_dimensions(popup_lines)
 
     -- Create windows and buffers
-    local popup_buf, input_buf, popup_win, input_win = create_windows(popup_lines, highlights, width, height)
+    local _, input_buf, popup_win, input_win = create_windows(popup_lines, highlights, width, height)
 
     -- Set up interactions
     apply_fade_in(popup_win, input_win)

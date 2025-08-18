@@ -5,10 +5,8 @@
 ---@class CodeCompanion.ReasoningPlugin
 local M = {}
 
---- Semantic version of the wrapper (mirrors the underlying extension if available).
 M.version = '0.1.0'
 
---- Cached reference to the internal reasoning extension.
 ---@type table|nil
 local _extension
 
@@ -23,7 +21,7 @@ local function load_extension()
     _extension = ext
     return _extension
   else
-    vim.notify('[codecompanion-reasoning] Failed to load reasoning extension: ' .. tostring(ext), vim.log.levels.ERROR)
+    vim.notify('[codecompanion-reasoning.nvim] Failed to load reasoning extension: ' .. tostring(ext), vim.log.levels.ERROR)
     return nil
   end
 end
@@ -54,7 +52,7 @@ end
 --- Prevent accidental modification of the public API after initialization.
 setmetatable(M, {
   __newindex = function(_, key, _)
-    error(string.format("[codecompanion-reasoning] Attempt to modify read‑only field '%s'", key), 2)
+    error(string.format("[codecompanion-reasoning.nvim] Attempt to modify read‑only field '%s'", key), 2)
   end,
 })
 
