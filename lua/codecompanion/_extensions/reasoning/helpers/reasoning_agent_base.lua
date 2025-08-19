@@ -1,6 +1,5 @@
 ---@class CodeCompanion.ReasoningAgentBase
 
-local UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
 local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   -- Fallback logging when CodeCompanion log is not available
@@ -56,7 +55,7 @@ function ReasoningAgentBase.add_companion_tools(agent, agent_type)
     return
   end
 
-  local tools_to_add = { 'ask_user', 'add_tool', 'memory' }
+  local tools_to_add = { 'ask_user', 'add_tool', 'project_context' }
   local added_tools = {}
 
   for _, tool_name in ipairs(tools_to_add) do
@@ -81,7 +80,7 @@ function ReasoningAgentBase.add_companion_tools(agent, agent_type)
     -- Notify user about added tools - put summary first
     local tools_summary = table.concat(added_tools, ', ')
     local message = string.format(
-      '🔧 Reasoning agent enhanced with %d companion tools: %s\n\nThese tools are now available to support your reasoning process:\n- **ask_user**: Get input when decisions require user expertise\n- **add_tools**: Find and add additional tools as needed',
+      '🔧 Reasoning agent enhanced with %d companion tools: %s\n\nThese tools are now available to support your reasoning process:\n- **ask_user**: Get input when decisions require user expertise\n- **project_context**: Discover and manage project context and insights\n- **add_tools**: Find and add additional tools as needed',
       #added_tools,
       tools_summary
     )

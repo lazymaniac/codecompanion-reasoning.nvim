@@ -41,9 +41,9 @@ Problem: %s
 • **Graph**: Complex systems (microservices, dependencies, integrations)
 
 ## WORKFLOW
-1. Analyze problem → 2. Pick optimal algorithm → 3. Deploy immediately
+1. Analyze problem → 2. Pick optimal algorithm → 3. Deploy immediately → 4. Start reasoning
 
-Analyzing and selecting optimal approach...]],
+🔍 **ANALYSIS COMPLETE** - Ready to deploy optimal algorithm and begin systematic reasoning with full companion tool support (ask_user, memory, add_tools).]],
         args.problem
       ),
     }
@@ -86,7 +86,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'meta_agent',
-      description = 'Analyzes coding tasks and immediately deploys optimal reasoning algorithm. WORKFLOW: Use select_algorithm to analyze, then add_algorithm to deploy. Chain: Step-by-step progression (find→read→change→test). Tree: Explore alternatives (try experiments, compare approaches). Graph: System building (map components, trace connections). CRITICAL: After select_algorithm analysis, you MUST immediately call add_algorithm to deploy.',
+      description = '🚀 FIRST CHOICE for ANY coding request: Automatically selects and deploys optimal reasoning algorithm. USE IMMEDIATELY when user asks about: review code, implement features, fix bugs, analyze systems, make decisions. WORKFLOW: 1) select_algorithm to analyze task 2) add_algorithm to deploy chosen approach. Chain: Sequential tasks. Tree: Design decisions. Graph: Complex systems. ALWAYS use this tool FIRST for general coding requests before attempting manual analysis.',
       parameters = {
         type = 'object',
         properties = {
@@ -131,8 +131,8 @@ return {
           -- Add the reasoning algorithm
           chat.tool_registry:add(algorithm, algorithm_config)
 
-          -- Add companion tools (ask_user and add_tools) for full functionality
-          local companion_tools = { 'ask_user', 'add_tools' }
+          -- Add companion tools (ask_user, add_tools, project_context) for full functionality
+          local companion_tools = { 'ask_user', 'add_tools', 'project_context' }
           local added_companions = {}
 
           for _, tool_name in ipairs(companion_tools) do

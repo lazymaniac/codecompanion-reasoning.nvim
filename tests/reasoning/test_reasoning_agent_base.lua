@@ -11,12 +11,7 @@ local T = new_set({
         h = require('tests.helpers')
         ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base').ReasoningAgentBase
 
-        -- Mock the unified reasoning prompt to avoid dependency issues
-        package.loaded['codecompanion.strategies.chat.tools.catalog.helpers.unified_reasoning_prompt'] = {
-          generate = function(config)
-            return string.format("Generated system prompt for %s", tostring(config))
-          end
-        }
+        -- Mock functions are no longer needed since unified_reasoning_prompt was removed
 
         -- Helper to create a sample agent config
         function create_sample_agent_config()

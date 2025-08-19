@@ -9,7 +9,6 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
-        UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
 
         -- Helper function to create a basic config for testing
         function create_basic_config()

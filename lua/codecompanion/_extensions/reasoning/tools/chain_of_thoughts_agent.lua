@@ -79,8 +79,7 @@ function Actions.add_step(args, agent_state)
     end
   end
 
-  local success, message =
-    agent_state.current_instance:add_step(args.step_type, args.content, args.step_id)
+  local success, message = agent_state.current_instance:add_step(args.step_type, args.content, args.step_id)
   if not success then
     return { status = 'error', data = message }
   end
@@ -111,25 +110,24 @@ local function auto_initialize(agent_state, problem)
   agent_state.current_instance = ChainOfThoughts.new(problem)
   agent_state.current_instance.agent_type = 'Chain of Thought Agent'
 
-  -- Load project context
-  local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
-  local context_summary, context_files = MemoryEngine.load_project_context()
-  agent_state.project_context = context_files
+  -- Project context loading removed - use project_context tool explicitly when needed
 
   local init_message = fmt(
     [[🔗 Chain of Thoughts Agent activated for: %s
 
-INITIALIZED: Ready for micro step-by-step reasoning!
+INITIALIZED: Ready for micro step-by-step reasoning with companion tools!
 
-START: Call add_step with your first micro-action, than continue to build the problem solving chain.
+START WORKFLOW:
+1. FIRST: Use project_context tool to discover project context if needed
+2. Call add_step with your first micro-action
+3. Use ask_user for decisions/validation during reasoning
+4. Continue building the solution chain step-by-step
 
-REMEMBER: Take small focused steps - find file → read content → make change → test → ...]],
+REMEMBER: Take small focused steps - find file → read content → make change → test → ask user for feedback → ...]],
     problem
   )
 
-  if #context_files > 0 then
-    init_message = init_message .. '\n\n' .. context_summary
-  end
+  -- No automatic context inclusion - use project_context tool explicitly
 
   return init_message
 end
@@ -194,7 +192,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = 'Sequential micro-step coding solver: auto-initializes on first use. Use for debugging, implementing features, refactoring step-by-step. WORKFLOW: Take ONE small action → Analyze result → Ask user if needed → Next micro-step → REPEAT. Call add_step with your FIRST action, then CONTINUE with multiple calls. Take small focused steps: find file → read → change → test. Use ask_user for decisions.',
+      description = 'Sequential micro-step coding solver: auto-initializes on first use. Use for debugging, implementing features, refactoring step-by-step. WORKFLOW: 1) Use project_context tool to understand context 2) Take ONE small action → Analyze result → Use ask_user for decisions → Next micro-step → REPEAT. Call add_step with your FIRST action, then CONTINUE with multiple calls. Take small focused steps: find file → read → change → test. ALWAYS use companion tools: project_context for context, ask_user for decisions, add_tools for capabilities.',
       parameters = {
         type = 'object',
         properties = {

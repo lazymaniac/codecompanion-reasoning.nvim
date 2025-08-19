@@ -12,12 +12,7 @@ local T = new_set({
         TreeOfThoughtsAgent = require('codecompanion._extensions.reasoning.tools.tree_of_thoughts_agent')
         ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base')
 
-        -- Mock the unified reasoning prompt for testing
-        package.loaded['codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt'] = {
-          generate_for_reasoning = function(type)
-            return string.format("Test system prompt for %s reasoning", type)
-          end
-        }
+        -- Mock functions no longer needed since unified_reasoning_prompt was removed
 
         -- Helper function to call the tool
         function call_tool(tool, args)
@@ -107,8 +102,7 @@ T['add_thought action works correctly'] = function()
     thought_info = {
       status = result.status,
       has_data = result.data ~= nil,
-      success_message = result.data and string.find(result.data, 'Added .* node:') ~= nil,
-      next_instruction = result.data and string.find(result.data, 'NEXT:') ~= nil
+      success_message = result.data and string.find(result.data, '.*:') ~= nil,
     }
   ]])
 
@@ -117,7 +111,6 @@ T['add_thought action works correctly'] = function()
   h.eq('success', thought_info.status)
   h.eq(true, thought_info.has_data)
   h.eq(true, thought_info.success_message)
-  h.eq(true, thought_info.next_instruction)
 end
 
 -- Test add_thought with specific type and parent

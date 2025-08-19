@@ -10,7 +10,7 @@ local T = new_set({
       child.lua([[
         h = require('tests.helpers')
         MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
-        Memory = require('codecompanion._extensions.reasoning.tools.memory')
+        ProjectContext = require('codecompanion._extensions.reasoning.tools.project_context')
       ]])
     end,
     post_once = child.stop,
@@ -66,10 +66,10 @@ T['memory system stores and retrieves user preferences'] = function()
   h.eq(true, pref_test_info.correct_value)
 end
 
-T['memory tool handles discover_context action'] = function()
+T['project_context tool handles discover_context action'] = function()
   child.lua([[
     -- Test context discovery
-    result = Memory.cmds[1](Memory, {
+    result = ProjectContext.cmds[1](ProjectContext, {
       action = 'discover_context'
     }, nil)
 
@@ -85,10 +85,10 @@ T['memory tool handles discover_context action'] = function()
   h.eq(true, discover_test_info.has_discover_data)
 end
 
-T['memory tool handles get_enhanced_context action'] = function()
+T['project_context tool handles get_enhanced_context action'] = function()
   child.lua([[
     -- Test enhanced context
-    result = Memory.cmds[1](Memory, {
+    result = ProjectContext.cmds[1](ProjectContext, {
       action = 'get_enhanced_context'
     }, nil)
 
@@ -104,9 +104,9 @@ T['memory tool handles get_enhanced_context action'] = function()
   h.eq(true, enhanced_test_info.has_data)
 end
 
-T['memory tool handles store_file_knowledge action'] = function()
+T['project_context tool handles store_file_knowledge action'] = function()
   child.lua([[
-    result = Memory.cmds[1](Memory, {
+    result = ProjectContext.cmds[1](ProjectContext, {
       action = 'store_file_knowledge',
       file_path = 'example.lua',
       knowledge = {
@@ -127,10 +127,10 @@ T['memory tool handles store_file_knowledge action'] = function()
   h.eq(true, tool_test_info.has_success_message)
 end
 
-T['memory tool handles get_file_knowledge action'] = function()
+T['project_context tool handles get_file_knowledge action'] = function()
   child.lua([[
     -- First store some knowledge
-    Memory.cmds[1](Memory, {
+    ProjectContext.cmds[1](ProjectContext, {
       action = 'store_file_knowledge',
       file_path = 'retrieve_test.lua',
       knowledge = {
@@ -139,7 +139,7 @@ T['memory tool handles get_file_knowledge action'] = function()
     }, nil)
 
     -- Then retrieve it
-    result = Memory.cmds[1](Memory, {
+    result = ProjectContext.cmds[1](ProjectContext, {
       action = 'get_file_knowledge',
       file_path = 'retrieve_test.lua'
     }, nil)

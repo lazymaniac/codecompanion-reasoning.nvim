@@ -123,25 +123,25 @@ local function handle_memory_action(args)
   end
 end
 
----@class CodeCompanion.Tool.Memory: CodeCompanion.Agent.Tool
+---@class CodeCompanion.Tool.ProjectContext: CodeCompanion.Agent.Tool
 return {
-  name = 'memory',
+  name = 'project_context',
   cmds = {
     ---Execute memory commands
-    ---@param self CodeCompanion.Tool.Memory
+    ---@param self CodeCompanion.Tool.ProjectContext
     ---@param args table The arguments from the LLM's tool call
     ---@param input? any The output from the previous function call
     ---@return { status: "success"|"error", data: string }
     function(self, args, input)
-      log:debug('[Memory] Action: %s', args.action or 'none')
+      log:debug('[ProjectContext] Action: %s', args.action or 'none')
       return handle_memory_action(args)
     end,
   },
   schema = {
     type = 'function',
     ['function'] = {
-      name = 'memory',
-      description = 'Unified memory system: store/retrieve project insights, discover AI context files (CLAUDE.md, .cursorrules, etc.), manage file knowledge, user preferences, and institutional codebase knowledge. Combines memory management with popular AI tool configuration discovery.',
+      name = 'project_context',
+      description = 'Unified project context system: store/retrieve project insights, discover AI context files (CLAUDE.md, .cursorrules, etc.), manage file knowledge, user preferences, and institutional codebase knowledge. Combines context management with popular AI tool configuration discovery.',
       parameters = {
         type = 'object',
         properties = {
@@ -180,7 +180,7 @@ return {
     },
   },
   output = {
-    ---@param self CodeCompanion.Tool.Memory
+    ---@param self CodeCompanion.Tool.ProjectContext
     ---@param agent CodeCompanion.Tools.Tool
     ---@param cmd table The command that was executed
     ---@param stdout table The output from the command
@@ -188,14 +188,14 @@ return {
       local chat = agent.chat
       local result = vim.iter(stdout):flatten():join('\n')
 
-      log:debug('[Memory] Success output generated, length: %d', #result)
+      log:debug('[ProjectContext] Success output generated, length: %d', #result)
       -- Format with content first, then any additional metadata
       local content_lines = vim.split(result, '\n', { plain = true })
       local formatted_output = table.concat(content_lines, '\n')
       chat:add_tool_output(self, formatted_output, formatted_output)
     end,
 
-    ---@param self CodeCompanion.Tool.Memory
+    ---@param self CodeCompanion.Tool.ProjectContext
     ---@param agent CodeCompanion.Tools.Tool
     ---@param cmd table
     ---@param stderr table The error output from the command

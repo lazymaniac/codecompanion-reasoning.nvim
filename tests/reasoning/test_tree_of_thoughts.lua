@@ -134,11 +134,9 @@ T['TreeNode generates analysis suggestions'] = function()
   local suggestions = child.lua_get('suggestions')
 
   h.eq('table', type(suggestions))
-  h.eq(4, #suggestions)
-  h.expect_contains('Sub-questions', table.concat(suggestions, ' '))
+  h.eq(2, #suggestions)
   h.expect_contains('Assumptions', table.concat(suggestions, ' '))
   h.expect_contains('Data needed', table.concat(suggestions, ' '))
-  h.expect_contains('Related cases', table.concat(suggestions, ' '))
 end
 
 T['TreeNode generates reasoning suggestions'] = function()
@@ -164,10 +162,8 @@ T['TreeNode generates task suggestions'] = function()
 
   local suggestions = child.lua_get('suggestions')
 
-  h.eq(4, #suggestions)
-  h.expect_contains('Implementation steps', table.concat(suggestions, ' '))
+  h.eq(2, #suggestions)
   h.expect_contains('Alternative approaches', table.concat(suggestions, ' '))
-  h.expect_contains('Resources needed', table.concat(suggestions, ' '))
   h.expect_contains('Success criteria', table.concat(suggestions, ' '))
 end
 
@@ -179,11 +175,9 @@ T['TreeNode generates validation suggestions'] = function()
 
   local suggestions = child.lua_get('suggestions')
 
-  h.eq(4, #suggestions)
+  h.eq(2, #suggestions)
   h.expect_contains('Test cases', table.concat(suggestions, ' '))
-  h.expect_contains('Success metrics', table.concat(suggestions, ' '))
   h.expect_contains('Edge cases', table.concat(suggestions, ' '))
-  h.expect_contains('Failure recovery', table.concat(suggestions, ' '))
 end
 
 T['TreeNode generates default suggestions for unknown type'] = function()
@@ -444,8 +438,7 @@ T['TreeOfThoughts add_typed_thought returns suggestions'] = function()
   local suggestions = child.lua_get('suggestions')
 
   h.eq('table', type(suggestions))
-  h.eq(4, #suggestions)
-  h.expect_contains('Sub-questions', table.concat(suggestions, ' '))
+  h.eq(2, #suggestions)
 end
 
 -- Test TreeOfThoughts find_node_by_id

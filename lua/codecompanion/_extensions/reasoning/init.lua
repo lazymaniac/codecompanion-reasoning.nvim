@@ -9,7 +9,7 @@ local function register_tools()
     'graph_of_thoughts_agent',
     'meta_agent',
     'add_tools',
-    'memory',
+    'project_context',
   }
 
   local registered_tools = {}

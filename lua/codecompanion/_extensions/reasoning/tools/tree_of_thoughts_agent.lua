@@ -44,14 +44,13 @@ function Actions.add_thought(args, agent_state)
 
   -- Format the response with suggestions
   local response_data = fmt(
-    [[**Added %s node:** %s
+    [[**%s:** %s
 
-**💡 Suggested next steps:**
+**💡 Suggestions:**
 %s
 
 **Node ID:** %s (for adding child thoughts)
-
-**NEXT: Continue exploring! Call add_thought again to add more thoughts and build the solution tree!**]],
+]],
     string.upper(node_type:sub(1, 1)) .. node_type:sub(2),
     content,
     table.concat(suggestions, '\n'),
@@ -76,11 +75,6 @@ local function auto_initialize(agent_state, problem)
   agent_state.current_instance = ToT.TreeOfThoughts:new(problem)
   agent_state.current_instance.agent_type = 'Tree of Thoughts Agent'
 
-  -- Load project context
-  local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
-  local context_summary, context_files = MemoryEngine.load_project_context()
-  agent_state.project_context = context_files
-
   -- Add interface methods for base class compatibility
   agent_state.current_instance.get_element = function(self, id)
     if self.nodes then
@@ -102,25 +96,27 @@ local function auto_initialize(agent_state, problem)
     return false
   end
 
+  -- Project context loading removed - use project_context tool explicitly when needed
+
   local init_message = fmt(
     [[🌳 Tree of Thoughts Agent activated for: %s
 
-AUTO-INITIALIZED: Ready for multi-path exploration!
+AUTO-INITIALIZED: Ready for multi-path exploration with companion tools!
 
-START: Call add_thought to explore first approach:
-- action: "add_thought"
-- content: "[your first small exploration]"
-- type: "task"|"analysis"|"reasoning"|"validation"
-- parent_id: "root" (optional)
+START WORKFLOW:
+1. FIRST: Use project_context tool for project context if needed
+2. Call add_thought to explore first approach:
+   - action: "add_thought"
+   - content: "[your first small exploration]"
+   - type: "task"|"analysis"|"reasoning"|"validation"
+3. Use ask_user for feedback on approaches
+4. Continue exploring multiple paths
 
-REMEMBER: Explore multiple small approaches - try approach A → try approach B → compare → refine]],
+REMEMBER: Explore alternatives - try approach A → get user feedback → try approach B → compare → refine]],
     problem
   )
 
-  -- Add context if found
-  if #context_files > 0 then
-    init_message = init_message .. '\n\n' .. context_summary
-  end
+  -- No automatic context inclusion - use project_context tool explicitly
 
   return init_message
 end
@@ -181,7 +177,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = 'Explores multiple coding approaches: auto-initializes on first use. Use for architecture decisions, API design, comparing solutions. WORKFLOW: Try small approach → Evaluate outcome → Compare with alternatives → Refine → Next experiment. Call add_thought to explore first approach, then continue exploring multiple paths. Build solution tree through exploration.',
+      description = 'Explores multiple coding approaches. WORKFLOW: 1) Use project_context for context 2) Try small approach → Evaluate → Use ask_user for feedback → Compare alternatives → Refine → Next experiment. Call add_thought to explore first approach, then continue exploring multiple paths. ALWAYS use companion tools: project_context for context, ask_user for validation, add_tools for enhanced capabilities. REMEMBER: Explore alternatives - try approach A → get user feedback → try approach B → compare → refine',
       parameters = {
         type = 'object',
         properties = {
@@ -195,7 +191,7 @@ return {
           },
           type = {
             type = 'string',
-            description = "Node type: 'analysis', 'reasoning', 'task', 'validation' (default: 'analysis', for 'add_thought')",
+            description = "Node type: 'analysis', 'reasoning', 'task', 'validation'",
           },
           parent_id = {
             type = 'string',

@@ -64,14 +64,13 @@ local function get_all_tools_with_schemas()
 
   -- Tools to exclude from discovery (these are automatically added or are primary agents)
   local excluded_tools = {
-    -- Reasoning agents (selected directly, not addable)
     ['chain_of_thoughts_agent'] = true,
     ['tree_of_thoughts_agent'] = true,
     ['graph_of_thoughts_agent'] = true,
     ['meta_agent'] = true,
-    -- Companion tools (automatically added with reasoning agents)
     ['ask_user'] = true,
     ['add_tools'] = true,
+    ['project_context'] = true,
   }
 
   for tool_name, tool_config in pairs(tools_config) do
@@ -149,17 +148,9 @@ local function list_tools()
   end
 
   -- First line contains the most important summary
-  table.insert(
-    output,
-    fmt('✅ Found %d tools available (%d enabled) - Ready to enhance your workflow', total_count, enabled_count)
-  )
+  table.insert(output, fmt('✅ Found %d tools', total_count))
   table.insert(output, '')
   table.insert(output, '## Available Tools:')
-  table.insert(output, '')
-  table.insert(
-    output,
-    '**NEXT STEP: After reviewing this list, immediately call add_tools with action="add_tool" to add the tools you need!**'
-  )
   table.insert(output, '')
 
   local tools_list = {}
@@ -174,33 +165,30 @@ local function list_tools()
   for _, tool in ipairs(tools_list) do
     local tool_name = tool.name
     local tool_info = tool.info
-    local status = tool_info.enabled and '✓' or '✗'
 
     local trimmed_description = extract_first_sentence(tool_info.description)
-    table.insert(output, fmt('- %s **%s:** %s', status, tool_name, trimmed_description))
+    table.insert(output, fmt('- **%s:** %s', tool_name, trimmed_description))
   end
 
   table.insert(output, '')
   table.insert(output, '---')
   table.insert(
     output,
-    '**TO ADD A TOOL:** Call add_tools again with action="add_tool" and tool_name="exact_name_from_above"'
+    '**NEXT STEP: After reviewing this list, immediately call add_tools with action="add_tool" to add the tools you need!**'
   )
-  table.insert(output, '**Example:** Call add_tools with action="add_tool" and tool_name="edit" to add file editing capability')
+  table.insert(
+    output,
+    '**Example:** Call add_tools with action="add_tool" and tool_name="insert_edit_into_file" to add file editing capability'
+  )
 
   return table.concat(output, '\n')
 end
 
 -- Tool action handlers
 local function handle_list_tools(args)
-  local format = args.format or 'simple'
-
   local result = list_tools()
   return { status = 'success', data = result }
 end
-
--- Store the tool to add in global state so success handler can access it
-local pending_tool_addition = nil
 
 local function handle_add_tool(args)
   if not args.tool_name then
@@ -217,6 +205,7 @@ local function handle_add_tool(args)
     -- Companion tools (automatically added with reasoning agents)
     ['ask_user'] = true,
     ['add_tools'] = true,
+    ['project_context'] = true,
   }
 
   -- Check if trying to add an excluded tool
@@ -237,8 +226,7 @@ local function handle_add_tool(args)
     end
   end
 
-  -- Get tool info including disabled tools
-  local all_tools = get_all_tools_with_schemas(true) -- Include disabled to check tool existence
+  local all_tools = get_all_tools_with_schemas()
   local tool_info = all_tools[args.tool_name]
   if not tool_info then
     return { status = 'error', data = fmt("Tool '%s' not found", args.tool_name) }
@@ -251,12 +239,9 @@ local function handle_add_tool(args)
 
   log:debug('[Add Tools] Preparing to add tool: %s', args.tool_name)
 
-  -- Store tool for success handler to process
-  pending_tool_addition = args.tool_name
-
   return {
     status = 'success',
-    data = fmt('Preparing to add %s to chat...', args.tool_name),
+    data = args.tool_name,
   }
 end
 
@@ -314,24 +299,22 @@ return {
     ---@param cmd table The command that was executed
     ---@param stdout table The output from the command
     success = function(self, agent, cmd, stdout)
+      vim.notify(vim.inspect(cmd), vim.log.levels.DEBUG, { title = '[Add Tools] Command Output' })
       local chat = agent.chat
       local result = vim.iter(stdout):flatten():join('\n')
 
-      -- Check if we need to add a tool to the chat
-      if pending_tool_addition then
-        local tool_name = pending_tool_addition
-        pending_tool_addition = nil -- Clear the pending state
+      if cmd.action == 'add_tool' then
+        local tool_name = cmd.tool_name
 
         log:debug('[Add Tools] Adding tool to chat: %s', tool_name)
 
-        -- Get the tool configuration
         local raw_tools_config = config.strategies.chat.tools
         local tool_config = raw_tools_config[tool_name]
 
         if tool_config and chat.tool_registry then
           chat.tool_registry:add(tool_name, tool_config)
 
-          local success_message = fmt('✅ %s added and ready!', tool_name)
+          local success_message = fmt('✅ %s ready to use!', tool_name)
 
           chat:add_tool_output(self, success_message, success_message)
         else
@@ -350,7 +333,6 @@ return {
     error = function(self, agent, cmd, stderr)
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
-      pending_tool_addition = nil -- Clear pending state on error
       log:debug('[Add Tools] Error occurred: %s', errors)
       chat:add_tool_output(self, fmt('❌ Add Tools ERROR: %s', errors))
     end,

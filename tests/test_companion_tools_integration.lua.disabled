@@ -159,8 +159,6 @@ end
 -- Test system prompt integration
 T['unified prompt includes collaboration protocol section'] = function()
   child.lua([[
-    UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
-
     -- Test chain of thought config
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
     chain_prompt = UnifiedReasoningPrompt.generate(chain_config)
@@ -185,8 +183,6 @@ end
 
 T['collaboration protocol appears in all reasoning types'] = function()
   child.lua([[
-    UnifiedReasoningPrompt = require('codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt')
-
     -- Test all three reasoning types
     chain_config = UnifiedReasoningPrompt.chain_of_thought_config()
     tree_config = UnifiedReasoningPrompt.tree_of_thoughts_config()

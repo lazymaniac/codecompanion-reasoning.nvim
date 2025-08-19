@@ -140,10 +140,7 @@ local function auto_initialize(agent_state, goal)
   agent_state.current_instance = GoT.GraphOfThoughts.new()
   agent_state.current_instance.agent_type = 'Graph of Thoughts Agent'
 
-  -- Load project context
-  local MemoryEngine = require('codecompanion._extensions.reasoning.helpers.memory_engine')
-  local context_summary, context_files = MemoryEngine.load_project_context()
-  agent_state.project_context = context_files
+  -- Project context loading removed - use project_context tool explicitly when needed
 
   agent_state.current_instance.get_element = function(self, id)
     return self:get_node(id)
@@ -163,27 +160,23 @@ local function auto_initialize(agent_state, goal)
   local init_message = fmt(
     [[🕸️ Graph of Thoughts Agent activated for: %s
 
-AUTO-INITIALIZED: Ready for system building! (Root: %s)
+AUTO-INITIALIZED: Ready for system building with companion tools! (Root: %s)
 
-START: Call add_node to add first component:
-- action: "add_node"
-- content: "[identify first component/file/module]"
-- node_type: "task"|"analysis"|"reasoning"|"validation"|"synthesis"
+START WORKFLOW:
+1. FIRST: Use project_context tool for project context if needed
+2. Call add_node to add first component:
+   - action: "add_node"
+   - content: "[identify first component/file/module]"
+   - node_type: "task"|"analysis"|"reasoning"|"validation"|"synthesis"
+3. Use ask_user for architecture validation
+4. Call add_edge to connect components when ready
 
-THEN: Call add_edge to connect components:
-- action: "add_edge"
-- source_id: "[node1_id]"
-- target_id: "[node2_id]"
-
-REMEMBER: Build system incrementally - add component → connect dependencies → evolve architecture]],
+REMEMBER: Build incrementally - add component → get user feedback → connect dependencies → evolve architecture]],
     goal,
     goal_id
   )
 
-  -- Add context if found
-  if #context_files > 0 then
-    init_message = init_message .. '\n\n' .. context_summary
-  end
+  -- No automatic context inclusion - use project_context tool explicitly
 
   return init_message
 end
@@ -258,7 +251,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'graph_of_thoughts_agent',
-      description = 'Manages complex coding systems: auto-initializes on first use. Use for microservices, dependencies, integrations, architectures. WORKFLOW: Add one component → Test connections → Validate dependencies → Evolve gradually. Call add_node for components, add_edge for dependencies. Build system incrementally through connected components.',
+      description = 'Manages complex coding systems: auto-initializes on first use. Use for microservices, dependencies, integrations, architectures. WORKFLOW: 1) Use project_context for context 2) Add one component → Test connections → Use ask_user for validation → Map dependencies → Evolve gradually. Call add_node for components, add_edge for dependencies. ALWAYS use companion tools: project_context for context, ask_user for decisions, add_tools for system capabilities.',
       parameters = {
         type = 'object',
         properties = {

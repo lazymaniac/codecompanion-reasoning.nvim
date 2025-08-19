@@ -41,10 +41,8 @@ function TreeNode:generate_suggestions()
   local generators = {
     analysis = function(content)
       return {
-        '🔍 **Sub-questions**: What are the key components of: ' .. content .. '?',
         '🤔 **Assumptions**: What assumptions are being made about this analysis?',
         '📊 **Data needed**: What information or data would help validate this analysis?',
-        '🔗 **Related cases**: Are there similar problems that have been analyzed before?',
       }
     end,
 
@@ -59,9 +57,7 @@ function TreeNode:generate_suggestions()
 
     task = function(content)
       return {
-        '📋 **Implementation steps**: Break this task into specific, actionable sub-steps',
         '🔄 **Alternative approaches**: Consider different ways to accomplish this task',
-        '🛠️ **Resources needed**: What tools, time, or materials are required?',
         '✅ **Success criteria**: How will you know when this task is completed successfully?',
       }
     end,
@@ -69,9 +65,7 @@ function TreeNode:generate_suggestions()
     validation = function(content)
       return {
         '🎯 **Test cases**: What specific scenarios should be tested?',
-        '📏 **Success metrics**: What measurable criteria define success?',
         '⚠️ **Edge cases**: What unusual or boundary conditions might cause issues?',
-        '🔧 **Failure recovery**: What should happen if validation fails?',
       }
     end,
   }

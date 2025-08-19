@@ -12,12 +12,7 @@ local T = new_set({
         GraphOfThoughtsAgent = require('codecompanion._extensions.reasoning.tools.graph_of_thoughts_agent')
         ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base')
 
-        -- Mock the unified reasoning prompt for testing
-        package.loaded['codecompanion._extensions.reasoning.helpers.unified_reasoning_prompt'] = {
-          generate_for_reasoning = function(type)
-            return string.format("Test system prompt for %s reasoning", type)
-          end
-        }
+        -- Mock functions no longer needed since unified_reasoning_prompt was removed
 
         -- Helper function to call the tool
         function call_tool(tool, args)
