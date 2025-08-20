@@ -25,7 +25,7 @@ return {
           else
             callback({
               status = 'success',
-              data = { response or 'No response provided' },
+              data = { response or selected_option },
             })
           end
         end)
@@ -43,7 +43,7 @@ return {
         properties = {
           question = {
             type = 'string',
-            description = 'Clear, specific question about coding decision that needs user input. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
+            description = 'Clear, concise and specific question about coding decision that needs user input. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
           },
           options = {
             type = 'array',
@@ -66,14 +66,14 @@ return {
       local chat = agent.chat
       local result = vim.iter(stdout):flatten():join('\n')
 
-      chat:add_tool_output(self, fmt('Answer: ', result))
+      return chat:add_tool_output(self, fmt('Answer: %s', result))
     end,
 
     error = function(self, agent, cmd, stderr)
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
 
-      chat:add_tool_output(self, 'Cancelled: ' .. errors)
+      chat:add_tool_output(self, fmt('Cancelled: %s', errors))
     end,
   },
 
