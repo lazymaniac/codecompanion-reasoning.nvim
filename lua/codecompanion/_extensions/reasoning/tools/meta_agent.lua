@@ -18,94 +18,46 @@ local fmt = string.format
 -- The LLM reads the descriptions and picks the best match
 -- Then dynamically adds the selected agent to the chat
 
--- Store the algorithm to add in global state so success handler can access it
-local pending_algorithm_addition = nil
-
-local function handle_action(args)
-  if args.action == 'select_algorithm' then
-    if not args.problem then
-      return { status = 'error', data = 'problem is required' }
-    end
-
-    log:debug('[Meta Agent] Selecting algorithm for: %s', args.problem)
-
-    return {
-      status = 'success',
-      data = fmt(
-        [[# CODING TASK ANALYSIS
-Problem: %s
-
-## ALGORITHM OPTIONS
-• **Chain**: Sequential tasks (debug → implement → refactor → fix)
-• **Tree**: Design decisions (architecture, API patterns, solution exploration)
-• **Graph**: Complex systems (microservices, dependencies, integrations)
-
-## WORKFLOW
-1. Analyze problem → 2. Pick optimal algorithm → 3. Deploy immediately → 4. Start reasoning
-
-🔍 **ANALYSIS COMPLETE** - Ready to deploy optimal algorithm and begin systematic reasoning with full companion tool support (ask_user, memory, add_tools).]],
-        args.problem
-      ),
-    }
-  elseif args.action == 'add_algorithm' then
-    if not args.algorithm then
-      return { status = 'error', data = 'algorithm is required' }
-    end
-
-    local valid_algorithms = { 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' }
-    if not vim.tbl_contains(valid_algorithms, args.algorithm) then
-      return {
-        status = 'error',
-        data = fmt('Invalid algorithm. Must be one of: %s', table.concat(valid_algorithms, ', ')),
-      }
-    end
-
-    log:debug('[Meta Agent] Preparing to add algorithm: %s', args.algorithm)
-
-    -- Store algorithm for success handler to process
-    pending_algorithm_addition = args.algorithm
-
-    return {
-      status = 'success',
-      data = fmt('Preparing to add %s to chat...', args.algorithm),
-    }
-  else
-    return { status = 'error', data = "Actions supported: 'select_algorithm', 'add_algorithm'" }
-  end
-end
-
 ---@class CodeCompanion.Tool.MetaAgent: CodeCompanion.Tools.Tool
 return {
   name = 'meta_agent',
   cmds = {
     function(self, args, input)
-      return handle_action(args)
+      if not args.agent then
+        return { status = 'error', data = 'agent is required!' }
+      end
+
+      local valid_agents = { 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' }
+      if not vim.tbl_contains(valid_agents, args.agent) then
+        return {
+          status = 'error',
+          data = fmt('Invalid agent. Must be one of: %s', table.concat(valid_agents, ', ')),
+        }
+      end
+
+      log:debug('[Meta Agent] Preparing to add agent: %s', args.agent)
+
+      return {
+        status = 'success',
+        data = args.agent,
+      }
     end,
   },
   schema = {
     type = 'function',
     ['function'] = {
       name = 'meta_agent',
-      description = '🚀 FIRST CHOICE for ANY coding request: Automatically selects and deploys optimal reasoning algorithm. USE IMMEDIATELY when user asks about: review code, implement features, fix bugs, analyze systems, make decisions. WORKFLOW: 1) select_algorithm to analyze task 2) add_algorithm to deploy chosen approach. Chain: Sequential tasks. Tree: Design decisions. Graph: Complex systems. ALWAYS use this tool FIRST for general coding requests before attempting manual analysis.',
+      description = '🚀 FIRST CHOICE for ANY coding request. Available agent: Chain of thoughts - Sequential problem solving, Tree of thoughts - Multiple perspective problem solving, Graph of thoughts: Problem solving with deep analysis and finding interconnections. ALWAYS use this tool FIRST for ANY coding requests before attempting manual analysis.',
       parameters = {
         type = 'object',
         properties = {
-          action = {
+          agent = {
             type = 'string',
-            description = "STEP 1: 'select_algorithm' to analyze problem, STEP 2: 'add_algorithm' to deploy chosen algorithm",
-            enum = { 'select_algorithm', 'add_algorithm' },
-          },
-          problem = {
-            type = 'string',
-            description = 'Your coding task: be specific about what you need to accomplish',
-          },
-          algorithm = {
-            type = 'string',
-            description = 'Selected algorithm: chain_of_thoughts_agent (sequential), tree_of_thoughts_agent (design), graph_of_thoughts_agent (systems)',
+            description = 'Selected agent: chain_of_thoughts_agent (sequential), tree_of_thoughts_agent (multiple paths), graph_of_thoughts_agent (deep analysis)',
             enum = { 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' },
           },
         },
-        required = { 'action' },
+        required = { 'agent' },
         additionalProperties = false,
       },
       strict = true,
@@ -114,53 +66,42 @@ return {
   output = {
     success = function(self, agent, cmd, stdout)
       local chat = agent.chat
-      local result = vim.iter(stdout):flatten():join('\n')
 
-      -- Check if we need to add an algorithm to the chat
-      if pending_algorithm_addition then
-        local algorithm = pending_algorithm_addition
-        pending_algorithm_addition = nil -- Clear the pending state
+      local selected_agent = cmd.agent
 
-        log:debug('[Meta Agent] Adding algorithm to chat: %s', algorithm)
+      log:debug('[Meta Agent] Adding agent to the chat: %s', selected_agent)
 
-        -- Get the tool configuration
-        local tools_config = config.strategies.chat.tools
-        local algorithm_config = tools_config[algorithm]
+      local tools_config = config.strategies.chat.tools
+      local agent_config = tools_config[selected_agent]
 
-        if algorithm_config and chat.tool_registry then
-          -- Add the reasoning algorithm
-          chat.tool_registry:add(algorithm, algorithm_config)
+      if agent_config and chat.tool_registry then
+        chat.tool_registry:add(selected_agent, agent_config)
 
-          -- Add companion tools (ask_user, add_tools, project_context) for full functionality
-          local companion_tools = { 'ask_user', 'add_tools', 'project_context' }
-          local added_companions = {}
+        local companion_tools = { 'ask_user', 'add_tools', 'project_context' }
+        local added_companions = {}
 
-          for _, tool_name in ipairs(companion_tools) do
-            local tool_config = tools_config[tool_name]
-            if tool_config then
-              chat.tool_registry:add(tool_name, tool_config)
-              table.insert(added_companions, tool_name)
-            end
+        for _, tool_name in ipairs(companion_tools) do
+          local tool_config = tools_config[tool_name]
+          if tool_config then
+            chat.tool_registry:add(tool_name, tool_config)
+            table.insert(added_companions, tool_name)
           end
-
-          local success_message =
-            fmt([[✅ %s ready! Companion tools: %s]], algorithm, table.concat(added_companions, ', '))
-
-          chat:add_tool_output(self, success_message, success_message)
-        else
-          chat:add_tool_output(
-            self,
-            fmt('❌ FAILED to add reasoning algorithm: %s (algorithm config unavailable)', algorithm)
-          )
         end
+
+        local success_message =
+          fmt([[✅ %s ready! Companion tools: %s]], selected_agent, table.concat(added_companions, ', '))
+
+        chat:add_tool_output(self, success_message, success_message)
       else
-        chat:add_tool_output(self, result, result)
+        chat:add_tool_output(
+          self,
+          fmt('❌ Meta Agent ERROR: Agent %s not found in tools configuration.', selected_agent)
+        )
       end
     end,
     error = function(self, agent, cmd, stderr)
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
-      pending_algorithm_addition = nil -- Clear pending state on error
       chat:add_tool_output(self, fmt('❌ Meta Agent ERROR: %s', errors))
     end,
   },
