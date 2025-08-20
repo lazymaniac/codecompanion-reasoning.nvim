@@ -30,8 +30,6 @@ return {
           end
         end)
       end)
-
-      -- Don't return anything - callback will be called when response is ready
     end,
   },
 
@@ -39,13 +37,13 @@ return {
     type = 'function',
     ['function'] = {
       name = 'ask_user',
-      description = 'Interactive consultation for coding decisions when multiple valid approaches exist. USE WHEN: Multiple valid solutions exist (refactor vs rewrite), destructive operations planned (delete code, major changes), architecture decisions affect maintainability, user intent unclear from request, performance/maintainability trade-offs exist. DON\'T use for: established coding standards, obvious technical choices, already decided matters.',
+      description = 'Interactive consultation for coding decisions when multiple valid approaches exist. USE WHEN: Multiple valid solutions exist (refactor vs rewrite), destructive operations planned (delete code, major changes), architecture decisions affect maintainability, user intent unclear from request, performance/maintainability trade-offs exist and similar. DON\'T use for: established coding standards, obvious technical choices, already decided matters.',
       parameters = {
         type = 'object',
         properties = {
           question = {
             type = 'string',
-            description = 'Clear, specific question about coding decision that needs user input. Structure: Question + Options. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
+            description = 'Clear, specific question about coding decision that needs user input. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
           },
           options = {
             type = 'array',
@@ -67,43 +65,15 @@ return {
     success = function(self, agent, cmd, stdout)
       local chat = agent.chat
       local result = vim.iter(stdout):flatten():join('\n')
-      local question = self.args.question or 'No question provided'
-      local options = self.args.options or {}
 
-      local response_summary = result
-
-      local summary = fmt('💬 ', response_summary)
-
-      -- Build detailed content
-      local details = {}
-      table.insert(details, fmt('**Question Asked:** %s', question))
-
-      if options and #options > 0 then
-        table.insert(details, '**Options Provided:**')
-        for i, option in ipairs(options) do
-          table.insert(details, fmt('%d. %s', i, option))
-        end
-      end
-
-      table.insert(details, fmt('**User Response:** %s', result))
-
-      local output = summary .. '\n\n' .. table.concat(details, '\n\n')
-      chat:add_tool_output(self, output)
+      chat:add_tool_output(self, fmt('Answer: ', result))
     end,
 
     error = function(self, agent, cmd, stderr)
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
-      local question = self.args.question or 'No question provided'
 
-      -- Truncate question for header
-      local question_summary = question
-
-      local summary = fmt('❌ CANCELLED: %s', question_summary)
-      local details = fmt('**Question:** %s\n**Error:** %s', question, errors)
-      local output = summary .. '\n\n' .. details
-
-      chat:add_tool_output(self, output)
+      chat:add_tool_output(self, 'Cancelled: ' .. errors)
     end,
   },
 

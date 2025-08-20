@@ -10,12 +10,15 @@ local T = new_set({
       child.lua([[
         h = require('tests.helpers')
         ChainOfThoughtsAgent = require('codecompanion._extensions.reasoning.tools.chain_of_thoughts_agent')
-        ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base')
 
         -- Mock functions no longer needed since unified_reasoning_prompt was removed
 
         -- Helper function to call the tool
         function call_tool(tool, args)
+          -- Initialize the agent if it has a setup handler
+          if tool.handlers and tool.handlers.setup then
+            tool.handlers.setup(tool, {})
+          end
           return tool.cmds[1](tool, args, nil)
         end
       ]])
@@ -53,7 +56,6 @@ T['tool schema has correct structure'] = function()
       func_name = func_schema.name,
       has_description = func_schema.description ~= nil,
       has_action_param = params.properties.action ~= nil,
-      has_step_id_param = params.properties.step_id ~= nil,
       has_content_param = params.properties.content ~= nil,
       has_step_type_param = params.properties.step_type ~= nil,
       action_required = vim.tbl_contains(params.required, 'action')
@@ -65,13 +67,11 @@ T['tool schema has correct structure'] = function()
   h.eq('chain_of_thoughts_agent', schema_info.func_name)
   h.eq(true, schema_info.has_description)
   h.eq(true, schema_info.has_action_param)
-  h.eq(true, schema_info.has_step_id_param)
   h.eq(true, schema_info.has_content_param)
   h.eq(true, schema_info.has_step_type_param)
   h.eq(true, schema_info.action_required)
 end
 
--- System prompt functionality moved to tool schema descriptions for token efficiency
 T['tool description contains workflow guidance'] = function()
   child.lua([[
     schema = ChainOfThoughtsAgent.schema
@@ -79,7 +79,6 @@ T['tool description contains workflow guidance'] = function()
 
     description_info = {
       has_workflow = description and string.find(description, 'WORKFLOW') ~= nil,
-      has_guidance = description and string.find(description, 'small action') ~= nil,
       is_comprehensive = description and #description > 100
     }
   ]])
@@ -87,7 +86,6 @@ T['tool description contains workflow guidance'] = function()
   local description_info = child.lua_get('description_info')
 
   h.eq(true, description_info.has_workflow)
-  h.eq(true, description_info.has_guidance)
   h.eq(true, description_info.is_comprehensive)
 end
 
@@ -96,7 +94,6 @@ T['add_step action works correctly'] = function()
   child.lua([[
     result = call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'step1',
       content = 'Analyze the authentication flow',
       step_type = 'analysis'
     })
@@ -104,8 +101,8 @@ T['add_step action works correctly'] = function()
     step_info = {
       status = result.status,
       has_data = result.data ~= nil,
-      success_message = result.data and string.find(result.data, 'Step') ~= nil,
-      next_instruction = result.data and string.find(result.data, 'NEXT:') ~= nil
+      contains_step_type = result.data and string.find(result.data, 'analysis:') ~= nil,
+      contains_content = result.data and string.find(result.data, 'Analyze the authentication flow') ~= nil
     }
   ]])
 
@@ -113,79 +110,35 @@ T['add_step action works correctly'] = function()
 
   h.eq('success', step_info.status)
   h.eq(true, step_info.has_data)
-  h.eq(true, step_info.success_message)
-  h.eq(true, step_info.next_instruction)
+  h.eq(true, step_info.contains_step_type)
+  h.eq(true, step_info.contains_content)
 end
 
 -- Test add_step with missing required parameters
-T['add_step requires step_id, content, and step_type'] = function()
+T['add_step requires content and step_type'] = function()
   child.lua([[
-    -- Missing step_id
-    result1 = call_tool(ChainOfThoughtsAgent, {
-      action = 'add_step',
-      content = 'Test content',
-      step_type = 'analysis'
-    })
-
     -- Missing content
-    result2 = call_tool(ChainOfThoughtsAgent, {
+    result_missing_content = call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'step1',
       step_type = 'analysis'
     })
 
     -- Missing step_type
-    result3 = call_tool(ChainOfThoughtsAgent, {
+    result_missing_type = call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'step1',
       content = 'Test content'
     })
 
     validation_info = {
-      missing_step_id_error = result1.status == 'error',
-      missing_content_error = result2.status == 'error',
-      missing_step_type_error = result3.status == 'error'
+      missing_content_error = result_missing_content.status == 'error',
+      missing_step_type_error = result_missing_type.status == 'error'
     }
   ]])
 
   local validation_info = child.lua_get('validation_info')
 
-  h.eq(true, validation_info.missing_step_id_error)
   h.eq(true, validation_info.missing_content_error)
   h.eq(true, validation_info.missing_step_type_error)
-end
-
--- Test duplicate step_id handling
-T['add_step prevents duplicate step IDs'] = function()
-  child.lua([[
-    -- Add first step
-    result1 = call_tool(ChainOfThoughtsAgent, {
-      action = 'add_step',
-      step_id = 'duplicate_test',
-      content = 'First step',
-      step_type = 'analysis'
-    })
-
-    -- Try to add step with same ID
-    result2 = call_tool(ChainOfThoughtsAgent, {
-      action = 'add_step',
-      step_id = 'duplicate_test',
-      content = 'Second step',
-      step_type = 'reasoning'
-    })
-
-    duplicate_info = {
-      first_success = result1.status == 'success',
-      second_error = result2.status == 'error',
-      error_mentions_duplicate = result2.data and string.find(result2.data, 'already exists') ~= nil
-    }
-  ]])
-
-  local duplicate_info = child.lua_get('duplicate_info')
-
-  h.eq(true, duplicate_info.first_success)
-  h.eq(true, duplicate_info.second_error)
-  h.eq(true, duplicate_info.error_mentions_duplicate)
 end
 
 -- Test reflect action
@@ -194,7 +147,6 @@ T['reflect action works with existing steps'] = function()
     -- Add a step first
     call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'reflect_test',
       content = 'Test step for reflection',
       step_type = 'analysis'
     })
@@ -202,14 +154,14 @@ T['reflect action works with existing steps'] = function()
     -- Then reflect
     result = call_tool(ChainOfThoughtsAgent, {
       action = 'reflect',
-      reflection = 'This approach seems to be working well'
+      content = 'This approach seems to be working well'
     })
 
     reflect_info = {
       status = result.status,
       has_analysis = result.data and string.find(result.data, 'Reflection Analysis') ~= nil,
       has_total_steps = result.data and string.find(result.data, 'Total steps:') ~= nil,
-      has_user_reflection = result.data and string.find(result.data, 'User Reflection:') ~= nil
+      has_user_reflection = result.data and string.find(result.data, 'Reflection:') ~= nil
     }
   ]])
 
@@ -221,8 +173,8 @@ T['reflect action works with existing steps'] = function()
   h.eq(true, reflect_info.has_user_reflection)
 end
 
--- Test reflect action behaves correctly
-T['reflect action behaves correctly'] = function()
+-- Test reflect action requires content parameter
+T['reflect action requires content parameter'] = function()
   child.lua([[
     result = call_tool(ChainOfThoughtsAgent, {
       action = 'reflect'
@@ -230,22 +182,14 @@ T['reflect action behaves correctly'] = function()
 
     reflect_info = {
       status = result.status,
-      has_data = result.data ~= nil,
-      mentions_no_steps = result.data and string.find(result.data, 'No steps') ~= nil,
-      has_reflection = result.data and string.find(result.data, 'Reflection Analysis') ~= nil
+      has_error_message = result.data and string.find(result.data, 'content is required') ~= nil
     }
   ]])
 
   local reflect_info = child.lua_get('reflect_info')
 
-  -- Either it succeeds with reflection analysis OR fails with "no steps" message
-  h.eq(true, reflect_info.has_data)
-  if reflect_info.status == 'error' then
-    h.eq(true, reflect_info.mentions_no_steps)
-  else
-    h.eq('success', reflect_info.status)
-    h.eq(true, reflect_info.has_reflection)
-  end
+  h.eq('error', reflect_info.status)
+  h.eq(true, reflect_info.has_error_message)
 end
 
 -- Test invalid action
@@ -273,21 +217,18 @@ T['complete workflow: add steps and reflect'] = function()
     -- Add multiple steps
     step1 = call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'workflow_step1',
       content = 'Identify the problem',
       step_type = 'analysis'
     })
 
     step2 = call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'workflow_step2',
       content = 'Design the solution',
       step_type = 'reasoning'
     })
 
     step3 = call_tool(ChainOfThoughtsAgent, {
       action = 'add_step',
-      step_id = 'workflow_step3',
       content = 'Implement the fix',
       step_type = 'task'
     })
@@ -295,7 +236,7 @@ T['complete workflow: add steps and reflect'] = function()
     -- Reflect on the process
     reflection = call_tool(ChainOfThoughtsAgent, {
       action = 'reflect',
-      reflection = 'The step-by-step approach worked well'
+      content = 'The step-by-step approach worked well'
     })
 
     workflow_info = {

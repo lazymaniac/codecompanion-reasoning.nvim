@@ -112,14 +112,13 @@ TreeOfThoughts.__index = TreeOfThoughts
 function TreeOfThoughts:new(initial_problem)
   local tot = {
     root = TreeNode:new(initial_problem or 'Initial Problem', 'analysis'),
-    evaluation_fn = nil,
   }
   setmetatable(tot, TreeOfThoughts)
   return tot
 end
 
 -- Add thought with type and return suggestions
-function TreeOfThoughts:add_typed_thought(parent_id, content, node_type)
+function TreeOfThoughts:add_thought(parent_id, content, node_type)
   local parent_node = self.root
 
   -- Find parent node if specified
@@ -135,9 +134,6 @@ function TreeOfThoughts:add_typed_thought(parent_id, content, node_type)
   if not new_node then
     return nil, error_msg
   end
-
-  -- Score the new node
-  new_node.score = self:evaluate_thought(new_node)
 
   -- Generate suggestions based on type
   local suggestions = new_node:generate_suggestions()
@@ -162,43 +158,90 @@ function TreeOfThoughts:find_node_by_id(id)
   return search(self.root)
 end
 
--- Evaluation system for thoughts and paths
-function TreeOfThoughts:evaluate_thought(node)
-  if self.evaluation_fn then
-    return self.evaluation_fn(node)
-  end
-
-  local score = 3.0 -- Base score
-
-  -- Content quality scoring
-  local content_len = #node.content
-  if content_len > 100 then
-    score = score + 1.0
-  elseif content_len > 50 then
-    score = score + 0.5
-  end
-
-  score = score - (node.depth * 0.1)
-
-  -- Path diversity bonus
-  local siblings = node:get_siblings()
-  if #siblings > 0 then
-    score = score + (#siblings * 0.1)
-  end
-
-  -- Type-based scoring bonus
-  local type_bonuses = {
-    analysis = 0.2,
-    reasoning = 0.3,
-    task = 0.1,
-    validation = 0.4, -- Higher bonus for validation
+-- Reflection analysis for tree state
+function TreeOfThoughts:reflect()
+  local analysis = {
+    total_nodes = 0,
+    max_depth = 0,
+    leaf_nodes = 0,
+    type_distribution = {},
+    insights = {},
+    improvements = {},
+    branches = {},
   }
-  score = score + (type_bonuses[node.type] or 0)
 
-  -- Add small random factor for tie-breaking
-  score = score + (math.random() * 0.1)
+  -- Traverse tree and collect statistics
+  local function traverse(node, depth)
+    analysis.total_nodes = analysis.total_nodes + 1
+    analysis.max_depth = math.max(analysis.max_depth, depth)
 
-  return math.max(0, score) -- Ensure non-negative
+    -- Track type distribution
+    analysis.type_distribution[node.type] = (analysis.type_distribution[node.type] or 0) + 1
+
+    -- Track leaf nodes and branches
+    if node:is_leaf() then
+      analysis.leaf_nodes = analysis.leaf_nodes + 1
+      if depth > 0 then -- Don't count root as branch
+        table.insert(analysis.branches, {
+          depth = depth,
+          type = node.type,
+          content_length = #node.content,
+        })
+      end
+    end
+
+    for _, child in ipairs(node.children) do
+      traverse(child, depth + 1)
+    end
+  end
+
+  traverse(self.root, 0)
+
+  -- Generate insights
+  if analysis.total_nodes > 1 then
+    table.insert(
+      analysis.insights,
+      string.format(
+        'Explored %d different thoughts across %d depth levels',
+        analysis.total_nodes - 1,
+        analysis.max_depth
+      )
+    ) -- -1 to exclude root
+  end
+
+  if analysis.leaf_nodes > 1 then
+    table.insert(analysis.insights, string.format('%d exploration branches created', analysis.leaf_nodes))
+  end
+
+  -- Type distribution insights
+  local type_counts = {}
+  for type, count in pairs(analysis.type_distribution) do
+    if type ~= 'analysis' or count > 1 then -- Don't report single analysis (root)
+      table.insert(type_counts, string.format('%s:%d', type, count))
+    end
+  end
+  if #type_counts > 0 then
+    table.insert(analysis.insights, 'Node types: ' .. table.concat(type_counts, ', '))
+  end
+
+  -- Generate improvement suggestions
+  if analysis.max_depth < 2 then
+    table.insert(analysis.improvements, 'Consider deeper exploration of promising ideas')
+  end
+
+  if analysis.leaf_nodes < 2 then
+    table.insert(analysis.improvements, 'Try exploring alternative approaches or solutions')
+  end
+
+  if not analysis.type_distribution['validation'] then
+    table.insert(analysis.improvements, 'Add validation thoughts to test your reasoning')
+  end
+
+  if not analysis.type_distribution['task'] then
+    table.insert(analysis.improvements, 'Include concrete task nodes for implementation steps')
+  end
+
+  return analysis
 end
 
 return {

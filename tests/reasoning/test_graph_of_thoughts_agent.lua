@@ -10,12 +10,15 @@ local T = new_set({
       child.lua([[
         h = require('tests.helpers')
         GraphOfThoughtsAgent = require('codecompanion._extensions.reasoning.tools.graph_of_thoughts_agent')
-        ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base')
 
         -- Mock functions no longer needed since unified_reasoning_prompt was removed
 
         -- Helper function to call the tool
         function call_tool(tool, args)
+          -- Initialize the agent if it has a setup handler
+          if tool.handlers and tool.handlers.setup then
+            tool.handlers.setup(tool, {})
+          end
           return tool.cmds[1](tool, args, nil)
         end
 
@@ -119,8 +122,8 @@ T['add_node action works correctly'] = function()
     node_info = {
       status = result.status,
       has_data = result.data ~= nil,
-      success_message = result.data and string.find(result.data, 'Node Added Successfully') ~= nil,
-      next_instruction = result.data and string.find(result.data, 'add_edge') ~= nil
+      has_content = result.data and string.find(result.data, 'User authentication service') ~= nil,
+      has_suggestions = result.data and string.find(result.data, 'Suggested Next Steps') ~= nil
     }
   ]])
 
@@ -128,8 +131,8 @@ T['add_node action works correctly'] = function()
 
   h.eq('success', node_info.status)
   h.eq(true, node_info.has_data)
-  h.eq(true, node_info.success_message)
-  h.eq(true, node_info.next_instruction)
+  h.eq(true, node_info.has_content)
+  h.eq(true, node_info.has_suggestions)
 end
 
 -- Test add_node with missing content
@@ -313,16 +316,16 @@ T['agent auto-initializes on first use'] = function()
 
     auto_init_info = {
       status = result.status,
-      auto_init_message = result.data and (string.find(result.data, 'AUTO%-INITIALIZED') ~= nil or string.find(result.data, 'Graph of Thoughts Agent activated') ~= nil),
-      success_message = result.data and string.find(result.data, 'Node Added Successfully') ~= nil
+      has_content = result.data and string.find(result.data, 'Auto%-initialization test') ~= nil,
+      has_suggestions = result.data and string.find(result.data, 'Suggested Next Steps') ~= nil
     }
   ]])
 
   local auto_init_info = child.lua_get('auto_init_info')
 
   h.eq('success', auto_init_info.status)
-  h.eq(true, auto_init_info.auto_init_message)
-  h.eq(true, auto_init_info.success_message)
+  h.eq(true, auto_init_info.has_content)
+  h.eq(true, auto_init_info.has_suggestions)
 end
 
 -- Test different node types

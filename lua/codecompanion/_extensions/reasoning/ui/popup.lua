@@ -489,36 +489,28 @@ end
 ---@param callback function Callback with user response (response_text, cancelled)
 function Popup.ask_question(question, options, callback)
   vim.schedule(function()
-    -- Validate and set defaults
     question = question or 'No question provided'
     options = options or {}
 
-    -- Calculate dimensions and build content
     local width, height, content_width = calculate_dimensions({})
     local popup_lines, highlights = build_content(question, options, content_width)
 
-    -- Recalculate dimensions with actual content
     width, height = calculate_dimensions(popup_lines)
 
-    -- Create windows and buffers
     local _, input_buf, popup_win, input_win = create_windows(popup_lines, highlights, width, height)
 
-    -- Set up interactions
     apply_fade_in(popup_win, input_win)
 
-    -- Position cursor and start insert mode
     local input_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''
     vim.api.nvim_win_set_cursor(input_win, { 1, #input_line })
     vim.wo[input_win].cursorline = false
 
     vim.cmd('startinsert')
 
-    -- Set up key mappings with response handler
     setup_key_mappings(input_buf, input_win, options, function(response)
       process_response(response, options, popup_win, input_win, input_buf, callback)
     end)
 
-    -- Ensure cursor is properly positioned
     vim.defer_fn(function()
       if vim.api.nvim_win_is_valid(input_win) then
         local current_line = vim.api.nvim_buf_get_lines(input_buf, 0, 1, false)[1] or ''

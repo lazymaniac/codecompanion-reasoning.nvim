@@ -35,22 +35,14 @@ function Actions.add_node(args, agent_state)
   return {
     status = 'success',
     data = fmt(
-      [[# Node Added Successfully
-
-**Node ID:** %s
-**Content:** %s
-**Type:** %s
-
-The node has been added to the graph and is ready for dependency connections.
+      [[# %s: %s
 
 ## Suggested Next Steps:
 
 %s
-
-Use 'add_edge' to create dependencies with other nodes.]],
-      node_id,
-      args.content,
+]],
       args.node_type or 'analysis',
+      args.content,
       table.concat(suggestions, '\n\n')
     ),
   }
@@ -82,12 +74,6 @@ function Actions.add_edge(args, agent_state)
     status = 'success',
     data = fmt(
       [[# Edge Added Successfully
-
-**Source:** %s
-**Target:** %s
-**Weight:** %.2f
-**Type:** %s
-
 The dependency has been created. The target node will wait for the source node to complete before it can execute.]],
       args.source_id,
       args.target_id,
@@ -128,19 +114,16 @@ The nodes have been combined into a single reasoning unit.]],
   }
 end
 
--- Auto-initialize agent on first use
-local function auto_initialize(agent_state, goal)
+local function initialize(agent_state)
   if agent_state.current_instance then
-    return nil -- Already initialized
+    return nil
   end
 
-  log:debug('[Graph of Thoughts Agent] Auto-initializing with goal: %s', goal)
+  log:debug('[Graph of Thoughts Agent] Initializing')
 
   agent_state.session_id = tostring(os.time())
   agent_state.current_instance = GoT.GraphOfThoughts.new()
   agent_state.current_instance.agent_type = 'Graph of Thoughts Agent'
-
-  -- Project context loading removed - use project_context tool explicitly when needed
 
   agent_state.current_instance.get_element = function(self, id)
     return self:get_node(id)
@@ -154,68 +137,11 @@ local function auto_initialize(agent_state, goal)
     end
     return false
   end
-
-  local goal_id = agent_state.current_instance:add_node(goal, 'goal')
-
-  local init_message = fmt(
-    [[🕸️ Graph of Thoughts Agent activated for: %s
-
-AUTO-INITIALIZED: Ready for system building with companion tools! (Root: %s)
-
-START WORKFLOW:
-1. FIRST: Use project_context tool for project context if needed
-2. Call add_node to add first component:
-   - action: "add_node"
-   - content: "[identify first component/file/module]"
-   - node_type: "task"|"analysis"|"reasoning"|"validation"|"synthesis"
-3. Use ask_user for architecture validation
-4. Call add_edge to connect components when ready
-
-REMEMBER: Build incrementally - add component → get user feedback → connect dependencies → evolve architecture]],
-    goal,
-    goal_id
-  )
-
-  -- No automatic context inclusion - use project_context tool explicitly
-
-  return init_message
 end
 
--- Create the tool definition with auto-initialization
 local function handle_action(args)
   local agent_state = _G._codecompanion_graph_of_thoughts_state or {}
   _G._codecompanion_graph_of_thoughts_state = agent_state
-
-  -- Auto-initialize if needed
-  if not agent_state.current_instance then
-    local goal = args.content or 'System building task requested'
-    local init_message = auto_initialize(agent_state, goal)
-
-    if init_message then
-      -- If this was an action call that triggered initialization, continue with the action
-      if args.action == 'add_node' then
-        local node_result = Actions.add_node(args, agent_state)
-        return {
-          status = 'success',
-          data = init_message .. '\n\n---\n\n' .. node_result.data,
-        }
-      elseif args.action == 'add_edge' then
-        local edge_result = Actions.add_edge(args, agent_state)
-        return {
-          status = 'success',
-          data = init_message .. '\n\n---\n\n' .. edge_result.data,
-        }
-      elseif args.action == 'merge_nodes' then
-        local merge_result = Actions.merge_nodes(args, agent_state)
-        return {
-          status = 'success',
-          data = init_message .. '\n\n---\n\n' .. merge_result.data,
-        }
-      else
-        return { status = 'success', data = init_message }
-      end
-    end
-  end
 
   local action = Actions[args.action]
   if not action then
@@ -245,6 +171,37 @@ return {
   cmds = {
     function(self, args, input)
       return handle_action(args)
+    end,
+  },
+  handlers = {
+    setup = function(self, tools)
+      local agent_state = _G._codecompanion_graph_of_thoughts_state or {}
+      _G._codecompanion_graph_of_thoughts_state = agent_state
+      initialize(agent_state)
+    end,
+    on_exit = function(agent)
+      local agent_state = _G._codecompanion_graph_of_thoughts_state
+      if agent_state and agent_state.current_instance then
+        local node_count = 0
+        local edge_count = 0
+        if agent_state.current_instance.nodes then
+          node_count = #agent_state.current_instance.nodes
+        end
+        if agent_state.current_instance.edges then
+          edge_count = #agent_state.current_instance.edges
+        end
+        log:debug('[Graph of Thoughts Agent] Session ended with %d nodes and %d edges', node_count, edge_count)
+      end
+    end,
+  },
+  output = {
+    success = function(self, tools, cmd, stdout)
+      local chat = tools.chat
+      return chat:add_tool_output(self, tostring(stdout[1]))
+    end,
+    error = function(self, tools, cmd, stderr)
+      local chat = tools.chat
+      return chat:add_tool_output(self, tostring(stderr[1]))
     end,
   },
   schema = {

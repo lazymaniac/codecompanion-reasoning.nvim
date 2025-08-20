@@ -10,12 +10,15 @@ local T = new_set({
       child.lua([[
         h = require('tests.helpers')
         TreeOfThoughtsAgent = require('codecompanion._extensions.reasoning.tools.tree_of_thoughts_agent')
-        ReasoningAgentBase = require('codecompanion._extensions.reasoning.helpers.reasoning_agent_base')
 
         -- Mock functions no longer needed since unified_reasoning_prompt was removed
 
         -- Helper function to call the tool
         function call_tool(tool, args)
+          -- Initialize the agent if it has a setup handler
+          if tool.handlers and tool.handlers.setup then
+            tool.handlers.setup(tool, {})
+          end
           return tool.cmds[1](tool, args, nil)
         end
       ]])

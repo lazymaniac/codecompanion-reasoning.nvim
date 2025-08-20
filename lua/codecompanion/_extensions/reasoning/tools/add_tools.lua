@@ -195,22 +195,18 @@ local function handle_add_tool(args)
     return { status = 'error', data = 'tool_name is required' }
   end
 
-  -- Tools that cannot be added (these are automatically added or are primary agents)
   local excluded_tools = {
-    -- Reasoning agents (selected directly, not addable)
     ['chain_of_thoughts_agent'] = true,
     ['tree_of_thoughts_agent'] = true,
     ['graph_of_thoughts_agent'] = true,
     ['meta_agent'] = true,
-    -- Companion tools (automatically added with reasoning agents)
     ['ask_user'] = true,
     ['add_tools'] = true,
     ['project_context'] = true,
   }
 
-  -- Check if trying to add an excluded tool
   if excluded_tools[args.tool_name] then
-    if args.tool_name:match('_agent$') or args.tool_name == 'meta_agent' then
+    if args.tool_name:match('_agent$') then
       return {
         status = 'error',
         data = fmt(
