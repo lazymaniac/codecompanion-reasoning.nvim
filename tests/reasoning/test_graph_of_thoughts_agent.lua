@@ -24,13 +24,6 @@ local T = new_set({
 
         -- Enable test mode for predictable node IDs
         _G._codecompanion_test_mode = true
-
-        -- Helper to reset graph state between tests
-        function reset_graph_state()
-          _G._codecompanion_graph_of_thoughts_state = nil
-          local GoT = require('codecompanion._extensions.reasoning.helpers.graph_of_thoughts')
-          GoT.reset_test_counter()
-        end
       ]])
     end,
     post_once = child.stop,
@@ -157,8 +150,6 @@ end
 -- Test add_edge action
 T['add_edge action works correctly'] = function()
   child.lua([[
-    reset_graph_state()
-
     -- Add source node (will get ID: node_1)
     call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',
@@ -220,8 +211,6 @@ end
 -- Test merge_nodes action
 T['merge_nodes action works correctly'] = function()
   child.lua([[
-    reset_graph_state()
-
     -- Add multiple nodes (will get IDs: node_1, node_2, node_3)
     call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',
@@ -306,8 +295,6 @@ end
 -- Test auto-initialization behavior
 T['agent auto-initializes on first use'] = function()
   child.lua([[
-    reset_graph_state()
-
     -- First call should auto-initialize and work
     result = call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',
@@ -384,8 +371,6 @@ end
 -- Test complete workflow: nodes -> edges -> merge
 T['complete workflow: add nodes, edges, and merge'] = function()
   child.lua([[
-    reset_graph_state()
-
     -- Add multiple nodes (will get IDs: node_1, node_2, node_3)
     node1 = call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',

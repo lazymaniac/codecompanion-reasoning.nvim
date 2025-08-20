@@ -150,7 +150,7 @@ local function list_tools()
   -- First line contains the most important summary
   table.insert(output, fmt('✅ Found %d tools', total_count))
   table.insert(output, '')
-  table.insert(output, '## Available Tools:')
+  table.insert(output, 'Available Tools:')
   table.insert(output, '')
 
   local tools_list = {}
