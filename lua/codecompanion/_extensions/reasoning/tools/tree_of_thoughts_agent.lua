@@ -15,26 +15,32 @@ if not log_ok then
 end
 local fmt = string.format
 
+local node_counter = 0
+
+local function generate_node_id()
+  node_counter = node_counter + 1
+  return 'node_' .. node_counter
+end
+
 local TreeNode = {}
 TreeNode.__index = TreeNode
 
 -- Node types matching Chain of Thought
 local NODE_TYPES = {
-  analysis = 'Analysis and exploration of the problem',
-  reasoning = 'Logical deduction and inference',
-  task = 'Actionable implementation step',
-  validation = 'Verification and testing',
+  analysis = true,
+  reasoning = true,
+  task = true,
+  validation = true,
 }
 
 function TreeNode:new(content, node_type, parent, depth)
   local node = {
-    id = string.format('node_%d_%d', os.time(), math.random(1000, 9999)),
+    id = generate_node_id(),
     content = content or '',
-    type = node_type or 'analysis', -- Use 'type' field like Chain of Thought
+    type = node_type or 'analysis',
     parent = parent,
     children = {},
     depth = depth or 0,
-    score = 0,
     created_at = os.time(),
   }
   setmetatable(node, TreeNode)
@@ -51,48 +57,6 @@ function TreeNode:add_child(content, node_type)
   local child = TreeNode:new(content, node_type, self, self.depth + 1)
   table.insert(self.children, child)
   return child
-end
-
--- Generate suggestions based on node type
-function TreeNode:generate_suggestions()
-  local generators = {
-    analysis = function(content)
-      return {
-        '🤔 **Assumptions**: What assumptions are being made about this analysis?',
-        '📊 **Data needed**: What information or data would help validate this analysis?',
-      }
-    end,
-
-    reasoning = function(content)
-      return {
-        '➡️ **Implications**: If this reasoning is correct, what are the logical consequences?',
-        '🛡️ **Supporting evidence**: What facts or data support this line of reasoning?',
-        '⚡ **Counter-arguments**: What are potential weaknesses or alternative viewpoints?',
-        '🎯 **Next steps**: How can this reasoning lead to actionable conclusions?',
-      }
-    end,
-
-    task = function(content)
-      return {
-        '🔄 **Alternative approaches**: Consider different ways to accomplish this task',
-        '✅ **Success criteria**: How will you know when this task is completed successfully?',
-      }
-    end,
-
-    validation = function(content)
-      return {
-        '🎯 **Test cases**: What specific scenarios should be tested?',
-        '⚠️ **Edge cases**: What unusual or boundary conditions might cause issues?',
-      }
-    end,
-  }
-
-  local generator = generators[self.type]
-  if generator then
-    return generator(self.content)
-  end
-
-  return { '💡 **Next steps**: Consider what logical follow-ups make sense for this thought' }
 end
 
 function TreeNode:get_path()
@@ -152,10 +116,7 @@ function TreeOfThoughts:add_thought(parent_id, content, node_type)
     return nil, error_msg
   end
 
-  -- Generate suggestions based on type
-  local suggestions = new_node:generate_suggestions()
-
-  return new_node, nil, suggestions
+  return new_node, nil
 end
 
 -- Find node by ID (helper method)
@@ -267,7 +228,7 @@ function Actions.add_thought(args, agent_state)
   local node_type = args.type or 'analysis'
   local parent_id = args.parent_id or 'root'
 
-  log:debug('[Tree of Thoughts Agent] Adding typed thought: %s (%s)', content, node_type)
+  log:debug('[Tree of Thoughts Agent] Adding thought: %s (%s)', content, node_type)
 
   -- Validate type
   local valid_types = { 'analysis', 'reasoning', 'task', 'validation' }
@@ -278,7 +239,7 @@ function Actions.add_thought(args, agent_state)
     }
   end
 
-  local new_node, error_msg, suggestions = agent_state.current_instance:add_thought(parent_id, content, node_type)
+  local new_node, error_msg = agent_state.current_instance:add_thought(parent_id, content, node_type)
 
   if not new_node then
     return { status = 'error', data = error_msg }
@@ -287,15 +248,10 @@ function Actions.add_thought(args, agent_state)
   -- Format the response with suggestions
   local response_data = fmt(
     [[**%s:** %s
-
-**💡 Suggestions:**
-%s
-
 **Node ID:** %s (for adding child thoughts)
 ]],
     string.upper(node_type:sub(1, 1)) .. node_type:sub(2),
     content,
-    table.concat(suggestions, '\n'),
     new_node.id
   )
 
@@ -313,6 +269,11 @@ function Actions.reflect(args, agent_state)
   local reflection_analysis = agent_state.current_instance:reflect()
 
   local output_parts = {}
+
+  -- Add visual representation first
+  local visualization = ReasoningVisualizer.visualize_tree(agent_state.current_instance.root)
+  table.insert(output_parts, visualization)
+  table.insert(output_parts, '')
 
   table.insert(output_parts, '# Tree of Thoughts Reflection')
   table.insert(output_parts, fmt('**Total nodes explored:** %d', reflection_analysis.total_nodes))
@@ -364,9 +325,9 @@ local function handle_action(args)
     return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
   end
 
-  -- Validate required parameters (removed 'initialize' from validation)
   local validation_rules = {
     add_thought = { 'content' },
+    reflect = { 'content' },
   }
 
   local required_fields = validation_rules[args.action] or {}
@@ -419,7 +380,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = 'Explores multiple coding approaches in tree like thinking process. SUGGESTED WORKFLOW: 1) Use project_context for context 2) Try small approach → Evaluate → Use ask_user for feedback → Compare alternatives → Refine → Next experiment → Reflect. Call add_thought to explore first approach, then continue exploring multiple paths. Use reflect to analyze progress and get insights. ALWAYS use companion tools: project_context for context, ask_user for validation, add_tools for enhanced capabilities.',
+      description = 'Explores multiple solution paths in tree like structure for any software engineering problem.\nSUGGESTED WORKFLOW:\n1. Use `project_context` to understand more about the project you will work on\n2) Try small approach → Evaluate → Use ask_user for feedback → Compare alternatives → Refine → Next experiment → Reflect.\nCall add_thought to explore first approach, then continue exploring multiple paths.\nUse `reflect` to analyze progress and get some insights.\nALWAYS use companion tools: `project_context` for context, `ask_user` for validation, `add_tools` for enhanced capabilities (like searching for files, editing code, getting context of code symbols, executing bash commands...). ALWAYS take small but thoughtful and precise steps when using `add_thought` action. ALWAYS try to keep your token usage as low as possible, but without sacrificing quality. ALWAYS try to squize as much of this tool as possible, it is designed to help you with reasoning and thinking about the problem, not just executing commands.\n\nNOTE: This tool is designed to be used in a tree of thoughts workflow. It is not a general-purpose tool and should not be used for other purposes.',
       parameters = {
         type = 'object',
         properties = {
@@ -430,11 +391,11 @@ return {
           },
           content = {
             type = 'string',
-            description = "The thought content to add (required for 'add_thought') or reflection content (optional for 'reflect')",
+            description = "The thought content to add (required for 'add_thought') or reflection content (required for 'reflect'). Make it concise and focused.",
           },
           type = {
             type = 'string',
-            description = "Node type: 'analysis', 'reasoning', 'task', 'validation'",
+            description = "Node type: 'analysis', 'reasoning', 'task', 'validation'.\n'analysis' - Analysis and exploration of the chunk of the problem.\n'reasoning' - Logical deduction and inference base on evidences.\n'task' - Actionable step towards the final goal.\n'validation' - Verification and testing of taken action.\n(required for 'add_thought')",
           },
           parent_id = {
             type = 'string',

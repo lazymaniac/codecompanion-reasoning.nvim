@@ -74,7 +74,7 @@ end
 function ReasoningVisualizer.visualize_chain(chain)
   local lines = {}
 
-  table.insert(lines, fmt('# %s', chain.problem or 'Unknown'))
+  table.insert(lines, '# Chain of Thoughts')
   table.insert(lines, '')
 
   if not chain.steps or #chain.steps == 0 then
@@ -88,14 +88,9 @@ function ReasoningVisualizer.visualize_chain(chain)
     local line_char = is_last and ' ' or BOX_CHARS.unicode.vertical
 
     local content = truncate_content(step.content, CONFIG.max_content_length)
-    local step_info = ''
+    local type_info = step.type and fmt(' [%s]', step.type) or ''
 
-    table.insert(lines, fmt('%s%s Step %d: %s%s', connector, BOX_CHARS.unicode.horizontal, i, content, step_info))
-
-    if step.reasoning then
-      local reasoning = truncate_content(step.reasoning, CONFIG.max_content_length - 10)
-      table.insert(lines, fmt('%s    Reasoning: %s', line_char, reasoning))
-    end
+    table.insert(lines, fmt('%s%s Step %d%s: %s', connector, BOX_CHARS.unicode.horizontal, i, type_info, content))
 
     if i < #chain.steps then
       table.insert(lines, fmt('%s', BOX_CHARS.unicode.vertical))

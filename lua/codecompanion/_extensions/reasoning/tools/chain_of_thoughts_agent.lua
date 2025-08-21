@@ -168,6 +168,11 @@ function Actions.reflect(args, agent_state)
 
   local output_parts = {}
 
+  -- Add visual representation first
+  local visualization = ReasoningVisualizer.visualize_chain(agent_state.current_instance)
+  table.insert(output_parts, visualization)
+  table.insert(output_parts, '')
+
   table.insert(output_parts, 'Reflection Analysis')
   table.insert(output_parts, fmt('Total steps: %d', reflection_analysis.total_steps))
 
@@ -242,7 +247,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = 'Sequential step-by-step coding solver. SUGGESTED WORKFLOW: 1. Use project_context tool to discover project context 2. Call add_step with your first small step 3. Use ask_user for decisions/validation during reasoning if needed 4. Continue building the solution chain step-by-step 5. Call reflect to analyze progress and insights. Take small focused steps: find file → read → change → test. ALWAYS use companion tools: project_context for context, ask_user for decisions, add_tools for capabilities.',
+      description = 'Sequential step-by-step software engineering problem solver.\nSUGGESTED WORKFLOW:\n1. Use `project_context` to understand more about the project you will work on\n2. Call `add_step` with your first small step\n3. Use `ask_user` for decisions/validation during reasoning if needed 4. Continue building the solution step-by-step 5. Call `reflect` to analyze progress and get some insights.\nTake small focused steps: find file → read → change → test.\nALWAYS use companion tools: project_context for context, ask_user for decisions, add_tools for enhanced capabilities (like searching for files, editing code, getting context of code symbols, executing bash commands...). ALWAYS take small but thoughtful and precise steps. ALWAYS try to keep your token usage as low as possible, but without sacrificing quality. ALWAYS try to squize as much of this tool as possible, it is designed to help you with reasoning and thinking about the problem, not just executing commands.\n\nNOTE: This tool is designed to be used in a chain of thoughts workflow. It is not a general-purpose tool and should not be used for other purposes.',
       parameters = {
         type = 'object',
         properties = {
@@ -253,11 +258,11 @@ return {
           },
           content = {
             type = 'string',
-            description = "The reasoning step content or thought (required for 'add_step' and 'reflect')",
+            description = "The reasoning step content or thought (required for 'add_step' and 'reflect'). Make it concise and focused.",
           },
           step_type = {
             type = 'string',
-            description = "Type of reasoning step (required for 'add_step')",
+            description = "Node type: 'analysis', 'reasoning', 'task', 'validation'.\n'analysis' - Analysis and exploration of the chunk of the problem.\n'reasoning' - Logical deduction and inference base on evidences.\n'task' - Actionable step towards the final goal.\n'validation' - Actionable step that verifies current progress (like running test suite, adding new test cases, updating docs if necessary...).\n(required for 'add_thought')",
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },
         },
@@ -274,7 +279,7 @@ return {
       initialize(agent_state)
     end,
     on_exit = function(agent)
-      vim.notify('[Chain of Thoughts Agent] Session ended')
+      log:debug('[Chain of Thoughts Agent] Session ended')
     end,
   },
   output = {

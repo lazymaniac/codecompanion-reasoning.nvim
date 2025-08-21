@@ -17,10 +17,7 @@ local function register_tools()
   for _, tool_name in ipairs(tools) do
     local ok, tool = pcall(require, string.format('codecompanion._extensions.reasoning.tools.%s', tool_name))
     if ok then
-      local actual_name = tool.schema and tool.schema['function'] and tool.schema['function'].name
-        or tool.name
-        or tool_name
-      registered_tools[actual_name] = tool
+      registered_tools[tool_name] = tool
     else
       vim.notify(string.format('Failed to load reasoning tool: %s', tool_name), vim.log.levels.WARN)
     end
