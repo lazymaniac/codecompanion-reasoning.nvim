@@ -166,7 +166,7 @@ function ReasoningVisualizer.visualize_graph(graph)
     return (a.node.created_at or 0) < (b.node.created_at or 0)
   end)
 
-  table.insert(lines, '## Nodes:')
+  table.insert(lines, 'Nodes:')
   for _, entry in ipairs(sorted_nodes) do
     local node = entry.node
     local content = truncate_content(node.content, CONFIG.max_content_length)
@@ -177,7 +177,7 @@ function ReasoningVisualizer.visualize_graph(graph)
 
   -- Show dependencies
   table.insert(lines, '')
-  table.insert(lines, '## Dependencies:')
+  table.insert(lines, 'Dependencies:')
 
   local has_dependencies = false
   for source_id, targets in pairs(graph.edges or {}) do

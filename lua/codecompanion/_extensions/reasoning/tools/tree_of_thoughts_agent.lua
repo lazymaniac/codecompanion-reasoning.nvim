@@ -247,8 +247,8 @@ function Actions.add_thought(args, agent_state)
 
   -- Format the response with suggestions
   local response_data = fmt(
-    [[**%s:** %s
-**Node ID:** %s (for adding child thoughts)
+    [[%s: %s
+Node ID: %s (for adding child thoughts)
 ]],
     string.upper(node_type:sub(1, 1)) .. node_type:sub(2),
     content,
@@ -275,27 +275,27 @@ function Actions.reflect(args, agent_state)
   table.insert(output_parts, visualization)
   table.insert(output_parts, '')
 
-  table.insert(output_parts, '# Tree of Thoughts Reflection')
-  table.insert(output_parts, fmt('**Total nodes explored:** %d', reflection_analysis.total_nodes))
-  table.insert(output_parts, fmt('**Maximum depth:** %d levels', reflection_analysis.max_depth))
-  table.insert(output_parts, fmt('**Active branches:** %d', reflection_analysis.leaf_nodes))
+  table.insert(output_parts, 'Tree of Thoughts Reflection')
+  table.insert(output_parts, fmt('Total nodes explored: %d', reflection_analysis.total_nodes))
+  table.insert(output_parts, fmt('Maximum depth: %d levels', reflection_analysis.max_depth))
+  table.insert(output_parts, fmt('Active branches: %d', reflection_analysis.leaf_nodes))
 
   if #reflection_analysis.insights > 0 then
-    table.insert(output_parts, '\n## Insights:')
+    table.insert(output_parts, '\nInsights:')
     for _, insight in ipairs(reflection_analysis.insights) do
       table.insert(output_parts, fmt('• %s', insight))
     end
   end
 
   if #reflection_analysis.improvements > 0 then
-    table.insert(output_parts, '\n## Suggested Next Steps:')
+    table.insert(output_parts, '\nSuggested Next Steps:')
     for _, improvement in ipairs(reflection_analysis.improvements) do
       table.insert(output_parts, fmt('• %s', improvement))
     end
   end
 
   if args.content and args.content ~= '' then
-    table.insert(output_parts, fmt('\n## Your Reflection:\n%s', args.content))
+    table.insert(output_parts, fmt('\nYour Reflection:\n%s', args.content))
   end
 
   return {
@@ -380,22 +380,46 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = 'Explores multiple solution paths in tree like structure for any software engineering problem.\nSUGGESTED WORKFLOW:\n1. Use `project_context` to understand more about the project you will work on\n2) Try small approach → Evaluate → Use ask_user for feedback → Compare alternatives → Refine → Next experiment → Reflect.\nCall add_thought to explore first approach, then continue exploring multiple paths.\nUse `reflect` to analyze progress and get some insights.\nALWAYS use companion tools: `project_context` for context, `ask_user` for validation, `add_tools` for enhanced capabilities (like searching for files, editing code, getting context of code symbols, executing bash commands...). ALWAYS take small but thoughtful and precise steps when using `add_thought` action. ALWAYS try to keep your token usage as low as possible, but without sacrificing quality. ALWAYS try to squize as much of this tool as possible, it is designed to help you with reasoning and thinking about the problem, not just executing commands.\n\nNOTE: This tool is designed to be used in a tree of thoughts workflow. It is not a general-purpose tool and should not be used for other purposes.',
+      description = [[Explores multiple reasoning paths towards the final goal in tree like structure for any software engineering problem.
+
+SUGGESTED WORKFLOW:
+1. Use `project_context` to understand more about the project you will work on
+2. Call `add_thought` to explore first chunk of the solution approach, then continue exploring multiple paths.
+3. Use `ask_user` for decisions/validation during reasoning if needed
+4. Continue building the solution, each time by small step-by-step
+5. Call `reflect` to analyze progress and get some insights.
+
+ALWAYS use companion tools:
+ - `project_context` to get information about project like styling, testing, code structure etc.
+ - `ask_user` for decisions, user help and opinions
+ - `add_tools` for enhanced capabilities (like tools designed for looking for files, editing code, getting context of code symbols, executing bash commands to run tests...).
+ALWAYS take small but thoughtful and precise steps to maintain highest quality of produced solution.
+ALWAYS try to keep your token usage as low as possible BUT without sacrificing quality.
+ALWAYS try to squeeze as much of this tool as possible, it is designed to help you with reasoning, deduction, logical thinking, reflection and actually solving the problem in a best possible way without shortcuts or any guesses.
+]],
       parameters = {
         type = 'object',
         properties = {
           action = {
             type = 'string',
-            description = "The tree action to perform: 'add_thought', 'reflect'",
+            description = 'The tree action to perform: `add_thought`, `reflect`',
             enum = { 'add_thought', 'reflect' },
           },
           content = {
             type = 'string',
-            description = "The thought content to add (required for 'add_thought') or reflection content (required for 'reflect'). Make it concise and focused.",
+            description = 'The thought content to add (required for `add_thought`) or reflection content (required for `reflect`). Make it concise and focused.',
           },
           type = {
             type = 'string',
-            description = "Node type: 'analysis', 'reasoning', 'task', 'validation'.\n'analysis' - Analysis and exploration of the chunk of the problem.\n'reasoning' - Logical deduction and inference base on evidences.\n'task' - Actionable step towards the final goal.\n'validation' - Verification and testing of taken action.\n(required for 'add_thought')",
+            description = [[Thought type: `analysis`, `reasoning`, `task`, `validation` (required for `add_thought`).
+
+Instructions:
+'analysis' - Analysis and exploration of the chunk of the problem.
+'reasoning' - Logical deduction and inference based on evidence.
+'task' - Small actionable step towards the final goal.
+'validation' - Actionable step that actually verifies current progress (like running test suite or removing, edititng or adding new test cases...)
+]],
+            enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },
           parent_id = {
             type = 'string',

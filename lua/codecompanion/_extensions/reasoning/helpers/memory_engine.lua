@@ -177,13 +177,13 @@ function MemoryEngine.format_context_summary(context_files)
   local output = {}
 
   -- Header
-  table.insert(output, fmt('🧠 **Project Context Loaded** (%d files)', #context_files))
+  table.insert(output, fmt('🧠 Project Context Loaded (%d files)', #context_files))
   table.insert(output, '')
 
   -- Context files summary
   for i, file_info in ipairs(context_files) do
     local size_info = file_info.size and fmt(' (%d bytes)', file_info.size) or ''
-    table.insert(output, fmt('**%d. %s** (%s)%s', i, file_info.relative_path, file_info.source, size_info))
+    table.insert(output, fmt('%d. %s (%s)%s', i, file_info.relative_path, file_info.source, size_info))
 
     if file_info.content then
       -- Show first few lines as preview
@@ -249,12 +249,12 @@ function MemoryEngine.get_system_context(start_path)
     local content, error = MemoryEngine.read_context_file(file_info)
 
     if content then
-      table.insert(system_parts, fmt('## %s (%s)', file_info.relative_path, file_info.source))
+      table.insert(system_parts, fmt('%s (%s)', file_info.relative_path, file_info.source))
       table.insert(system_parts, '')
       table.insert(system_parts, content)
       table.insert(system_parts, '')
     else
-      table.insert(system_parts, fmt('## %s (%s) - Error', file_info.relative_path, file_info.source))
+      table.insert(system_parts, fmt('%s (%s) - Error', file_info.relative_path, file_info.source))
       table.insert(system_parts, fmt('Could not read file: %s', error or 'unknown error'))
       table.insert(system_parts, '')
     end
@@ -507,7 +507,7 @@ function MemoryEngine.get_enhanced_context(start_path)
 
     local file_count = vim.tbl_count(memory.file_knowledge)
     if file_count > 0 then
-      table.insert(context_parts, fmt('**File Knowledge:** %d files with stored insights', file_count))
+      table.insert(context_parts, fmt('File Knowledge: %d files with stored insights', file_count))
 
       local files_by_access = {}
       for path, knowledge in pairs(memory.file_knowledge) do
@@ -527,7 +527,7 @@ function MemoryEngine.get_enhanced_context(start_path)
     -- User preferences (limit to 3 most recent)
     local pref_count = vim.tbl_count(memory.user_preferences)
     if pref_count > 0 then
-      table.insert(context_parts, fmt('**User Preferences:** %d stored', pref_count))
+      table.insert(context_parts, fmt('User Preferences: %d stored', pref_count))
       local pref_list = {}
       for key, pref in pairs(memory.user_preferences) do
         table.insert(pref_list, { key = key, value = pref.value, updated = pref.updated or 0 })

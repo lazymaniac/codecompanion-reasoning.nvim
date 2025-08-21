@@ -295,7 +295,6 @@ return {
     ---@param cmd table The command that was executed
     ---@param stdout table The output from the command
     success = function(self, agent, cmd, stdout)
-      vim.notify(vim.inspect(cmd), vim.log.levels.DEBUG, { title = '[Add Tools] Command Output' })
       local chat = agent.chat
       local result = vim.iter(stdout):flatten():join('\n')
 
