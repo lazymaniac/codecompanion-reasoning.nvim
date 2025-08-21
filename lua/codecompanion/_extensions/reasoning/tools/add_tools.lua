@@ -167,18 +167,18 @@ local function list_tools()
     local tool_info = tool.info
 
     local trimmed_description = extract_first_sentence(tool_info.description)
-    table.insert(output, fmt('- **%s:** %s', tool_name, trimmed_description))
+    table.insert(output, fmt('- %s: %s', tool_name, trimmed_description))
   end
 
   table.insert(output, '')
   table.insert(output, '---')
   table.insert(
     output,
-    '**NEXT STEP: After reviewing this list, immediately call add_tools with action="add_tool" to add the tools you need!**'
+    'NEXT STEP: After reviewing this list, immediately call add_tools with action="add_tool" to add the tools you need!'
   )
   table.insert(
     output,
-    '**Example:** Call add_tools with action="add_tool" and tool_name="insert_edit_into_file" to add file editing capability'
+    'Example: Call add_tools with action="add_tool" and tool_name="insert_edit_into_file" to add file editing capability'
   )
 
   return table.concat(output, '\n')

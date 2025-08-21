@@ -74,7 +74,7 @@ end
 function ReasoningVisualizer.visualize_chain(chain)
   local lines = {}
 
-  table.insert(lines, '# Chain of Thoughts')
+  table.insert(lines, 'Chain of Thoughts')
   table.insert(lines, '')
 
   if not chain.steps or #chain.steps == 0 then
@@ -106,7 +106,7 @@ end
 function ReasoningVisualizer.visualize_tree(root_node)
   local lines = {}
 
-  table.insert(lines, '# Tree of Thoughts')
+  table.insert(lines, 'Tree of Thoughts')
   table.insert(lines, '')
 
   ---Recursively build tree visualization
@@ -149,7 +149,7 @@ end
 function ReasoningVisualizer.visualize_graph(graph)
   local lines = {}
 
-  table.insert(lines, '# Graph of Thoughts')
+  table.insert(lines, 'Graph of Thoughts')
   table.insert(lines, '')
 
   if not graph.nodes or vim.tbl_count(graph.nodes) == 0 then

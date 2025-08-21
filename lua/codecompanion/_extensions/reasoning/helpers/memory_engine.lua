@@ -240,7 +240,7 @@ function MemoryEngine.get_system_context(start_path)
   end
 
   local system_parts = {}
-  table.insert(system_parts, '# PROJECT CONTEXT')
+  table.insert(system_parts, 'PROJECT CONTEXT')
   table.insert(system_parts, '')
   table.insert(system_parts, 'The following project context has been automatically discovered:')
   table.insert(system_parts, '')
@@ -482,7 +482,7 @@ function MemoryEngine.get_lightweight_context(start_path)
     content = content:sub(1, 2000) .. '\n[...truncated for token efficiency]'
   end
 
-  return fmt('# PROJECT CONTEXT\n\n%s', content)
+  return fmt('PROJECT CONTEXT\n\n%s', content)
 end
 
 ---Get enhanced context with memory insights (full version)
@@ -502,7 +502,7 @@ function MemoryEngine.get_enhanced_context(start_path)
   local has_memory = vim.tbl_count(memory.file_knowledge) > 0 or vim.tbl_count(memory.user_preferences) > 0
 
   if has_memory then
-    table.insert(context_parts, '# PROJECT MEMORY INSIGHTS')
+    table.insert(context_parts, 'PROJECT MEMORY INSIGHTS')
     table.insert(context_parts, '')
 
     local file_count = vim.tbl_count(memory.file_knowledge)
