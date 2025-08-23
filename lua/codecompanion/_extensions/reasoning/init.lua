@@ -31,6 +31,32 @@ function ReasoningExtension.setup(opts)
 
   local reasoning_tools = register_tools()
 
+  -- Initialize chat hooks for auto-save functionality
+  local chat_hooks_ok, chat_hooks = pcall(require, 'codecompanion._extensions.reasoning.helpers.chat_hooks')
+  if chat_hooks_ok then
+    chat_hooks.setup(opts.chat_history or { auto_save = true })
+  end
+
+  -- Initialize session manager with configuration
+  local session_manager_ok, session_manager =
+    pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
+  if session_manager_ok and opts.chat_history then
+    session_manager.setup({
+      sessions_dir = opts.chat_history.sessions_dir,
+      max_sessions = opts.chat_history.max_sessions,
+      auto_save = opts.chat_history.auto_save,
+      auto_load_last_session = opts.chat_history.auto_load_last_session,
+    })
+  end
+
+  -- Setup user commands if enabled
+  if opts.chat_history and opts.chat_history.enable_commands ~= false then
+    local commands_ok, commands = pcall(require, 'codecompanion._extensions.reasoning.commands')
+    if commands_ok then
+      commands.setup()
+    end
+  end
+
   local config_ok, config = pcall(require, 'codecompanion.config')
   if not config_ok then
     return {

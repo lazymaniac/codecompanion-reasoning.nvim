@@ -148,7 +148,7 @@ local function list_tools()
   end
 
   -- First line contains the most important summary
-  table.insert(output, fmt('✅ Found %d tools', total_count))
+  table.insert(output, fmt('Found %d tools', total_count))
   table.insert(output, '')
   table.insert(output, 'Available Tools:')
   table.insert(output, '')
@@ -309,11 +309,11 @@ return {
         if tool_config and chat.tool_registry then
           chat.tool_registry:add(tool_name, tool_config)
 
-          local success_message = fmt('✅ %s ready to use!', tool_name)
+          local success_message = fmt('%s ready to use!', tool_name)
 
           chat:add_tool_output(self, success_message, success_message)
         else
-          chat:add_tool_output(self, fmt('❌ FAILED to add tool: %s (tool config or registry unavailable)', tool_name))
+          chat:add_tool_output(self, fmt('FAILED to add tool: %s (tool config or registry unavailable)', tool_name))
         end
       else
         log:debug('[Add Tools] Success output generated, length: %d', #result)
@@ -329,7 +329,7 @@ return {
       local chat = agent.chat
       local errors = vim.iter(stderr):flatten():join('\n')
       log:debug('[Add Tools] Error occurred: %s', errors)
-      chat:add_tool_output(self, fmt('❌ Add Tools ERROR: %s', errors))
+      chat:add_tool_output(self, fmt('Add Tools ERROR: %s', errors))
     end,
   },
 }

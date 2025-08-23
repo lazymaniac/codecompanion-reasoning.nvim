@@ -100,25 +100,25 @@ local function handle_memory_action(args)
     local context_summary, context_files = MemoryEngine.load_project_context()
     return {
       status = 'success',
-      data = fmt('🔍 DISCOVERED: %d AI context files\n\n%s', #context_files, context_summary)
+      data = fmt('🔍 DISCOVERED: %d AI context files\n\n%s', #context_files, context_summary),
     }
   elseif args.action == 'get_enhanced_context' then
     local enhanced_context = MemoryEngine.get_enhanced_context()
     if enhanced_context then
       return {
         status = 'success',
-        data = fmt('🧠 ENHANCED CONTEXT:\n\n%s', enhanced_context)
+        data = fmt('🧠 ENHANCED CONTEXT:\n\n%s', enhanced_context),
       }
     else
       return {
         status = 'success',
-        data = '📭 No enhanced context available'
+        data = '📭 No enhanced context available',
       }
     end
   else
     return {
       status = 'error',
-      data = fmt('❌ ERROR: Unknown action "%s"', args.action or 'nil')
+      data = fmt('❌ ERROR: Unknown action "%s"', args.action or 'nil'),
     }
   end
 end

@@ -343,4 +343,3 @@ T['different node types are handled correctly'] = function()
 end
 
 return T
-

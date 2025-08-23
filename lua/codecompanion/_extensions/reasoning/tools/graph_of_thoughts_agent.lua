@@ -360,12 +360,12 @@ ALWAYS try to squeeze as much of this tool as possible, it is designed to help y
         properties = {
           action = {
             type = 'string',
-            description = "The graph action to perform: `add_node`, `reflect`",
+            description = 'The graph action to perform: `add_node`, `reflect`',
             enum = { 'add_node', 'reflect' },
           },
           content = {
             type = 'string',
-            description = "The node content to add (required for `add_node`) or reflection content (required for `reflect`). Make it concise, focused and thoughtful.",
+            description = 'The node content to add (required for `add_node`) or reflection content (required for `reflect`). Make it concise, focused and thoughtful.',
           },
           node_type = {
             type = 'string',
