@@ -1,149 +1,277 @@
 ---@class CodeCompanion.UI.SessionPicker
----Interactive session picker UI for selecting and resuming chat sessions
+---Modern split-pane session picker UI for selecting and resuming chat sessions
 local SessionPicker = {}
 
 local fmt = string.format
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
--- UI Configuration
+-- Modern UI Configuration
 local UI_CONFIG = {
   colors = {
+    -- Main interface colors
     border = 'FloatBorder',
-    title = 'FloatTitle',
-    header = 'Function',
-    session_title = 'String',
-    session_meta = 'Comment',
-    session_preview = 'Normal',
-    selected = 'CursorLine',
-    selected_border = 'CursorLineBg',
-    empty_state = 'Comment',
-    action_key = 'Special',
-    action_text = 'Normal',
+    border_focus = 'DiagnosticInfo',
+    title = 'Title',
+    subtitle = 'DiagnosticHint',
+
+    -- List pane colors
+    list_header = '@text.title',
+    list_item = 'Normal',
+    list_selected = 'CursorLine',
+    list_selected_text = 'CursorLineNr',
+    list_meta = '@text.note',
+    list_date = '@string.special',
+    list_model = '@type',
+
+    -- Preview pane colors
+    preview_header = '@text.title',
+    preview_label = '@property',
+    preview_value = '@string',
+    preview_content = 'Normal',
+    preview_message_user = '@text.emphasis',
+    preview_message_assistant = '@text.strong',
+    preview_separator = '@punctuation.delimiter',
+
+    -- Status and accents
+    accent_primary = 'DiagnosticInfo',
+    accent_secondary = '@constant',
+    empty_state = '@text.note',
+    action_key = '@keyword',
+    action_desc = '@text',
   },
+
   icons = {
-    chat = '💬',
-    calendar = '📅',
-    model = '🤖',
-    messages = '📝',
-    size = '📊',
-    empty = '📭',
-    arrow = '▸',
-    selected_arrow = '▶',
+    -- Modern minimalist icons
+    session = '●',
+    selected = '▸',
+    calendar = '',
+    model = '',
+    messages = '',
+    size = '',
+    user = '',
+    assistant = '🤖',
+    empty = '∅',
+    preview = '▶',
+    separator = '│',
   },
-  border_style = 'rounded',
-  max_width_ratio = 0.8,
-  max_height_ratio = 0.8,
-  min_width = 60,
-  min_height = 10,
+
+  layout = {
+    border_style = 'rounded',
+    list_width_ratio = 0.4,
+    preview_width_ratio = 0.6,
+    max_width_ratio = 0.9,
+    max_height_ratio = 0.85,
+    min_width = 100,
+    min_height = 20,
+    padding = 1,
+  },
+
+  typography = {
+    list_indent = '  ',
+    preview_indent = '    ',
+    section_spacing = 2,
+  },
 }
 
--- Format session metadata for display
+-- Format session entry for the list pane (clean, minimal design)
 ---@param session table Session info object
+---@param index number Session index
+---@param is_selected boolean Whether this session is selected
 ---@return string[] lines, table[] highlights
-local function format_session_entry(session, index, is_selected)
+local function format_session_list_entry(session, index, is_selected)
   local lines = {}
   local highlights = {}
-  local current_line = 0
 
-  local prefix = is_selected and UI_CONFIG.icons.selected_arrow or UI_CONFIG.icons.arrow
-  local session_line = fmt(' %s [%d] %s', prefix, index, session.created_at)
-  table.insert(lines, session_line)
+  local indent = UI_CONFIG.typography.list_indent
+  local prefix = is_selected and UI_CONFIG.icons.selected or UI_CONFIG.icons.session
 
-  -- Highlight the prefix
+  -- Main session line: "▸ Session 1"
+  local session_title = fmt('%s%s Session %d', indent, prefix, index)
+  table.insert(lines, session_title)
+
+  -- Highlight prefix
   table.insert(highlights, {
-    line = current_line,
-    col = 1,
-    end_col = 3,
-    group = is_selected and UI_CONFIG.colors.selected or UI_CONFIG.colors.action_key,
+    line = 0,
+    col = #indent,
+    end_col = #indent + #prefix,
+    group = is_selected and UI_CONFIG.colors.accent_primary or UI_CONFIG.colors.list_item,
   })
 
-  -- Highlight the session title
+  -- Highlight session title
   table.insert(highlights, {
-    line = current_line,
-    col = #fmt(' %s [%d] ', prefix, index) + 1,
+    line = 0,
+    col = #indent + #prefix + 1,
     end_col = -1,
-    group = is_selected and UI_CONFIG.colors.selected or UI_CONFIG.colors.session_title,
+    group = is_selected and UI_CONFIG.colors.list_selected_text or UI_CONFIG.colors.list_item,
   })
-  current_line = current_line + 1
 
-  -- Session metadata line
-  local meta_line = fmt(
-    '    %s %s  %s %d msgs  %s %s',
+  -- Date line (more compact)
+  local date_parts = vim.split(session.created_at or '', ' ')
+  local date_display = #date_parts >= 2 and (date_parts[1] .. ' ' .. date_parts[2]) or session.created_at
+  local date_line = fmt('%s%s %s', indent, UI_CONFIG.icons.calendar, date_display)
+  table.insert(lines, date_line)
+  table.insert(highlights, {
+    line = 1,
+    col = 0,
+    end_col = -1,
+    group = is_selected and UI_CONFIG.colors.list_selected or UI_CONFIG.colors.list_date,
+  })
+
+  -- Model and message count (compact)
+  local stats_line = fmt(
+    '%s%s %s  %s %d',
+    indent,
     UI_CONFIG.icons.model,
     session.model,
     UI_CONFIG.icons.messages,
-    session.total_messages,
-    UI_CONFIG.icons.size,
-    vim.fn.fnamemodify(tostring(session.file_size), ':.')
+    session.total_messages
   )
-  table.insert(lines, meta_line)
+  table.insert(lines, stats_line)
   table.insert(highlights, {
-    line = current_line,
+    line = 2,
     col = 0,
     end_col = -1,
-    group = is_selected and UI_CONFIG.colors.selected or UI_CONFIG.colors.session_meta,
+    group = is_selected and UI_CONFIG.colors.list_selected or UI_CONFIG.colors.list_meta,
   })
-  current_line = current_line + 1
-
-  -- Preview line
-  if session.preview and session.preview ~= '' then
-    local preview_line = fmt('    "%s"', session.preview)
-    table.insert(lines, preview_line)
-    table.insert(highlights, {
-      line = current_line,
-      col = 0,
-      end_col = -1,
-      group = is_selected and UI_CONFIG.colors.selected or UI_CONFIG.colors.session_preview,
-    })
-    current_line = current_line + 1
-  end
-
-  -- Add spacing between entries
-  table.insert(lines, '')
-  current_line = current_line + 1
 
   return lines, highlights
 end
 
--- Build content for the session picker
+-- Build detailed preview for the right pane
+---@param session table Session info object
+---@return string[] lines, table[] highlights
+local function build_session_preview(session)
+  if not session then
+    return { '  No session selected' }, { { line = 0, col = 0, end_col = -1, group = UI_CONFIG.colors.empty_state } }
+  end
+
+  local lines = {}
+  local highlights = {}
+  local line_num = 0
+
+  local function add_line(text, hl_group)
+    table.insert(lines, text)
+    if hl_group then
+      table.insert(highlights, {
+        line = line_num,
+        col = 0,
+        end_col = -1,
+        group = hl_group,
+      })
+    end
+    line_num = line_num + 1
+  end
+
+  local function add_header(text)
+    add_line('', nil)
+    add_line('  ' .. text, UI_CONFIG.colors.preview_header)
+    add_line('  ' .. string.rep('─', #text), UI_CONFIG.colors.preview_separator)
+    line_num = line_num + 1
+  end
+
+  local function add_field(label, value, value_hl)
+    local field_line = fmt('    %s: %s', label, value)
+    table.insert(lines, field_line)
+    -- Label highlight
+    table.insert(highlights, {
+      line = line_num,
+      col = 4,
+      end_col = 4 + #label,
+      group = UI_CONFIG.colors.preview_label,
+    })
+    -- Value highlight
+    table.insert(highlights, {
+      line = line_num,
+      col = 4 + #label + 2,
+      end_col = -1,
+      group = value_hl or UI_CONFIG.colors.preview_value,
+    })
+    line_num = line_num + 1
+  end
+
+  -- Session Overview
+  add_header('Session Overview')
+  add_field('Created', session.created_at or 'Unknown', UI_CONFIG.colors.list_date)
+  add_field('Model', session.model or 'Unknown', UI_CONFIG.colors.list_model)
+  add_field('Messages', tostring(session.total_messages or 0), UI_CONFIG.colors.accent_secondary)
+  add_field('File Size', vim.fn.fnamemodify(tostring(session.file_size or 0), ':.'), UI_CONFIG.colors.list_meta)
+
+  -- Session Preview
+  if session.preview and session.preview ~= '' then
+    add_header('Session Preview')
+    local preview_text = session.preview:gsub('\n', ' ')
+    if #preview_text > 200 then
+      preview_text = preview_text:sub(1, 197) .. '...'
+    end
+    local wrapped_lines = {}
+    local max_width = 50
+    local words = vim.split(preview_text, ' ')
+    local current_line = '    '
+
+    for _, word in ipairs(words) do
+      if #current_line + #word + 1 > max_width then
+        table.insert(wrapped_lines, current_line)
+        current_line = '    ' .. word
+      else
+        current_line = current_line .. ' ' .. word
+      end
+    end
+    if current_line ~= '    ' then
+      table.insert(wrapped_lines, current_line)
+    end
+
+    for _, line in ipairs(wrapped_lines) do
+      add_line(line, UI_CONFIG.colors.preview_content)
+    end
+  end
+
+  -- Quick Actions
+  add_header('Quick Actions')
+  add_line('    Enter  Resume session', UI_CONFIG.colors.action_desc)
+  add_line('    d      Delete session', UI_CONFIG.colors.action_desc)
+  add_line('    Esc    Cancel', UI_CONFIG.colors.action_desc)
+
+  return lines, highlights
+end
+
+-- Build content for the session list pane (left side)
 ---@param sessions table[] List of session info objects
 ---@param selected_index number Currently selected session index
 ---@return string[] lines, table[] highlights
-local function build_session_picker_content(sessions, selected_index)
+local function build_session_list_content(sessions, selected_index)
   local lines = {}
   local highlights = {}
   local line_offset = 0
 
   -- Header
   table.insert(lines, '')
-  table.insert(lines, fmt('  %s Chat Session History', UI_CONFIG.icons.chat))
+  table.insert(lines, '  Sessions')
   table.insert(highlights, {
     line = line_offset + 1,
     col = 2,
     end_col = -1,
-    group = UI_CONFIG.colors.header,
+    group = UI_CONFIG.colors.list_header,
   })
-  table.insert(lines, '')
-  table.insert(lines, '  Select a session to resume:')
+  table.insert(lines, '  ' .. string.rep('─', 15))
   table.insert(highlights, {
-    line = line_offset + 3,
+    line = line_offset + 2,
     col = 2,
     end_col = -1,
-    group = UI_CONFIG.colors.session_meta,
+    group = UI_CONFIG.colors.preview_separator,
   })
   table.insert(lines, '')
   line_offset = #lines
 
   if #sessions == 0 then
     -- Empty state
-    table.insert(lines, fmt('  %s No chat sessions found', UI_CONFIG.icons.empty))
+    table.insert(lines, fmt('  %s No sessions found', UI_CONFIG.icons.empty))
     table.insert(highlights, {
       line = line_offset,
       col = 2,
       end_col = -1,
       group = UI_CONFIG.colors.empty_state,
     })
-    table.insert(lines, '  Start a new conversation to create your first session!')
+    table.insert(lines, '  Start a conversation first!')
     table.insert(highlights, {
       line = line_offset + 1,
       col = 2,
@@ -154,7 +282,19 @@ local function build_session_picker_content(sessions, selected_index)
     -- Session list
     for i, session in ipairs(sessions) do
       local is_selected = (i == selected_index)
-      local session_lines, session_highlights = format_session_entry(session, i, is_selected)
+      local session_lines, session_highlights = format_session_list_entry(session, i, is_selected)
+
+      -- Apply selection background
+      if is_selected then
+        for j = 0, #session_lines - 1 do
+          table.insert(highlights, {
+            line = line_offset + j,
+            col = 0,
+            end_col = -1,
+            group = UI_CONFIG.colors.list_selected,
+          })
+        end
+      end
 
       -- Adjust highlight line numbers to account for offset
       for _, highlight in ipairs(session_highlights) do
@@ -163,73 +303,45 @@ local function build_session_picker_content(sessions, selected_index)
       end
 
       vim.list_extend(lines, session_lines)
+      table.insert(lines, '') -- spacing between sessions
       line_offset = #lines
     end
-  end
-
-  -- Instructions
-  table.insert(lines, '')
-  table.insert(lines, '  Controls:')
-  table.insert(highlights, {
-    line = #lines - 1,
-    col = 2,
-    end_col = -1,
-    group = UI_CONFIG.colors.header,
-  })
-
-  local instructions = {
-    '  ↑/↓ or j/k - Navigate sessions',
-    '  Enter - Resume selected session',
-    '  d - Delete selected session',
-    '  Esc - Cancel',
-  }
-
-  for _, instruction in ipairs(instructions) do
-    table.insert(lines, instruction)
-    table.insert(highlights, {
-      line = #lines - 1,
-      col = 2,
-      end_col = -1,
-      group = UI_CONFIG.colors.action_text,
-    })
   end
 
   return lines, highlights
 end
 
--- Calculate optimal dimensions for session picker
+-- Calculate optimal dimensions for the split-pane layout
 ---@param sessions table[] List of sessions
----@return number width, number height
+---@return table dimensions Layout dimensions
 local function calculate_picker_dimensions(sessions)
-  local base_height = 10 -- Header + instructions
-  local session_height = math.min(#sessions * 4, 20) -- Max 5 sessions visible (4 lines each)
-  local total_height = base_height + session_height
+  local max_width = math.floor(vim.o.columns * UI_CONFIG.layout.max_width_ratio)
+  local max_height = math.floor(vim.o.lines * UI_CONFIG.layout.max_height_ratio)
 
-  local max_width = math.floor(vim.o.columns * UI_CONFIG.max_width_ratio)
-  local max_height = math.floor(vim.o.lines * UI_CONFIG.max_height_ratio)
+  local total_width = math.max(UI_CONFIG.layout.min_width, math.min(max_width, 120))
+  local total_height = math.max(UI_CONFIG.layout.min_height, math.min(max_height, 35))
 
-  local width = math.max(UI_CONFIG.min_width, math.min(max_width, 80))
-  local height = math.max(UI_CONFIG.min_height, math.min(max_height, total_height))
+  local list_width = math.floor(total_width * UI_CONFIG.layout.list_width_ratio) - 1
+  local preview_width = total_width - list_width - 1 -- -1 for separator
 
-  return width, height
+  return {
+    total_width = total_width,
+    total_height = total_height,
+    list_width = list_width,
+    preview_width = preview_width,
+    col = math.floor((vim.o.columns - total_width) / 2),
+    row = math.floor((vim.o.lines - total_height) / 2),
+  }
 end
 
--- Create session picker window
----@param lines string[] Content lines
+-- Create and apply highlights to a buffer
+---@param buf number Buffer handle
 ---@param highlights table[] Highlight definitions
----@param width number Window width
----@param height number Window height
----@return number buf, number win
-local function create_session_picker_window(lines, highlights, width, height)
-  -- Create buffer
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].bufhidden = 'wipe'
-  vim.bo[buf].filetype = 'codecompanion-sessions'
-  vim.bo[buf].modifiable = false
+---@param namespace_suffix string Namespace suffix
+local function apply_highlights(buf, highlights, namespace_suffix)
+  local ns_id = vim.api.nvim_create_namespace('session_picker_' .. namespace_suffix)
+  vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 
-  -- Apply highlights
-  local ns_id = vim.api.nvim_create_namespace('session_picker')
   for _, hl in ipairs(highlights) do
     local line_count = vim.api.nvim_buf_line_count(buf)
     if hl.line >= 0 and hl.line < line_count then
@@ -237,10 +349,10 @@ local function create_session_picker_window(lines, highlights, width, height)
       local line_len = #line_content
 
       if line_len > 0 then
-        local start_col = math.min(hl.col, line_len - 1)
+        local start_col = math.max(0, math.min(hl.col, line_len))
         local end_col = hl.end_col == -1 and line_len or math.min(hl.end_col, line_len)
 
-        if start_col >= 0 and end_col > start_col then
+        if start_col < end_col then
           vim.api.nvim_buf_set_extmark(buf, ns_id, hl.line, start_col, {
             end_col = end_col,
             hl_group = hl.group,
@@ -250,82 +362,114 @@ local function create_session_picker_window(lines, highlights, width, height)
       end
     end
   end
+end
 
-  -- Create window
-  local win_opts = {
+-- Create the modern split-pane session picker windows
+---@param sessions table[] Available sessions
+---@param selected_index number Currently selected index
+---@param dims table Layout dimensions
+---@return table windows Window handles and buffers
+local function create_session_picker_windows(sessions, selected_index, dims)
+  -- Create list pane (left side)
+  local list_buf = vim.api.nvim_create_buf(false, true)
+  local list_lines, list_highlights = build_session_list_content(sessions, selected_index)
+  vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, list_lines)
+  vim.bo[list_buf].bufhidden = 'wipe'
+  vim.bo[list_buf].filetype = 'codecompanion-sessions-list'
+  vim.bo[list_buf].modifiable = false
+
+  apply_highlights(list_buf, list_highlights, 'list')
+
+  local list_win_opts = {
     relative = 'editor',
-    width = width,
-    height = height,
-    col = math.floor((vim.o.columns - width) / 2),
-    row = math.floor((vim.o.lines - height) / 2),
+    width = dims.list_width,
+    height = dims.total_height,
+    col = dims.col,
+    row = dims.row,
     style = 'minimal',
-    border = UI_CONFIG.border_style,
-    title = fmt(' %s Session History %s ', UI_CONFIG.icons.chat, UI_CONFIG.icons.calendar),
-    title_pos = 'center',
+    border = UI_CONFIG.layout.border_style,
+    title = ' Sessions ',
+    title_pos = 'left',
     zindex = 100,
   }
 
-  local win = vim.api.nvim_open_win(buf, true, win_opts)
-  vim.wo[win].winhl = 'FloatBorder:' .. UI_CONFIG.colors.border
-  vim.wo[win].cursorline = true
+  local list_win = vim.api.nvim_open_win(list_buf, true, list_win_opts)
+  vim.wo[list_win].winhl = 'FloatBorder:' .. UI_CONFIG.colors.border_focus
+  vim.wo[list_win].cursorline = false
 
-  return buf, win
+  -- Create preview pane (right side)
+  local preview_buf = vim.api.nvim_create_buf(false, true)
+  local selected_session = sessions[selected_index]
+  local preview_lines, preview_highlights = build_session_preview(selected_session)
+  vim.api.nvim_buf_set_lines(preview_buf, 0, -1, false, preview_lines)
+  vim.bo[preview_buf].bufhidden = 'wipe'
+  vim.bo[preview_buf].filetype = 'codecompanion-sessions-preview'
+  vim.bo[preview_buf].modifiable = false
+
+  apply_highlights(preview_buf, preview_highlights, 'preview')
+
+  local preview_win_opts = {
+    relative = 'editor',
+    width = dims.preview_width,
+    height = dims.total_height,
+    col = dims.col + dims.list_width + 1,
+    row = dims.row,
+    style = 'minimal',
+    border = UI_CONFIG.layout.border_style,
+    title = ' Preview ',
+    title_pos = 'left',
+    zindex = 100,
+  }
+
+  local preview_win = vim.api.nvim_open_win(preview_buf, false, preview_win_opts)
+  vim.wo[preview_win].winhl = 'FloatBorder:' .. UI_CONFIG.colors.border
+
+  return {
+    list = { buf = list_buf, win = list_win },
+    preview = { buf = preview_buf, win = preview_win },
+  }
 end
 
--- Set up key mappings for session picker
----@param buf number Buffer handle
+-- Set up key mappings for the modern split-pane picker
+---@param windows table Window handles
 ---@param sessions table[] Available sessions
----@param selected_index number Currently selected index
+---@param selected_index number Initially selected index
 ---@param callback function Selection callback
-local function setup_picker_mappings(buf, sessions, selected_index, callback)
+local function setup_picker_mappings(windows, sessions, selected_index, callback)
   local current_selection = selected_index
+  local list_buf = windows.list.buf
+  local preview_buf = windows.preview.buf
 
   local function update_display()
-    local lines, highlights = build_session_picker_content(sessions, current_selection)
-    vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
+    -- Update list pane
+    local list_lines, list_highlights = build_session_list_content(sessions, current_selection)
+    vim.bo[list_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, list_lines)
+    vim.bo[list_buf].modifiable = false
+    apply_highlights(list_buf, list_highlights, 'list')
 
-    -- Reapply highlights
-    local ns_id = vim.api.nvim_create_namespace('session_picker')
-    vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
-    for _, hl in ipairs(highlights) do
-      local line_count = vim.api.nvim_buf_line_count(buf)
-      if hl.line >= 0 and hl.line < line_count then
-        local line_content = vim.api.nvim_buf_get_lines(buf, hl.line, hl.line + 1, false)[1] or ''
-        local line_len = #line_content
-
-        if line_len > 0 then
-          local start_col = math.min(hl.col, line_len - 1)
-          local end_col = hl.end_col == -1 and line_len or math.min(hl.end_col, line_len)
-
-          if start_col >= 0 and end_col > start_col then
-            vim.api.nvim_buf_set_extmark(buf, ns_id, hl.line, start_col, {
-              end_col = end_col,
-              hl_group = hl.group,
-              strict = false,
-            })
-          end
-        end
-      end
-    end
+    -- Update preview pane
+    local selected_session = sessions[current_selection]
+    local preview_lines, preview_highlights = build_session_preview(selected_session)
+    vim.bo[preview_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(preview_buf, 0, -1, false, preview_lines)
+    vim.bo[preview_buf].modifiable = false
+    apply_highlights(preview_buf, preview_highlights, 'preview')
   end
 
-  -- Navigation keys
+  -- Navigation keys (only for list buffer)
   local navigation_keys = {
     { 'n', '<Up>' },
     { 'n', 'k' },
-    { 'i', '<Up>' },
     { 'n', '<Down>' },
     { 'n', 'j' },
-    { 'i', '<Down>' },
   }
 
   for _, key_config in ipairs(navigation_keys) do
     local mode, key = key_config[1], key_config[2]
     local is_up = key:match('Up') or key == 'k'
 
-    vim.api.nvim_buf_set_keymap(buf, mode, key, '', {
+    vim.api.nvim_buf_set_keymap(list_buf, mode, key, '', {
       noremap = true,
       silent = true,
       callback = function()
@@ -344,9 +488,9 @@ local function setup_picker_mappings(buf, sessions, selected_index, callback)
   end
 
   -- Selection keys
-  local select_keys = { { 'n', '<CR>' }, { 'i', '<CR>' } }
+  local select_keys = { { 'n', '<CR>' }, { 'n', '<Space>' } }
   for _, key_config in ipairs(select_keys) do
-    vim.api.nvim_buf_set_keymap(buf, key_config[1], key_config[2], '', {
+    vim.api.nvim_buf_set_keymap(list_buf, key_config[1], key_config[2], '', {
       noremap = true,
       silent = true,
       callback = function()
@@ -360,7 +504,7 @@ local function setup_picker_mappings(buf, sessions, selected_index, callback)
   end
 
   -- Delete key
-  vim.api.nvim_buf_set_keymap(buf, 'n', 'd', '', {
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'd', '', {
     noremap = true,
     silent = true,
     callback = function()
@@ -371,9 +515,9 @@ local function setup_picker_mappings(buf, sessions, selected_index, callback)
   })
 
   -- Cancel keys
-  local cancel_keys = { { 'n', '<Esc>' }, { 'i', '<Esc>' }, { 'n', 'q' } }
+  local cancel_keys = { { 'n', '<Esc>' }, { 'n', 'q' } }
   for _, key_config in ipairs(cancel_keys) do
-    vim.api.nvim_buf_set_keymap(buf, key_config[1], key_config[2], '', {
+    vim.api.nvim_buf_set_keymap(list_buf, key_config[1], key_config[2], '', {
       noremap = true,
       silent = true,
       callback = function()
@@ -383,22 +527,22 @@ local function setup_picker_mappings(buf, sessions, selected_index, callback)
   end
 end
 
--- Main API function to show session picker
+-- Main API function to show the modern split-pane session picker
 ---@param callback function Callback function (action, session_or_nil)
 function SessionPicker.show_session_picker(callback)
   vim.schedule(function()
     local sessions = SessionManager.list_sessions()
-    local selected_index = 1
+    local selected_index = math.min(1, #sessions)
 
-    local width, height = calculate_picker_dimensions(sessions)
-    local lines, highlights = build_session_picker_content(sessions, selected_index)
+    local dims = calculate_picker_dimensions(sessions)
+    local windows = create_session_picker_windows(sessions, selected_index, dims)
 
-    local buf, win = create_session_picker_window(lines, highlights, width, height)
-
-    -- Set up auto-close and key mappings
+    -- Set up auto-close function
     local function close_picker()
-      if vim.api.nvim_win_is_valid(win) then
-        vim.api.nvim_win_close(win, true)
+      for _, win_data in pairs(windows) do
+        if vim.api.nvim_win_is_valid(win_data.win) then
+          vim.api.nvim_win_close(win_data.win, true)
+        end
       end
     end
 
@@ -408,25 +552,28 @@ function SessionPicker.show_session_picker(callback)
       if action == 'select' and session then
         callback('select', session)
       elseif action == 'delete' and session then
-        -- Confirm deletion
-        local confirm_msg = fmt('Delete session "%s"?', session.created_at)
-        local choice = vim.fn.confirm(confirm_msg, '&Yes\n&No', 2)
+        -- Modern confirmation dialog
+        local confirm_msg = fmt('Delete session from %s?', session.created_at or 'unknown date')
+        local choice = vim.fn.confirm(confirm_msg, '&Delete\n&Cancel', 2, 'Question')
         if choice == 1 then
           local success, err = SessionManager.delete_session(session.filename)
           if success then
-            vim.notify(fmt('Deleted session: %s', session.created_at), vim.log.levels.INFO)
+            vim.notify('✓ Session deleted', vim.log.levels.INFO)
           else
-            vim.notify(fmt('Failed to delete session: %s', err), vim.log.levels.ERROR)
+            vim.notify('✗ Failed to delete session: ' .. err, vim.log.levels.ERROR)
           end
         end
-        -- Re-show picker after deletion
+        -- Re-show picker after deletion attempt
         SessionPicker.show_session_picker(callback)
       else
         callback('cancel')
       end
     end
 
-    setup_picker_mappings(buf, sessions, selected_index, picker_callback)
+    setup_picker_mappings(windows, sessions, selected_index, picker_callback)
+
+    -- Focus the list window
+    vim.api.nvim_set_current_win(windows.list.win)
   end)
 end
 

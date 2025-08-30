@@ -1,143 +1,94 @@
 ---@class CodeCompanion.Commands
----User commands for chat history functionality
+---User commands for chat history and session management
 local Commands = {}
 
-local ReasoningPlugin = require('codecompanion-reasoning')
+local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
+local SessionManagerUI = require('codecompanion._extensions.reasoning.ui.session_manager_ui')
+local ChatHooks = require('codecompanion._extensions.reasoning.helpers.chat_hooks')
 
--- Create user commands for chat history
-function Commands.setup()
-  -- Show chat history picker
-  vim.api.nvim_create_user_command('CodeCompanionChatHistory', function()
-    ReasoningPlugin.show_chat_history()
-  end, {
-    desc = 'Show CodeCompanion chat history picker',
-  })
+-- Command implementations
 
-  -- List chat sessions
-  vim.api.nvim_create_user_command('CodeCompanionChatList', function()
-    local sessions = ReasoningPlugin.list_sessions()
-    if #sessions == 0 then
-      vim.notify('No chat sessions found', vim.log.levels.INFO)
-      return
-    end
+---Show interactive chat history picker
+function Commands.show_chat_history()
+  local session_ui = SessionManagerUI.new()
+  session_ui:browse_sessions()
+end
 
-    local lines = { 'CodeCompanion Chat Sessions:', '' }
-    for i, session in ipairs(sessions) do
-      table.insert(lines, string.format('[%d] %s - %d messages', i, session.created_at, session.total_messages))
-      table.insert(lines, string.format('    Preview: %s', session.preview))
-      table.insert(lines, '')
-    end
+---Load the most recent chat session
+function Commands.load_last_session()
+  local last_session, err = SessionManager.get_last_session()
+  if not last_session then
+    vim.notify(err or 'No sessions found', vim.log.levels.WARN)
+    return
+  end
 
-    -- Show in a scratch buffer
-    local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].filetype = 'markdown'
-    vim.bo[buf].modifiable = false
+  local success, restore_err = SessionManager.restore_session(last_session)
+  if not success then
+    vim.notify(string.format('Failed to restore last session: %s', restore_err), vim.log.levels.ERROR)
+  else
+    vim.notify(string.format('Restored last session: %s', last_session), vim.log.levels.INFO)
+  end
+end
 
-    local width = math.floor(vim.o.columns * 0.8)
-    local height = math.floor(vim.o.lines * 0.8)
-    local win = vim.api.nvim_open_win(buf, true, {
-      relative = 'editor',
-      width = width,
-      height = height,
-      col = math.floor((vim.o.columns - width) / 2),
-      row = math.floor((vim.o.lines - height) / 2),
-      style = 'minimal',
-      border = 'rounded',
-      title = ' Chat Sessions ',
-      title_pos = 'center',
-    })
+---View project knowledge file
+function Commands.view_project_knowledge()
+  local function find_project_root()
+    local root_patterns = { '.git', 'package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', '.project' }
 
-    -- Close on escape
-    vim.api.nvim_buf_set_keymap(buf, 'n', '<Esc>', '<cmd>close<cr>', { noremap = true, silent = true })
-    vim.api.nvim_buf_set_keymap(buf, 'n', 'q', '<cmd>close<cr>', { noremap = true, silent = true })
-  end, {
-    desc = 'List all CodeCompanion chat sessions',
-  })
+    local current_dir = vim.fn.getcwd()
+    local path_parts = vim.split(current_dir, '/')
 
-  -- Save current buffer as chat session
-  vim.api.nvim_create_user_command('CodeCompanionChatSave', function()
-    local buf = vim.api.nvim_get_current_buf()
-    local filetype = vim.bo[buf].filetype
+    for i = #path_parts, 1, -1 do
+      local test_path = '/' .. table.concat(path_parts, '/', 1, i)
 
-    if filetype ~= 'codecompanion' then
-      vim.notify('Current buffer is not a CodeCompanion chat', vim.log.levels.WARN)
-      return
-    end
-
-    -- Extract chat data from current buffer
-    local chat_hooks = require('codecompanion._extensions.reasoning.helpers.chat_hooks')
-    local bufname = vim.api.nvim_buf_get_name(buf)
-    local chat_id = bufname:match('codecompanion%-(%w+)') or 'manual_save_' .. os.time()
-
-    -- Get buffer content and parse it
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local content = table.concat(lines, '\n')
-
-    if content == '' then
-      vim.notify('Buffer is empty, nothing to save', vim.log.levels.WARN)
-      return
-    end
-
-    -- Parse messages from buffer content
-    local messages = {}
-    local current_role = nil
-    local current_content = {}
-
-    for _, line in ipairs(lines) do
-      local role = line:match('^## (User|Assistant)$') or line:match('^# (user|assistant)$')
-      if role then
-        if current_role and #current_content > 0 then
-          table.insert(messages, {
-            role = current_role:lower(),
-            content = table.concat(current_content, '\n'):gsub('^%s+', ''):gsub('%s+$', ''),
-            timestamp = os.time(),
-          })
+      for _, pattern in ipairs(root_patterns) do
+        if
+          vim.fn.filereadable(test_path .. '/' .. pattern) == 1
+          or vim.fn.isdirectory(test_path .. '/' .. pattern) == 1
+        then
+          return test_path
         end
-        current_role = role:lower()
-        current_content = {}
-      elseif current_role then
-        table.insert(current_content, line)
       end
     end
 
-    if current_role and #current_content > 0 then
-      table.insert(messages, {
-        role = current_role:lower(),
-        content = table.concat(current_content, '\n'):gsub('^%s+', ''):gsub('%s+$', ''),
-        timestamp = os.time(),
-      })
-    end
+    return current_dir
+  end
 
-    if #messages == 0 then
-      vim.notify('No messages found in buffer', vim.log.levels.WARN)
-      return
-    end
+  local project_root = find_project_root()
+  local knowledge_file = project_root .. '/.codecompanion/project-knowledge.md'
 
-    local chat_data = {
-      id = chat_id,
-      model = 'manual',
-      adapter = { name = 'manual' },
-      messages = messages,
-      tools = {},
-    }
+  if vim.fn.filereadable(knowledge_file) == 1 then
+    vim.cmd('edit ' .. knowledge_file)
+  else
+    vim.notify('No project knowledge file found. Use store_knowledge tool to create one.', vim.log.levels.INFO)
+  end
+end
 
-    local success = ReasoningPlugin.save_session(chat_data)
-    if success then
-      vim.notify(string.format('Chat session saved (%d messages)', #messages), vim.log.levels.INFO)
-    end
-  end, {
-    desc = 'Save current CodeCompanion chat as session',
+---Show project-specific chat history
+function Commands.show_project_history()
+  local session_ui = SessionManagerUI.new()
+  session_ui:browse_project_sessions()
+end
+
+function Commands.setup()
+  vim.api.nvim_create_user_command('CodeCompanionChatHistory', Commands.show_chat_history, {
+    desc = 'Show interactive chat session picker',
   })
 
-  -- Clean up old sessions
-  vim.api.nvim_create_user_command('CodeCompanionChatCleanup', function()
-    local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
-    SessionManager.cleanup_old_sessions()
-    vim.notify('Old chat sessions cleaned up', vim.log.levels.INFO)
-  end, {
-    desc = 'Clean up old CodeCompanion chat sessions',
+  vim.api.nvim_create_user_command('CodeCompanionChatLast', Commands.load_last_session, {
+    desc = 'Load the most recent chat session',
   })
+
+  vim.api.nvim_create_user_command('CodeCompanionProjectHistory', Commands.show_project_history, {
+    desc = 'Show chat history for current project',
+  })
+
+  vim.api.nvim_create_user_command('CodeCompanionProjectKnowledge', Commands.view_project_knowledge, {
+    desc = 'View project knowledge file',
+  })
+
+  -- Enable auto-save by default
+  ChatHooks.setup({ auto_save = true })
 end
 
 return Commands

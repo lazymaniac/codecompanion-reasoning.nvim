@@ -483,6 +483,175 @@ end
 
 -- Main API
 
+---Show a generic list picker with selectable items
+---@param opts table Options for the picker
+function Popup.show(opts)
+  opts = opts or {}
+
+  local title = opts.title or 'Select Item'
+  local items = opts.items or {}
+  local on_select = opts.on_select or function() end
+  local on_delete = opts.on_delete
+  local keymaps = opts.keymaps or {}
+  local help_text = opts.help_text or {}
+
+  if #items == 0 then
+    vim.notify('No items to display', vim.log.levels.INFO)
+    return
+  end
+
+  -- Create picker buffer
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.bo[bufnr].bufhidden = 'wipe'
+  vim.bo[bufnr].filetype = 'codecompanion-picker'
+
+  -- Build content
+  local lines = {}
+  local current_line = 0
+
+  -- Title
+  table.insert(lines, '')
+  table.insert(lines, string.format('  %s', title))
+  table.insert(lines, string.rep('─', #title + 4))
+  table.insert(lines, '')
+
+  -- Items
+  for i, item in ipairs(items) do
+    local text = item.text or tostring(item.value or item)
+    table.insert(lines, string.format('  %s', text))
+    if current_line == 0 then
+      current_line = #lines - 1 -- 0-indexed
+    end
+  end
+
+  -- Help text
+  if #help_text > 0 then
+    table.insert(lines, '')
+    table.insert(lines, 'Help:')
+    for _, help in ipairs(help_text) do
+      table.insert(lines, '  ' .. help)
+    end
+  end
+
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.bo[bufnr].modifiable = false
+
+  -- Calculate dimensions
+  local max_width = 0
+  for _, line in ipairs(lines) do
+    max_width = math.max(max_width, #line)
+  end
+
+  local width = math.min(math.max(max_width + 4, 50), math.floor(vim.o.columns * 0.8))
+  local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.8))
+
+  -- Create window
+  local win_opts = {
+    relative = 'editor',
+    width = width,
+    height = height,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - height) / 2),
+    style = 'minimal',
+    border = 'rounded',
+    title = ' ' .. title .. ' ',
+    title_pos = 'center',
+  }
+
+  local winid = vim.api.nvim_open_win(bufnr, true, win_opts)
+
+  -- Set cursor to first item
+  local item_start_line = 4 -- After title and separator
+  if item_start_line < vim.api.nvim_buf_line_count(bufnr) then
+    vim.api.nvim_win_set_cursor(winid, { item_start_line + 1, 2 }) -- 1-indexed, with indent
+    current_line = 0 -- Index in items array
+  end
+
+  -- Navigation functions
+  local function move_cursor(direction)
+    local current_pos = vim.api.nvim_win_get_cursor(winid)
+    local line_num = current_pos[1]
+
+    local new_line = line_num
+    local new_current_line = current_line
+
+    if direction == 'down' and current_line < #items - 1 then
+      new_line = line_num + 1
+      new_current_line = current_line + 1
+    elseif direction == 'up' and current_line > 0 then
+      new_line = line_num - 1
+      new_current_line = current_line - 1
+    end
+
+    if new_line ~= line_num then
+      vim.api.nvim_win_set_cursor(winid, { new_line, 2 })
+      current_line = new_current_line
+    end
+  end
+
+  local function select_item()
+    if current_line >= 0 and current_line < #items then
+      local selected_item = items[current_line + 1]
+      vim.api.nvim_win_close(winid, true)
+      on_select(selected_item)
+    end
+  end
+
+  local function delete_item()
+    if on_delete and current_line >= 0 and current_line < #items then
+      local selected_item = items[current_line + 1]
+      vim.api.nvim_win_close(winid, true)
+      on_delete(selected_item)
+    end
+  end
+
+  local function close_picker()
+    vim.api.nvim_win_close(winid, true)
+  end
+
+  -- Set up keymaps
+  local keymap_handlers = {
+    ['select'] = select_item,
+    ['close'] = close_picker,
+    ['delete'] = delete_item,
+    ['up'] = function()
+      move_cursor('up')
+    end,
+    ['down'] = function()
+      move_cursor('down')
+    end,
+  }
+
+  for key, action in pairs(keymaps) do
+    local handler = keymap_handlers[action]
+    if handler then
+      vim.keymap.set('n', key, handler, { buffer = bufnr, silent = true })
+    end
+  end
+
+  -- Default keymaps if not overridden
+  local default_keymaps = {
+    ['<CR>'] = 'select',
+    ['<Esc>'] = 'close',
+    ['q'] = 'close',
+    ['j'] = 'down',
+    ['k'] = 'up',
+    ['<Down>'] = 'down',
+    ['<Up>'] = 'up',
+  }
+
+  for key, action in pairs(default_keymaps) do
+    if not keymaps[key] and keymap_handlers[action] then
+      vim.keymap.set('n', key, keymap_handlers[action], { buffer = bufnr, silent = true })
+    end
+  end
+
+  -- Add delete keymap if delete handler exists
+  if on_delete then
+    vim.keymap.set('n', 'd', delete_item, { buffer = bufnr, silent = true })
+  end
+end
+
 ---Create and show an interactive question popup
 ---@param question string The question to ask
 ---@param options? string[] List of options

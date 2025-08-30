@@ -34,9 +34,13 @@ end
 --- @param opts? table Optional configuration table with the following options:
 ---   - chat_history.auto_save: boolean (default: true) - Enable auto-saving of chat sessions
 ---   - chat_history.auto_load_last_session: boolean (default: false) - Automatically load the last session on startup
+---   - chat_history.auto_generate_title: boolean (default: true) - Automatically generate titles for sessions
 ---   - chat_history.sessions_dir: string - Directory to store sessions (default: stdpath('data')/codecompanion-reasoning/sessions)
 ---   - chat_history.max_sessions: number (default: 100) - Maximum number of sessions to keep
 ---   - chat_history.enable_commands: boolean (default: true) - Enable user commands
+---   - chat_history.picker: string (default: 'auto') - Picker backend: 'auto', 'telescope', 'fzf-lua', 'default'
+---   - chat_history.continue_last_chat: boolean (default: false) - Show startup dialog for continuing last chat
+---   - chat_history.title_generation_opts: table - Title generation configuration
 --- @return table|nil config The extension configuration, or nil if loading failed.
 function M.setup(opts)
   local ext = load_extension()
@@ -49,9 +53,26 @@ function M.setup(opts)
     chat_history = {
       auto_save = true,
       auto_load_last_session = false,
+      auto_generate_title = true,
       sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
       max_sessions = 100,
       enable_commands = true,
+      picker = 'auto',
+      continue_last_chat = false,
+      expiration_days = 0,
+      enable_index = true,
+      title_generation_opts = {
+        adapter = nil,
+        model = nil,
+        refresh_every_n_prompts = 0,
+        max_refreshes = 3,
+        format_title = nil,
+      },
+      keymaps = {
+        rename = { n = 'r', i = '<M-r>' },
+        delete = { n = 'd', i = '<M-d>' },
+        duplicate = { n = '<C-y>', i = '<C-y>' },
+      },
     },
   }, opts or {})
 
@@ -69,32 +90,24 @@ function M.get_tools()
 end
 
 --- Show the chat history picker UI.
---- @param callback? function Optional callback function (action, session)
-function M.show_chat_history(callback)
-  local ok, session_picker = pcall(require, 'codecompanion._extensions.reasoning.ui.session_picker')
+--- @param filter_opts? table Optional filter options {project_root, adapter, date_range}
+function M.show_chat_history(filter_opts)
+  local ok, ui = pcall(require, 'codecompanion._extensions.reasoning.ui.session_manager_ui')
   if ok then
-    session_picker.show_session_picker(callback or function(action, session)
-      if action == 'select' and session then
-        -- Actually restore the session instead of just showing notification
-        local success = M.restore_session(session.filename)
-        if success then
-          vim.notify(string.format('Restored session: %s', session.created_at), vim.log.levels.INFO)
-        else
-          vim.notify(string.format('Failed to restore session: %s', session.created_at), vim.log.levels.ERROR)
-        end
-      end
-    end)
+    local session_ui = ui.new()
+    session_ui:browse_sessions(filter_opts)
   else
-    vim.notify('[codecompanion-reasoning.nvim] Failed to load session picker', vim.log.levels.ERROR)
+    vim.notify('[codecompanion-reasoning.nvim] Failed to load session UI', vim.log.levels.ERROR)
   end
 end
 
 --- List all chat sessions.
+--- @param filter_opts? table Optional filter options {project_root, adapter, date_range}
 --- @return table sessions List of session info objects
-function M.list_sessions()
+function M.list_sessions(filter_opts)
   local ok, session_manager = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
   if ok then
-    return session_manager.list_sessions()
+    return session_manager.list_sessions(filter_opts)
   else
     vim.notify('[codecompanion-reasoning.nvim] Failed to load session manager', vim.log.levels.ERROR)
     return {}
@@ -183,6 +196,43 @@ function M.auto_load_last_session()
     session_manager.auto_load_last_session()
   else
     vim.notify('[codecompanion-reasoning.nvim] Failed to load session manager for auto-load', vim.log.levels.WARN)
+  end
+end
+
+--- Show sessions for current project only.
+function M.show_project_history()
+  local ok, ui = pcall(require, 'codecompanion._extensions.reasoning.ui.session_manager_ui')
+  if ok then
+    local session_ui = ui.new()
+    session_ui:browse_project_sessions()
+  else
+    vim.notify('[codecompanion-reasoning.nvim] Failed to load session UI', vim.log.levels.ERROR)
+  end
+end
+
+--- Show startup continuation dialog if configured.
+function M.show_startup_dialog()
+  local ok, ui = pcall(require, 'codecompanion._extensions.reasoning.ui.session_manager_ui')
+  if ok then
+    local session_ui = ui.new({ continue_last_chat = true })
+    session_ui:show_startup_dialog()
+  else
+    vim.notify('[codecompanion-reasoning.nvim] Failed to load session UI', vim.log.levels.ERROR)
+  end
+end
+
+--- Generate title for a chat session.
+--- @param chat table CodeCompanion chat object
+--- @param callback? function Optional callback for async title generation
+function M.generate_title(chat, callback)
+  local ok, ui = pcall(require, 'codecompanion._extensions.reasoning.ui.session_manager_ui')
+  if ok and chat then
+    local session_ui = ui.new()
+    session_ui:generate_title(chat, callback)
+  else
+    if callback then
+      callback(nil)
+    end
   end
 end
 
