@@ -9,11 +9,11 @@ local DEFAULT_CONFIG = {
   auto_generate_title = true,
   title_generation_opts = {
     adapter = nil, -- defaults to current chat adapter
-    model = nil,   -- defaults to current chat model
+    model = nil, -- defaults to current chat model
     refresh_every_n_prompts = 0, -- 0 to disable
     max_refreshes = 3,
     format_title = nil, -- optional function to format generated titles
-  }
+  },
 }
 
 ---Create new title generator instance
@@ -63,7 +63,7 @@ function TitleGenerator:should_generate(chat)
   local refresh_opts = self.opts.title_generation_opts or {}
   if refresh_opts.refresh_every_n_prompts and refresh_opts.refresh_every_n_prompts > 0 then
     local user_message_count = self:_count_user_messages(chat)
-    local refresh_count = (chat.opts.title_refresh_count) or 0
+    local refresh_count = chat.opts.title_refresh_count or 0
     local max_refreshes = refresh_opts.max_refreshes or 3
 
     if
@@ -84,7 +84,9 @@ end
 ---@param is_refresh? boolean Whether this is a title refresh
 function TitleGenerator:generate(chat, callback, is_refresh)
   if not self.opts.auto_generate_title then
-    if callback then callback(nil) end
+    if callback then
+      callback(nil)
+    end
     return
   end
 
@@ -92,13 +94,17 @@ function TitleGenerator:generate(chat, callback, is_refresh)
 
   -- Early return for disabled auto-generation, but allow refresh if explicitly requested
   if not is_refresh and chat.opts and chat.opts.title then
-    if callback then callback(chat.opts.title) end
+    if callback then
+      callback(chat.opts.title)
+    end
     return
   end
 
   -- Return early if no messages or messages is nil
   if not chat.messages or #chat.messages == 0 then
-    if callback then callback(nil) end
+    if callback then
+      callback(nil)
+    end
     return
   end
 
@@ -112,7 +118,9 @@ function TitleGenerator:generate(chat, callback, is_refresh)
   end, chat.messages)
 
   if #relevant_messages == 0 then
-    if callback then callback(nil) end
+    if callback then
+      callback(nil)
+    end
     return
   end
 
@@ -159,7 +167,9 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     end
 
     if not first_user_msg then
-      if callback then callback(nil) end
+      if callback then
+        callback(nil)
+      end
       return
     end
 
@@ -182,7 +192,8 @@ function TitleGenerator:generate(chat, callback, is_refresh)
   local prompt
   if is_refresh then
     local original_title = (chat.opts and chat.opts.title) or 'Unknown'
-    prompt = fmt([[The conversation has evolved since the original title was generated. Based on the recent conversation below, generate a new concise title (max 5 words) that better reflects the current topic.
+    prompt = fmt(
+      [[The conversation has evolved since the original title was generated. Based on the recent conversation below, generate a new concise title (max 5 words) that better reflects the current topic.
 
 Original title: "%s"
 
@@ -191,9 +202,13 @@ Recent conversation:
 
 Generate a new title that captures the main topic of the recent conversation. Do not include any special characters or quotes. Your response should contain only the new title.
 
-New Title:]], original_title, conversation_context)
+New Title:]],
+      original_title,
+      conversation_context
+    )
   else
-    prompt = fmt([[Generate a very short and concise title (max 5 words) for this chat based on the following conversation:
+    prompt = fmt(
+      [[Generate a very short and concise title (max 5 words) for this chat based on the following conversation:
 Do not include any special characters or quotes. Your response shouldn't contain any other text, just the title.
 
 ===
@@ -206,7 +221,9 @@ Examples:
 
 Conversation:
 %s
-Title:]], conversation_context)
+Title:]],
+      conversation_context
+    )
   end
 
   self:_make_adapter_request(chat, prompt, callback)
@@ -220,48 +237,52 @@ function TitleGenerator:_make_adapter_request(chat, prompt, callback)
   -- Try to use CodeCompanion's http client for consistency
   local client_ok, client = pcall(require, 'codecompanion.http')
   local schema_ok, schema = pcall(require, 'codecompanion.schema')
-  
+
   if not client_ok or not schema_ok then
     -- Fallback: use simple title generation if CodeCompanion internals not available
     local fallback_title = self:_generate_fallback_title(chat)
-    if callback then callback(fallback_title) end
+    if callback then
+      callback(fallback_title)
+    end
     return
   end
 
   local opts = self.opts.title_generation_opts or {}
   local adapter = vim.deepcopy(chat.adapter)
   local settings = vim.deepcopy(chat.settings)
-  
+
   if opts.adapter then
     local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
     if adapters_ok and adapters.resolve then
       adapter = adapters.resolve(opts.adapter)
     end
   end
-  
+
   if opts.model then
     settings = schema.get_default(adapter, { model = opts.model })
   end
-  
+
   settings = vim.deepcopy(adapter:map_schema_to_params(settings))
   settings.opts = settings.opts or {}
   settings.opts.stream = false
-  
+
   local payload = {
     messages = adapter:map_roles({
       { role = 'user', content = prompt },
     }),
   }
-  
+
   client.new({ adapter = settings }):request(payload, {
     callback = function(err, data, _adapter)
       if err and err.stderr ~= '{}' then
         vim.notify('Error while generating title: ' .. tostring(err.stderr), vim.log.levels.WARN)
         local fallback_title = self:_generate_fallback_title(chat)
-        if callback then callback(fallback_title) end
+        if callback then
+          callback(fallback_title)
+        end
         return
       end
-      
+
       if data and _adapter and _adapter.handlers and _adapter.handlers.chat_output then
         local result = _adapter.handlers.chat_output(_adapter, data)
         if result and result.status then
@@ -271,17 +292,21 @@ function TitleGenerator:_make_adapter_request(chat, prompt, callback)
             if self.opts.title_generation_opts.format_title then
               title = self.opts.title_generation_opts.format_title(title)
             end
-            if callback then callback(title) end
+            if callback then
+              callback(title)
+            end
             return
           elseif result.status == 'error' then
             vim.notify('Error while generating title: ' .. tostring(result.output), vim.log.levels.WARN)
           end
         end
       end
-      
+
       -- Fallback on any error
       local fallback_title = self:_generate_fallback_title(chat)
-      if callback then callback(fallback_title) end
+      if callback then
+        callback(fallback_title)
+      end
     end,
   }, {
     silent = true,
@@ -295,7 +320,7 @@ function TitleGenerator:_generate_fallback_title(chat)
   if not chat.messages or #chat.messages == 0 then
     return 'Empty Session'
   end
-  
+
   -- Find first user message
   local first_user_msg = nil
   for _, message in ipairs(chat.messages) do
@@ -304,17 +329,17 @@ function TitleGenerator:_generate_fallback_title(chat)
       break
     end
   end
-  
+
   if not first_user_msg then
     return 'No User Input'
   end
-  
+
   -- Extract first line and truncate
   local first_line = first_user_msg:match('^[^\n\r]*') or first_user_msg
   if #first_line > 45 then
     return first_line:sub(1, 42) .. '...'
   end
-  
+
   return first_line
 end
 
@@ -327,3 +352,4 @@ function TitleGenerator:setup(new_config)
 end
 
 return TitleGenerator
+

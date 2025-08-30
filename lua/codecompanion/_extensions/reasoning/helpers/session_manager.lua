@@ -14,41 +14,7 @@ local CONFIG = {
   auto_load_last_session = true,
   auto_generate_title = true,
   expiration_days = 0, -- 0 to disable
-  enable_index = true, -- Enable JSON index for fast access
 }
-
--- Utils for project detection
-local function find_project_root(path)
-  path = path or vim.fn.getcwd()
-
-  local indicators = {
-    '.git',
-    '.svn',
-    '.hg', -- Version control
-    'package.json',
-    'Cargo.toml',
-    'pyproject.toml', -- Language specific
-    'Makefile',
-    'CMakeLists.txt', -- Build systems
-    '.project',
-    '.root', -- Custom markers
-  }
-
-  local current = path
-  while current ~= '/' do
-    for _, indicator in ipairs(indicators) do
-      if
-        vim.fn.isdirectory(current .. '/' .. indicator) == 1
-        or vim.fn.filereadable(current .. '/' .. indicator) == 1
-      then
-        return current
-      end
-    end
-    current = vim.fn.fnamemodify(current, ':h')
-  end
-
-  return path -- fallback to provided path
-end
 
 -- Generate unique save ID
 local function generate_save_id()
@@ -103,19 +69,6 @@ local function ensure_sessions_dir()
     return false
   end
 
-  -- Create index file if it doesn't exist
-  if CONFIG.enable_index then
-    local index_path = CONFIG.sessions_dir .. '/index.json'
-    local index_stat = uv.fs_stat(index_path)
-    if not index_stat then
-      local empty_index = '{}'
-      local file = io.open(index_path, 'w')
-      if file then
-        file:write(empty_index)
-        file:close()
-      end
-    end
-  end
 
   return true
 end
@@ -130,37 +83,21 @@ local function get_session_path(filename)
   return CONFIG.sessions_dir .. '/' .. filename
 end
 
--- Deep clean function to remove non-serializable data
----@param obj any Object to clean
----@return any cleaned_obj
-local function deep_clean_for_serialization(obj)
-  if type(obj) == 'table' then
-    local cleaned = {}
-    for k, v in pairs(obj) do
-      local clean_k = deep_clean_for_serialization(k)
-      local clean_v = deep_clean_for_serialization(v)
-      -- Only include if both key and value are serializable
-      if type(clean_k) ~= 'nil' and type(clean_v) ~= 'nil' then
-        cleaned[clean_k] = clean_v
-      end
-    end
-    return cleaned
-  elseif type(obj) == 'function' or type(obj) == 'userdata' or type(obj) == 'thread' then
-    -- Skip non-serializable types
-    return nil
-  else
-    -- Primitive types are fine
-    return obj
-  end
-end
-
--- Extract tools that were used in the chat from messages or context
+-- Extract tools that were used in the chat from tool_registry
 ---@param chat table CodeCompanion chat object
 ---@return table tools_used
 local function extract_used_tools(chat)
   local tools_used = {}
 
-  if chat.messages then
+  -- First, check if chat has tool_registry with in_use tools
+  if chat.tool_registry and chat.tool_registry.in_use then
+    for tool_name, _ in pairs(chat.tool_registry.in_use) do
+      tools_used[tool_name] = true
+    end
+  end
+
+  -- Fallback: extract from messages if tool_registry not available
+  if next(tools_used) == nil and chat.messages then
     for _, message in ipairs(chat.messages) do
       if message.tool_calls then
         for _, tool_call in ipairs(message.tool_calls) do
@@ -182,67 +119,6 @@ local function extract_used_tools(chat)
   return tools_array
 end
 
--- Update JSON index for fast session access
----@param session_data table Session data
----@param filename string Session filename
-local function update_session_index(session_data, filename)
-  if not CONFIG.enable_index then
-    return true, nil
-  end
-
-  local index_path = CONFIG.sessions_dir .. '/index.json'
-  local index = {}
-
-  -- Try to read existing index
-  local file = io.open(index_path, 'r')
-  if file then
-    local content = file:read('*all')
-    file:close()
-    if content and content ~= '' then
-      local ok, parsed = pcall(vim.json.decode, content)
-      if ok and type(parsed) == 'table' then
-        index = parsed
-      else
-        -- Log warning about corrupted index but continue with empty index
-        vim.notify('Warning: Corrupted session index, starting fresh', vim.log.levels.WARN)
-      end
-    end
-  end
-
-  -- Update index entry
-  local entry_id = session_data.save_id or filename:gsub('%.lua$', '')
-  index[entry_id] = {
-    save_id = session_data.save_id,
-    filename = filename,
-    title = session_data.title or 'Untitled',
-    created_at = session_data.created_at,
-    updated_at = session_data.updated_at or session_data.timestamp,
-    model = session_data.config.model,
-    adapter = session_data.config.adapter,
-    message_count = session_data.metadata.total_messages,
-    token_estimate = session_data.metadata.token_estimate,
-    cwd = session_data.cwd,
-    project_root = session_data.project_root,
-    tools_used = session_data.tools or {},
-  }
-
-  -- Write updated index
-  local write_file = io.open(index_path, 'w')
-  if not write_file then
-    return false, 'Failed to open index file for writing'
-  end
-
-  local ok, json_str = pcall(vim.json.encode, index)
-  if not ok or not json_str then
-    write_file:close()
-    return false, 'Failed to encode index to JSON: ' .. tostring(json_str or 'unknown error')
-  end
-
-  write_file:write(json_str)
-  write_file:close()
-
-  return true, nil
-end
 
 -- Prepare chat data for storage (extract only serializable parts)
 ---@param chat table CodeCompanion chat object
@@ -252,7 +128,6 @@ local function prepare_chat_data(chat)
   local created_time = chat._session_created_at or current_time
   local session_duration = current_time - created_time
   local cwd = vim.fn.getcwd()
-  local project_root = find_project_root(cwd)
 
   local session_data = {
     version = '2.0', -- Enhanced version
@@ -265,7 +140,7 @@ local function prepare_chat_data(chat)
     -- Enhanced metadata
     chat_id = chat.id or 'unknown',
     cwd = cwd,
-    project_root = project_root,
+    project_root = cwd,
 
     config = {
       adapter = chat.adapter and chat.adapter.name or 'unknown',
@@ -289,7 +164,7 @@ local function prepare_chat_data(chat)
 
   if chat.messages and #chat.messages > 0 then
     for _, message in ipairs(chat.messages) do
-      local clean_message = deep_clean_for_serialization({
+      local clean_message = {
         role = message.role,
         content = message.content,
         timestamp = message.timestamp or os.time(),
@@ -304,7 +179,7 @@ local function prepare_chat_data(chat)
         tag = message.tag,
         context_id = message.context_id,
         visible = message.visible,
-      })
+      }
 
       if clean_message and clean_message.role then
         table.insert(session_data.messages, clean_message)
@@ -327,9 +202,8 @@ end
 
 -- Save chat session to file
 ---@param chat table CodeCompanion chat object
----@param filename? string Optional filename, generates one if not provided
 ---@return boolean success, string? error_message
-function SessionManager.save_session(chat, filename)
+function SessionManager.save_session(chat)
   if not chat then
     return false, 'Chat object cannot be nil'
   end
@@ -338,7 +212,7 @@ function SessionManager.save_session(chat, filename)
     return false, 'Failed to create sessions directory'
   end
 
-  filename = filename or generate_session_filename()
+  local filename = generate_session_filename()
   if not filename or filename == '' then
     return false, 'Invalid filename generated'
   end
@@ -369,11 +243,6 @@ function SessionManager.save_session(chat, filename)
     return false, fmt('Failed to write session data to %s: %s', session_path, tostring(write_err))
   end
 
-  -- Update index
-  local index_success, index_err = update_session_index(session_data, filename)
-  if not index_success then
-    vim.notify('Warning: Failed to update session index: ' .. (index_err or 'unknown error'), vim.log.levels.WARN)
-  end
 
   return true, filename
 end
@@ -457,59 +326,7 @@ function SessionManager.list_sessions(filter_opts)
   local sessions = {}
   filter_opts = filter_opts or {}
 
-  -- Try to use index for faster access if available
-  if CONFIG.enable_index then
-    local index_path = CONFIG.sessions_dir .. '/index.json'
-    local file = io.open(index_path, 'r')
-    if file then
-      local content = file:read('*all')
-      file:close()
-
-      if content and content ~= '' then
-        local ok, index = pcall(vim.json.decode, content)
-        if ok and type(index) == 'table' then
-          -- Convert index to session list format
-          for _, entry in pairs(index) do
-            -- Apply filters
-            local include = true
-            if filter_opts.project_root and entry.project_root ~= filter_opts.project_root then
-              include = false
-            end
-            if filter_opts.adapter and entry.adapter ~= filter_opts.adapter then
-              include = false
-            end
-
-            if include then
-              table.insert(sessions, {
-                filename = entry.filename,
-                created_at = entry.created_at or 'Unknown',
-                timestamp = entry.updated_at or 0,
-                total_messages = entry.message_count or 0,
-                model = entry.model or 'Unknown',
-                adapter = entry.adapter or 'Unknown',
-                chat_id = entry.save_id or 'unknown',
-                title = entry.title or 'Untitled',
-                project_root = entry.project_root,
-                token_estimate = entry.token_estimate or 0,
-                preview = entry.title or 'No preview available',
-              })
-            end
-          end
-
-          -- Sort by timestamp (newest first)
-          table.sort(sessions, function(a, b)
-            return (a.timestamp or 0) > (b.timestamp or 0)
-          end)
-
-          return sessions
-        else
-          vim.notify('Warning: Failed to parse session index, using fallback', vim.log.levels.WARN)
-        end
-      end
-    end
-  end
-
-  -- Fallback to file scanning if index not available
+  -- Scan files directly
   local handle = uv.fs_scandir(CONFIG.sessions_dir)
 
   if not handle then
@@ -627,42 +444,6 @@ function SessionManager.delete_session(filename)
     return false, fmt('Failed to delete session file %s: %s', session_path, err)
   end
 
-  -- Remove from index if enabled
-  if CONFIG.enable_index then
-    local index_path = CONFIG.sessions_dir .. '/index.json'
-    local file = io.open(index_path, 'r')
-    if file then
-      local content = file:read('*all')
-      file:close()
-
-      if content and content ~= '' then
-        local ok, index = pcall(vim.json.decode, content)
-        if ok and type(index) == 'table' then
-          -- Find and remove entries with this filename
-          for entry_id, entry in pairs(index) do
-            if entry.filename == filename then
-              index[entry_id] = nil
-              break
-            end
-          end
-
-          -- Write updated index
-          local write_file = io.open(index_path, 'w')
-          if write_file then
-            local json_ok, json_str = pcall(vim.json.encode, index)
-            if json_ok and json_str then
-              write_file:write(json_str)
-            else
-              vim.notify('Warning: Failed to encode updated index', vim.log.levels.WARN)
-            end
-            write_file:close()
-          end
-        else
-          vim.notify('Warning: Failed to parse index for deletion cleanup', vim.log.levels.WARN)
-        end
-      end
-    end
-  end
 
   return true, nil
 end
@@ -702,15 +483,12 @@ function SessionManager.auto_save_session(chat)
     chat._session_created_at = os.time()
   end
 
-  -- Use a persistent filename based on chat ID
-  local session_filename = fmt('session_%s.lua', chat.id)
-  local success, result = SessionManager.save_session(chat, session_filename)
+  local success, result = SessionManager.save_session(chat)
 
   if not success then
     vim.notify(fmt('Failed to auto-save session: %s', result), vim.log.levels.WARN)
   else
-    -- Optionally log successful saves for debugging
-    vim.notify(fmt('Auto-saved session: %s', session_filename), vim.log.levels.DEBUG)
+    vim.notify(fmt('Auto-saved session'), vim.log.levels.DEBUG)
   end
 end
 
@@ -728,7 +506,7 @@ function SessionManager.get_last_session()
   if not last_session or not last_session.filename or last_session.filename == '' then
     return nil, 'Invalid session data'
   end
-  
+
   return last_session.filename, nil
 end
 
@@ -1005,11 +783,6 @@ function SessionManager.save_session_data(session_data, filename)
     return false, fmt('Failed to write session data to %s: %s', session_path, tostring(write_err))
   end
 
-  -- Update index
-  local index_success, index_err = update_session_index(session_data, filename)
-  if not index_success then
-    vim.notify('Warning: Failed to update session index: ' .. (index_err or 'unknown error'), vim.log.levels.WARN)
-  end
 
   return true, nil
 end
@@ -1021,10 +794,9 @@ function SessionManager.generate_save_id()
 end
 
 -- Find project root (utility for UI operations)
----@param path? string Path to start from
 ---@return string project_root
-function SessionManager.find_project_root(path)
-  return find_project_root(path)
+function SessionManager.find_project_root()
+  return vim.fn.getcwd()
 end
 
 -- Generate session filename (utility for UI operations)

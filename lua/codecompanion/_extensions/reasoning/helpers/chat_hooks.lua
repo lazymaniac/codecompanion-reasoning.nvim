@@ -126,29 +126,6 @@ local function setup_codecompanion_hooks()
   return true
 end
 
--- Enable auto-save functionality
-function ChatHooks.enable_auto_save()
-  auto_save_enabled = true
-  SessionManager.setup({ auto_save = true })
-  return setup_codecompanion_hooks()
-end
-
--- Disable auto-save functionality
-function ChatHooks.disable_auto_save()
-  auto_save_enabled = false
-  SessionManager.setup({ auto_save = false })
-end
-
--- Manual hook for when a chat gets a new message
----@param chat table CodeCompanion chat instance
-function ChatHooks.on_chat_message(chat)
-  if auto_save_enabled and chat then
-    vim.schedule(function()
-      pcall(SessionManager.auto_save_session, chat)
-    end)
-  end
-end
-
 -- Setup hooks
 function ChatHooks.setup(opts)
   opts = opts or {}

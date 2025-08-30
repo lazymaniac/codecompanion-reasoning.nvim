@@ -15,9 +15,8 @@ end
 
 ---Browse sessions using Snacks
 function SnacksPicker:browse()
-  -- Check if snacks is available
-  local snacks_ok, snacks = pcall(require, 'snacks')
-  if not snacks_ok or not snacks.picker then
+  -- Check if Snacks is available (global)
+  if not _G.Snacks or not _G.Snacks.picker then
     vim.notify('Snacks picker not available, falling back to default picker', vim.log.levels.WARN)
     return require('codecompanion._extensions.reasoning.ui.pickers.default').browse(self)
   end
@@ -28,45 +27,50 @@ function SnacksPicker:browse()
     return
   end
 
-  -- Create proper table items for snacks picker
+  -- Create items for snacks picker - items should have properties accessible directly
   local items = {}
   for i, session in ipairs(self.config.items) do
     local display_title = self:format_entry(session)
     table.insert(items, {
-      text = display_title,
-      idx = i, -- Store index to map back to session
-      session = session, -- Also store session directly for debugging
+      title = display_title,
+      session = session,
+      session_idx = i,
     })
   end
 
-  -- Debug: Check if items were created
-  vim.notify(string.format('Snacks picker: Created %d items', #items), vim.log.levels.INFO)
+  -- Try the correct snacks picker API
+  local success, err = pcall(function()
+    return _G.Snacks.picker.pick({
+      name = 'chat_sessions',
+      items = items,
+      format = function(item)
+        -- Return formatted text parts with highlight groups
+        return {
+          { item.title or tostring(item), 'Normal' }
+        }
+      end,
+      preview = function(item)
+        if item and item.session then
+          local preview_lines = self:get_preview(item.session)
+          return preview_lines and table.concat(preview_lines, '\n') or ''
+        end
+        return ''
+      end,
+      confirm = function(picker, item)
+        picker:close()
+        if item and item.session and self.config.handlers and self.config.handlers.on_select then
+          self.config.handlers.on_select(item.session)
+        end
+      end,
+    })
+  end)
 
-  -- Use snacks picker with proper structure
-  snacks.picker.pick({
-    name = 'chat_sessions',
-    prompt = self.config.title or 'Chat Sessions',
-    items = items,
-    format = function(item)
-      -- Explicit format function to ensure display
-      return item.text or tostring(item)
-    end,
-    preview = function(item)
-      -- Use stored index to get the original session data
-      if item and item.idx and self.config.items[item.idx] then
-        local session = self.config.items[item.idx]
-        local preview_lines = self:get_preview(session)
-        return table.concat(preview_lines or {}, '\n')
-      end
-      return ''
-    end,
-    confirm = function(item)
-      -- Use stored index to get the original session data
-      if item and item.idx and self.config.items[item.idx] and self.config.handlers and self.config.handlers.on_select then
-        self.config.handlers.on_select(self.config.items[item.idx])
-      end
-    end,
-  })
+  -- If failed, fall back to default picker
+  if not success then
+    vim.notify(string.format('Snacks picker failed: %s', tostring(err)), vim.log.levels.WARN)
+    vim.notify('Falling back to default picker', vim.log.levels.WARN)
+    return require('codecompanion._extensions.reasoning.ui.pickers.default').browse(self)
+  end
 end
 
 return SnacksPicker
