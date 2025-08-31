@@ -100,4 +100,3 @@ function DefaultPicker:get_preview(item)
 end
 
 return DefaultPicker
-

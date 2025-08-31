@@ -64,6 +64,22 @@ function Commands.view_project_knowledge()
   end
 end
 
+---Initialize project knowledge via the tool and notify
+function Commands.init_project_knowledge()
+  local ok, tool = pcall(require, 'codecompanion._extensions.reasoning.tools.initialize_project_knowledge')
+  if not ok or not tool or not tool.cmds or not tool.cmds[1] then
+    vim.notify('Failed to load initialize_project_knowledge tool', vim.log.levels.ERROR)
+    return
+  end
+
+  tool.cmds[1](tool, {}, nil, function(res)
+    local msg = (res and res.data) or 'Initialization attempted'
+    vim.schedule(function()
+      vim.notify(msg, vim.log.levels.INFO)
+    end)
+  end)
+end
+
 ---Show project-specific chat history
 function Commands.show_project_history()
   local session_ui = SessionManagerUI.new()
@@ -85,6 +101,10 @@ function Commands.setup()
 
   vim.api.nvim_create_user_command('CodeCompanionProjectKnowledge', Commands.view_project_knowledge, {
     desc = 'View project knowledge file',
+  })
+
+  vim.api.nvim_create_user_command('CodeCompanionInitProjectKnowledge', Commands.init_project_knowledge, {
+    desc = 'Initialize project knowledge: prompt, add tools, and queue LLM instructions',
   })
 
   -- Enable auto-save by default

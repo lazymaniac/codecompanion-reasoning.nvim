@@ -72,9 +72,9 @@ local function get_picker_implementation(picker_type)
                 config.handlers.on_select(selected_session)
               end
             end)
-          end
+          end,
         }
-      end
+      end,
     }
   end
 
@@ -98,9 +98,9 @@ local function get_picker_implementation(picker_type)
               config.handlers.on_select(selected_session)
             end
           end)
-        end
+        end,
       }
-    end
+    end,
   }
 end
 
@@ -108,4 +108,3 @@ return {
   history = get_best_history_picker(),
   get_implementation = get_picker_implementation,
 }
-

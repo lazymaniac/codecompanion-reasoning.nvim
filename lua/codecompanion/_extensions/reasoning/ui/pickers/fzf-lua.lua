@@ -119,4 +119,3 @@ function FzfLuaPicker:browse()
 end
 
 return FzfLuaPicker
-

@@ -400,4 +400,3 @@ function SessionOptimizer:analyze_session(session_data)
 end
 
 return SessionOptimizer
-

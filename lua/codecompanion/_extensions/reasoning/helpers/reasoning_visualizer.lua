@@ -74,7 +74,15 @@ end
 function ReasoningVisualizer.visualize_chain(chain)
   local lines = {}
 
-  if not chain.steps or #chain.steps == 0 then
+  -- Optional problem header for context
+  local problem = chain and chain.problem or nil
+  if problem and problem ~= '' then
+    table.insert(lines, tostring(problem))
+  elseif chain then
+    table.insert(lines, 'Unknown')
+  end
+
+  if not chain or not chain.steps or #chain.steps == 0 then
     table.insert(lines, 'No steps in chain')
     return table.concat(lines, '\n')
   end

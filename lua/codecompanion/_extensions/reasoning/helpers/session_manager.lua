@@ -69,7 +69,6 @@ local function ensure_sessions_dir()
     return false
   end
 
-
   return true
 end
 
@@ -118,7 +117,6 @@ local function extract_used_tools(chat)
 
   return tools_array
 end
-
 
 -- Prepare chat data for storage (extract only serializable parts)
 ---@param chat table CodeCompanion chat object
@@ -258,7 +256,6 @@ function SessionManager.save_session(chat)
   if not write_success then
     return false, fmt('Failed to write session data to %s: %s', session_path, tostring(write_err))
   end
-
 
   return true, filename
 end
@@ -459,7 +456,6 @@ function SessionManager.delete_session(filename)
   if err then
     return false, fmt('Failed to delete session file %s: %s', session_path, err)
   end
-
 
   return true, nil
 end
@@ -668,8 +664,8 @@ function SessionManager.restore_session(filename)
           restored_message.tool_calls = message.tool_calls
           -- Record tool call ids to map subsequent tool outputs
           for _, call in ipairs(message.tool_calls) do
-            local call_id = (call and (call.id or (call["function"] and call["function"].id)))
-            local call_name = (call and call["function"] and call["function"].name) or message.tool_name or message.name
+            local call_id = (call and (call.id or (call['function'] and call['function'].id)))
+            local call_name = (call and call['function'] and call['function'].name) or message.tool_name or message.name
             if call_id and call_name then
               tool_call_map[call_id] = { name = call_name }
               last_tool_call = { id = call_id, name = call_name }
@@ -720,10 +716,14 @@ function SessionManager.restore_session(filename)
         end
 
         -- If this is an assistant tool-call message with no content, synthesize a readable summary
-        if restored_message.role == 'llm' and (not restored_message.content or restored_message.content == '') and restored_message.tool_calls then
+        if
+          restored_message.role == 'llm'
+          and (not restored_message.content or restored_message.content == '')
+          and restored_message.tool_calls
+        then
           local parts = {}
           for _, call in ipairs(restored_message.tool_calls) do
-            local fname = (call["function"] and call["function"].name) or 'tool'
+            local fname = (call['function'] and call['function'].name) or 'tool'
             table.insert(parts, string.format('called %s', fname))
           end
           restored_message.content = table.concat(parts, '; ')
@@ -1012,7 +1012,6 @@ function SessionManager.save_session_data(session_data, filename)
   if not write_success then
     return false, fmt('Failed to write session data to %s: %s', session_path, tostring(write_err))
   end
-
 
   return true, nil
 end

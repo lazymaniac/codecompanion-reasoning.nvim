@@ -278,4 +278,3 @@ function SessionManagerUI:update_config(new_opts)
 end
 
 return SessionManagerUI
-

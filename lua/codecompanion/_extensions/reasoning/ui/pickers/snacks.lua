@@ -46,7 +46,7 @@ function SnacksPicker:browse()
       format = function(item)
         -- Return formatted text parts with highlight groups
         return {
-          { item.title or tostring(item), 'Normal' }
+          { item.title or tostring(item), 'Normal' },
         }
       end,
       preview = function(item)

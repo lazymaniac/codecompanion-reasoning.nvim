@@ -352,4 +352,3 @@ function TitleGenerator:setup(new_config)
 end
 
 return TitleGenerator
-

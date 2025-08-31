@@ -169,4 +169,3 @@ function TelescopePicker:browse()
 end
 
 return TelescopePicker
-
