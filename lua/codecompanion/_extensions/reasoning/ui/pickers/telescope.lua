@@ -21,7 +21,6 @@ function TelescopePicker:browse()
     vim.notify('Telescope not available, falling back to default picker', vim.log.levels.WARN)
     return require('codecompanion._extensions.reasoning.ui.pickers.default').browse(self)
   end
-
   require('telescope.pickers')
     .new({}, {
       prompt_title = self.config.title or 'Chat Sessions',

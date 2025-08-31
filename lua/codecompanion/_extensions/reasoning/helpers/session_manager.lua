@@ -143,8 +143,24 @@ local function prepare_chat_data(chat)
     project_root = cwd,
 
     config = {
-      adapter = chat.adapter and chat.adapter.name or 'unknown',
-      model = chat.model or 'unknown',
+      adapter = (chat.adapter and (chat.adapter.name or chat.adapter.formatted_name)) or 'unknown',
+      model = (function()
+        if chat.adapter and chat.adapter.type == 'http' then
+          if chat.settings and chat.settings.model then
+            return chat.settings.model
+          end
+          local def = chat.adapter.schema and chat.adapter.schema.model and chat.adapter.schema.model.default
+          if type(def) == 'function' then
+            local ok, val = pcall(def, chat.adapter)
+            if ok and val then
+              return val
+            end
+          elseif def then
+            return def
+          end
+        end
+        return 'unknown'
+      end)(),
     },
 
     -- Enhanced tracking
@@ -519,40 +535,146 @@ function SessionManager.restore_session(filename)
     return false, err
   end
 
+  -- De-duplicate messages saved due to earlier bugs while preserving content
+  pcall(function()
+    local ok_opt, SessionOptimizer = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_optimizer')
+    if ok_opt then
+      local optimizer = SessionOptimizer.new({
+        remove_duplicate_messages = true,
+        max_consecutive_duplicates = 1,
+        remove_empty_messages = false,
+        compact_tool_outputs = false,
+        max_message_length = 10000000,
+      })
+      local optimized = optimizer:optimize_session({
+        messages = vim.deepcopy(session_data.messages or {}),
+        metadata = session_data.metadata or {},
+      })
+      session_data.messages = optimized.messages or session_data.messages
+      session_data.metadata = optimized.metadata or session_data.metadata
+    end
+  end)
+
   -- Try to access CodeCompanion and its config
   local config_ok, config = pcall(require, 'codecompanion.config')
   if not config_ok then
     return false, 'CodeCompanion config not available'
   end
 
-  -- Resolve adapter from session config or use default
-  local adapter = nil
+  -- Resolve adapter name from session config or use default
+  local adapter_name = nil
   if session_data.config and session_data.config.adapter and session_data.config.adapter ~= 'unknown' then
-    adapter = config.adapters[session_data.config.adapter]
+    adapter_name = session_data.config.adapter
   end
-
-  -- Fall back to default adapter if session adapter not available
-  if not adapter then
-    adapter = config.adapters[config.default_adapter]
+  if not adapter_name then
+    adapter_name = config.default_adapter
   end
 
   -- Convert session messages to CodeCompanion format, preserving structure
+  local function flatten_table_parts(tbl)
+    local parts = {}
+    for _, v in ipairs(tbl) do
+      if type(v) == 'string' then
+        table.insert(parts, v)
+      elseif type(v) == 'table' then
+        if type(v.text) == 'string' then
+          table.insert(parts, v.text)
+        elseif type(v.content) == 'string' then
+          table.insert(parts, v.content)
+        elseif type(v.value) == 'string' then
+          table.insert(parts, v.value)
+        end
+      end
+    end
+    return parts
+  end
+
+  local function normalize_content(content)
+    if type(content) == 'string' then
+      return content
+    elseif type(content) == 'table' then
+      -- Try to extract concatenated text fields from arrays of parts
+      local parts = flatten_table_parts(content)
+      if #parts > 0 then
+        return table.concat(parts, '\n')
+      end
+      return tostring(vim.inspect(content))
+    else
+      return tostring(content)
+    end
+  end
+
+  local function extract_any_content(msg)
+    -- prefer explicit content
+    local c = normalize_content(msg.content)
+    if c and c ~= 'nil' and vim.trim(c) ~= '' then
+      return c
+    end
+    -- fallbacks commonly seen in stored tool messages
+    local candidates = {
+      msg.output,
+      msg.result,
+      msg.text,
+      msg.message,
+      msg.data,
+      msg.delta,
+      msg.response,
+      msg.stdout,
+      msg.stderr,
+      msg.for_user,
+      msg.for_llm,
+      msg.display,
+      msg.value,
+      msg.user_output,
+    }
+    for _, cand in ipairs(candidates) do
+      local s = normalize_content(cand)
+      if s and s ~= 'nil' and vim.trim(s) ~= '' then
+        return s
+      end
+    end
+    return ''
+  end
   local messages = {}
+  local tool_call_map = {}
+  local last_tool_call = nil
   for _, message in ipairs(session_data.messages) do
     if message.role then
       -- Skip system messages only
       local is_system_prompt = message.role == 'system'
 
       if not is_system_prompt then
+        -- Normalize role for older dumps (function -> tool)
+        local role = message.role
+        if role == 'function' then
+          role = 'tool'
+          if not message.tool_call_id and message.id then
+            message.tool_call_id = message.id
+          end
+          if not message.tool_name and message.name then
+            message.tool_name = message.name
+          end
+        elseif role == 'llm' or role == 'model' then
+          role = 'llm'
+        end
         -- Preserve the full message structure for proper CodeCompanion display
         local restored_message = {
-          role = message.role,
-          content = message.content,
+          role = role,
+          content = extract_any_content(message),
         }
 
         -- Restore all preserved fields
         if message.tool_calls then
           restored_message.tool_calls = message.tool_calls
+          -- Record tool call ids to map subsequent tool outputs
+          for _, call in ipairs(message.tool_calls) do
+            local call_id = (call and (call.id or (call["function"] and call["function"].id)))
+            local call_name = (call and call["function"] and call["function"].name) or message.tool_name or message.name
+            if call_id and call_name then
+              tool_call_map[call_id] = { name = call_name }
+              last_tool_call = { id = call_id, name = call_name }
+            end
+          end
         end
         if message.tool_call_id then
           restored_message.tool_call_id = message.tool_call_id
@@ -570,7 +692,9 @@ function SessionManager.restore_session(filename)
           restored_message.id = message.id
         end
         if message.opts then
-          restored_message.opts = message.opts
+          restored_message.opts = vim.deepcopy(message.opts)
+        else
+          restored_message.opts = {}
         end
         if message.reasoning then
           restored_message.reasoning = message.reasoning
@@ -581,11 +705,40 @@ function SessionManager.restore_session(filename)
         if message.context_id then
           restored_message.context_id = message.context_id
         end
-        if message.visible ~= nil then
+        -- Force visibility for normal conversation and tool outputs on restore
+        if role == 'user' or role == 'llm' or role == 'tool' then
+          restored_message.visible = true
+          restored_message.opts.visible = true
+        elseif message.visible ~= nil then
           restored_message.visible = message.visible
+          if restored_message.opts.visible == nil then
+            restored_message.opts.visible = message.visible
+          end
         end
         if message.timestamp then
           restored_message.timestamp = message.timestamp
+        end
+
+        -- If this is an assistant tool-call message with no content, synthesize a readable summary
+        if restored_message.role == 'llm' and (not restored_message.content or restored_message.content == '') and restored_message.tool_calls then
+          local parts = {}
+          for _, call in ipairs(restored_message.tool_calls) do
+            local fname = (call["function"] and call["function"].name) or 'tool'
+            table.insert(parts, string.format('called %s', fname))
+          end
+          restored_message.content = table.concat(parts, '; ')
+        end
+
+        -- For tool outputs with no textual content, provide a placeholder to avoid rendering 'nil'
+        if restored_message.role == 'tool' and (not restored_message.content or restored_message.content == '') then
+          local name = restored_message.tool_name or restored_message.name or 'tool'
+          restored_message.content = string.format('[%s output]', name)
+        end
+
+        -- If this is a tool output without an id, associate it to the last assistant tool call
+        if restored_message.role == 'tool' and not restored_message.tool_call_id and last_tool_call then
+          restored_message.tool_call_id = last_tool_call.id
+          restored_message.tool_name = restored_message.tool_name or last_tool_call.name
         end
 
         table.insert(messages, restored_message)
@@ -597,10 +750,17 @@ function SessionManager.restore_session(filename)
   local success, chat_or_error = pcall(function()
     local Chat = require('codecompanion.strategies.chat')
     local chat = Chat.new({
-      adapter = adapter,
+      adapter = adapter_name,
       auto_submit = false, -- Don't auto-submit, let user review first
       buffer_context = require('codecompanion.utils.context').get(vim.api.nvim_get_current_buf()),
       last_role = messages[#messages] and messages[#messages].role or 'user',
+      settings = (function()
+        local model = session_data.config and session_data.config.model
+        if model and model ~= 'unknown' then
+          return { model = model }
+        end
+        return nil
+      end)(),
     })
 
     -- Preserve the original session ID to maintain continuity
@@ -661,27 +821,97 @@ function SessionManager.restore_session(filename)
     end
   end
 
+  local added_reasoning = {}
   for _, message in ipairs(messages) do
     pcall(function()
-      -- Check if this is a tool output message
+      -- If this is an assistant reasoning chunk, render it first using CC's reasoning formatter
+      if message.role == 'llm' and message.reasoning and type(message.reasoning) == 'table' then
+        local rtext = normalize_content(message.reasoning.content)
+        local key = tostring(message.id or '') .. ':' .. tostring(#rtext)
+        if rtext and vim.trim(rtext) ~= '' and not added_reasoning[key] then
+          added_reasoning[key] = true
+          chat:add_buf_message({ role = config.constants.LLM_ROLE, content = rtext }, {
+            type = chat.MESSAGE_TYPES.REASONING_MESSAGE,
+          })
+        end
+      end
+
+      -- Render tool outputs via add_tool_output when possible to preserve linkage
       if message.tool_call_id and message.role == 'tool' then
-        -- For tool output messages, we need to create a mock tool object
-        -- to use with add_tool_output
-        local mock_tool = {
-          function_call = {
-            id = message.tool_call_id,
-            name = message.tool_name or message.name or 'unknown_tool',
-          },
-        }
-        chat:add_tool_output(mock_tool, message.content, '')
+        local mapping = tool_call_map[message.tool_call_id]
+        local tool_name = (message.tool_name or message.name or (mapping and mapping.name))
+        local tool_config = tool_name and config.strategies.chat.tools[tool_name] or nil
+        local tool_impl = tool_config and tool_config.callback or nil
+
+        local tool_obj = { function_call = { id = message.tool_call_id, name = tool_name or 'unknown_tool' } }
+        if tool_impl then
+          -- Attach schema and fallback methods for better fidelity
+          tool_obj.schema = tool_impl.schema
+          tool_obj.id = tool_impl.id or ('restored:' .. (tool_name or 'tool'))
+          setmetatable(tool_obj, { __index = tool_impl })
+        end
+
+        -- Fallback to generic rendering if add_tool_output errors
+        local ok = pcall(function()
+          -- Some implementations accept (tool, content) or (tool, content, display)
+          local out_text = extract_any_content(message)
+          chat:add_tool_output(tool_obj, out_text, out_text)
+        end)
+        if not ok then
+          local is_visible = (message.role == 'user' or message.role == 'llm' or message.role == 'tool') and true
+            or message.visible ~= false
+          -- Ensure user-visible tool block formatting in UI
+          local out_text = extract_any_content(message)
+          chat:add_message(vim.tbl_extend('force', message, { content = out_text }), { visible = is_visible })
+          chat:add_buf_message({ role = config.constants.LLM_ROLE, content = out_text }, {
+            type = chat.MESSAGE_TYPES.TOOL_MESSAGE,
+          })
+        end
       else
-        -- First add to message history
-        chat:add_message(message, { visible = false })
-        -- Then add to buffer display
-        chat:add_buf_message(message, {})
+        -- Regular chat message
+        local is_visible = (message.role == 'user' or message.role == 'llm' or message.role == 'tool') and true
+          or message.visible ~= false
+        chat:add_message(message, { visible = is_visible })
+        -- Use explicit message type for UI rendering
+        local ui_type = nil
+        if message.role == 'llm' then
+          ui_type = chat.MESSAGE_TYPES.LLM_MESSAGE
+        elseif message.role == 'tool' then
+          ui_type = chat.MESSAGE_TYPES.TOOL_MESSAGE
+        end
+        chat:add_buf_message(message, ui_type and { type = ui_type } or {})
       end
     end)
   end
+
+  -- Sanitize all stored messages to ensure HTTP adapters receive strings
+  pcall(function()
+    if chat and chat.messages then
+      for _, m in ipairs(chat.messages) do
+        if m and m.content ~= nil and type(m.content) ~= 'string' then
+          -- Try to normalize tables into strings; otherwise, empty string
+          local ok, normalized = pcall(function()
+            return normalize_content(m.content)
+          end)
+          if ok and normalized then
+            m.content = normalized
+          else
+            m.content = ''
+          end
+        end
+      end
+    end
+  end)
+
+  -- Ensure the chat is ready for next user input with a visible user header
+  pcall(function()
+    if chat and chat.tools_done then
+      chat:tools_done({})
+    else
+      -- Fallback: explicitly add a user header in the buffer
+      chat:add_buf_message({ role = config.constants.USER_ROLE, content = '' })
+    end
+  end)
 
   -- Ensure buffer is ready for user input
   vim.schedule(function()
