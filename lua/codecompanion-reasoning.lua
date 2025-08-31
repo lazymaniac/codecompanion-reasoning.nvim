@@ -64,7 +64,8 @@ function M.setup(opts)
       title_generation_opts = {
         adapter = nil,
         model = nil,
-        refresh_every_n_prompts = 0,
+        -- Refresh every N user messages starting with the first one (1, 1+N, ...)
+        refresh_every_n_prompts = 3,
         max_refreshes = 3,
         format_title = nil,
       },

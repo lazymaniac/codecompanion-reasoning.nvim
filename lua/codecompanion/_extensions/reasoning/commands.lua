@@ -107,6 +107,17 @@ function Commands.setup()
     desc = 'Initialize project knowledge: prompt, add tools, and queue LLM instructions',
   })
 
+  vim.api.nvim_create_user_command('CodeCompanionRefreshSessionTitles', function()
+    local ok, SM = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
+    if not ok then
+      return vim.notify('Failed to load session manager', vim.log.levels.ERROR)
+    end
+    SM.refresh_session_titles()
+    vim.notify('Refreshing session titles in background…', vim.log.levels.INFO)
+  end, {
+    desc = 'Regenerate and persist session titles using the LLM',
+  })
+
   -- Enable auto-save by default
   ChatHooks.setup({ auto_save = true })
 end

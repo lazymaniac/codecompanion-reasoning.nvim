@@ -85,8 +85,12 @@ local function format_session_list_entry(session, index, is_selected)
   local indent = UI_CONFIG.typography.list_indent
   local prefix = is_selected and UI_CONFIG.icons.selected or UI_CONFIG.icons.session
 
-  -- Main session line: "▸ Session 1"
-  local session_title = fmt('%s%s Session %d', indent, prefix, index)
+  -- Main session line shows generated title when available
+  local display_title = session.title and vim.trim(session.title) ~= '' and session.title or nil
+  display_title = display_title or (session.preview and session.preview:match('^[^\n\r]*'))
+  display_title = display_title or ('Session ' .. tostring(index))
+
+  local session_title = fmt('%s%s %s', indent, prefix, display_title)
   table.insert(lines, session_title)
 
   -- Highlight prefix
@@ -191,6 +195,7 @@ local function build_session_preview(session)
 
   -- Session Overview
   add_header('Session Overview')
+  add_field('Title', session.title or 'Untitled', UI_CONFIG.colors.list_header)
   add_field('Created', session.created_at or 'Unknown', UI_CONFIG.colors.list_date)
   add_field('Model', session.model or 'Unknown', UI_CONFIG.colors.list_model)
   add_field('Messages', tostring(session.total_messages or 0), UI_CONFIG.colors.accent_secondary)

@@ -3,6 +3,7 @@
 local ChatHooks = {}
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
+local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.title_generator')
 
 local auto_save_enabled = true
 
@@ -79,6 +80,59 @@ local function setup_codecompanion_hooks()
           inject_project_context(chat_obj)
         end
       end
+    end,
+  })
+
+  -- Generate or refresh title on the first message and then every N messages
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'CodeCompanionChatSubmitted',
+    group = group,
+    callback = function(event)
+      -- Try to get the full chat object
+      local chat_obj = nil
+      if event and event.data and event.data.bufnr and vim.api.nvim_buf_is_valid(event.data.bufnr) then
+        local ok, Chat = pcall(require, 'codecompanion.strategies.chat')
+        if ok and Chat.buf_get_chat then
+          local chat_ok, result = pcall(Chat.buf_get_chat, event.data.bufnr)
+          if chat_ok then
+            chat_obj = result
+          end
+        end
+      end
+
+      if not chat_obj then
+        return
+      end
+
+      -- Decide if we should generate or refresh a title based on interval cadence (1, 1+N, 1+2N, ...)
+      local tg = TitleGenerator.new({ auto_generate_title = true })
+      local should, is_refresh = tg:should_generate(chat_obj)
+      if not should then
+        return
+      end
+
+      -- Run async generation; persist on chat object and let normal save persist it later
+      tg:generate(chat_obj, function(title)
+        if not title or title == '' then
+          return
+        end
+        -- Persist on chat object for subsequent saves and UI usage
+        chat_obj.opts = chat_obj.opts or {}
+        chat_obj.opts.title = title
+        -- Mark the current user count as applied to avoid re-running at same threshold
+        local applied = chat_obj.opts._title_generated_counts or {}
+        local count = (tg and tg._count_user_messages and tg:_count_user_messages(chat_obj)) or 0
+        applied[count] = true
+        chat_obj.opts._title_generated_counts = applied
+
+        -- Optionally trigger a lightweight autosave only once to persist title early
+        -- Do not spam saves: only auto-save if there is at least one message
+        if chat_obj.messages and #chat_obj.messages > 0 then
+          pcall(function()
+            SessionManager.auto_save_session(chat_obj)
+          end)
+        end
+      end, is_refresh)
     end,
   })
 

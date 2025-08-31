@@ -10,7 +10,9 @@ local DEFAULT_CONFIG = {
   title_generation_opts = {
     adapter = nil, -- defaults to current chat adapter
     model = nil, -- defaults to current chat model
-    refresh_every_n_prompts = 0, -- 0 to disable
+    -- Refresh cadence: every N user messages starting with the first one
+    -- Counts triggering generation: 1, 1+N, 1+2N, ...
+    refresh_every_n_prompts = 3,
     max_refreshes = 3,
     format_title = nil, -- optional function to format generated titles
   },
@@ -56,22 +58,22 @@ function TitleGenerator:should_generate(chat)
     return false, false
   end
 
-  if not chat.opts or not chat.opts.title then
-    return true, false
-  end
+  -- Determine user message count and the configured interval
+  local user_message_count = self:_count_user_messages(chat)
+  local applied = (chat.opts and chat.opts._title_generated_counts) or {}
 
   local refresh_opts = self.opts.title_generation_opts or {}
-  if refresh_opts.refresh_every_n_prompts and refresh_opts.refresh_every_n_prompts > 0 then
-    local user_message_count = self:_count_user_messages(chat)
-    local refresh_count = chat.opts.title_refresh_count or 0
-    local max_refreshes = refresh_opts.max_refreshes or 3
+  local n = refresh_opts.refresh_every_n_prompts or 3
+  if type(n) ~= 'number' or n <= 0 then
+    n = 3
+  end
 
-    if
-      user_message_count > 0
-      and user_message_count % refresh_opts.refresh_every_n_prompts == 0
-      and refresh_count < max_refreshes
-    then
-      return true, true
+  -- Trigger on counts: 1, 1+n, 1+2n, ... and only once per count
+  if user_message_count >= 1 then
+    local should_at_this_count = ((user_message_count - 1) % n) == 0
+    if should_at_this_count and not applied[user_message_count] then
+      local is_refresh = chat.opts and chat.opts.title and true or false
+      return true, is_refresh
     end
   end
 
@@ -108,11 +110,11 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     return
   end
 
-  -- Filter relevant messages (both user and assistant, excluding tagged/reference messages)
+  -- Filter relevant messages (ONLY user messages; exclude assistant and tagged/reference messages)
   local relevant_messages = vim.tbl_filter(function(msg)
-    -- Include user and assistant messages with actual content
+    -- Include user messages with actual content only
     local has_content = msg.content and vim.trim(msg.content) ~= ''
-    local is_relevant_role = msg.role == 'user' or msg.role == 'assistant'
+    local is_relevant_role = msg.role == 'user'
     local not_tagged = not (msg.opts and (msg.opts.tag or msg.opts.reference or msg.opts.context_id))
     return has_content and is_relevant_role and not_tagged
   end, chat.messages)
@@ -137,7 +139,7 @@ function TitleGenerator:generate(chat, callback, is_refresh)
   local conversation_context = ''
 
   if is_refresh then
-    -- For refreshes, use recent conversation (last 6 messages or all if fewer)
+    -- For refreshes, use recent user conversation (last 6 user messages or all if fewer)
     local recent_count = math.min(6, #relevant_messages)
     local start_index = math.max(1, #relevant_messages - recent_count + 1)
     local recent_messages = {}

@@ -81,7 +81,7 @@ T['restores all visible messages'] = function()
       timestamp = os.time(),
     }
 
-    local filename = 'test_restore.lua'
+    local filename = 'session_restore_test.lua'
     local ok, err = SessionManager.save_session_data(session_data, filename)
     assert(ok, err)
 
@@ -89,7 +89,9 @@ T['restores all visible messages'] = function()
     assert(restored, restore_err)
   ]])
   -- Validate added messages went to buffer
-  child.lua([[ chat_counts = _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.added or { history = -1, buffer = -1 } ]])
+  child.lua(
+    [[ chat_counts = _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.added or { history = -1, buffer = -1 } ]]
+  )
   local counts = child.lua_get('chat_counts')
   h.eq(78, counts.history)
   h.eq(78, counts.buffer)
@@ -111,7 +113,7 @@ T['restores tool call cycles visibly'] = function()
       timestamp = os.time(),
     }
 
-    local filename = 'test_tool_cycle.lua'
+    local filename = 'session_tool_cycle_test.lua'
     local ok, err = SessionManager.save_session_data(session_data, filename)
     assert(ok, err)
 
@@ -119,7 +121,9 @@ T['restores tool call cycles visibly'] = function()
     assert(restored, restore_err)
   ]])
 
-  child.lua([[ chat_counts = _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.added or { history = -1, buffer = -1, tool = -1 } ]])
+  child.lua(
+    [[ chat_counts = _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.added or { history = -1, buffer = -1, tool = -1 } ]]
+  )
   local counts = child.lua_get('chat_counts')
   -- Expect 3 regular messages (user, assistant tool_call, assistant follow-up) and 1 tool output
   h.eq(3, counts.history)

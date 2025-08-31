@@ -4,6 +4,7 @@ local SessionManager = {}
 
 local fmt = string.format
 local uv = vim.loop
+local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.title_generator')
 
 -- Configuration
 local CONFIG = {
@@ -226,7 +227,8 @@ function SessionManager.save_session(chat)
     return false, 'Failed to create sessions directory'
   end
 
-  local filename = generate_session_filename()
+  local existing_title = (chat.opts and chat.opts.title) or nil
+  local filename = chat._session_filename or generate_session_filename()
   if not filename or filename == '' then
     return false, 'Invalid filename generated'
   end
@@ -234,27 +236,56 @@ function SessionManager.save_session(chat)
   local session_path = get_session_path(filename)
   local session_data = prepare_chat_data(chat)
 
-  -- Generate title if enabled and not already set
-  if CONFIG.auto_generate_title and not session_data.title and session_data.messages and #session_data.messages > 0 then
+  -- Include title in stored data now if available (fallback initial)
+  if existing_title and existing_title ~= '' then
+    session_data.title = existing_title
+  elseif CONFIG.auto_generate_title and session_data.messages and #session_data.messages > 0 then
+    -- provisional fallback title until async generation completes
     session_data.title = generate_title_from_messages(session_data.messages)
   end
 
-  -- Write session data as Lua code using vim.inspect
-  local lua_content = 'return ' .. vim.inspect(session_data)
-
-  local file, open_err = io.open(session_path, 'w')
-  if not file then
-    return false, fmt('Failed to open session file for writing %s: %s', session_path, tostring(open_err))
+  -- Write session data (create or overwrite)
+  do
+    local lua_content = 'return ' .. vim.inspect(session_data)
+    local file, open_err = io.open(session_path, 'w')
+    if not file then
+      return false, fmt('Failed to open session file for writing %s: %s', session_path, tostring(open_err))
+    end
+    local write_success, write_err = pcall(function()
+      file:write(lua_content)
+    end)
+    file:close()
+    if not write_success then
+      return false, fmt('Failed to write session data to %s: %s', session_path, tostring(write_err))
+    end
   end
 
-  local write_success, write_err = pcall(function()
-    file:write(lua_content)
-  end)
+  -- Remember filename on chat for subsequent overwrites (avoid multiple files per session)
+  chat._session_filename = filename
+  chat.opts = chat.opts or {}
+  chat.opts.session_filename = filename
 
-  file:close()
-
-  if not write_success then
-    return false, fmt('Failed to write session data to %s: %s', session_path, tostring(write_err))
+  -- Kick off async title generation and persist title (no rename required)
+  if CONFIG.auto_generate_title then
+    pcall(function()
+      local tg = TitleGenerator.new({
+        auto_generate_title = true,
+      })
+      tg:generate(chat, function(new_title)
+        if not new_title or new_title == '' then
+          return
+        end
+        -- Update content with title in place (keep filename stable)
+        local updated = vim.deepcopy(session_data)
+        updated.title = new_title
+        local lua_content2 = 'return ' .. vim.inspect(updated)
+        local wf = io.open(session_path, 'w')
+        if wf then
+          wf:write(lua_content2)
+          wf:close()
+        end
+      end)
+    end)
   end
 
   return true, filename
@@ -373,6 +404,92 @@ function SessionManager.list_sessions(filter_opts)
             tonumber = tonumber,
           }
 
+          -- Asynchronously (re)generate titles for existing sessions
+          ---@param filter_opts? table Optional filter for list_sessions
+          function SessionManager.refresh_session_titles(filter_opts)
+            local sessions = SessionManager.list_sessions(filter_opts)
+            if #sessions == 0 then
+              return
+            end
+
+            local tg = TitleGenerator.new({ auto_generate_title = true })
+
+            for _, meta in ipairs(sessions) do
+              -- Load full session content
+              local session_data = SessionManager.load_session(meta.filename)
+              if
+                session_data
+                and (
+                  not session_data.title
+                  or session_data.title == ''
+                  or session_data.title == SessionManager.get_session_preview(session_data)
+                )
+              then
+                -- Build minimal pseudo chat for TitleGenerator
+                local chat = {
+                  messages = session_data.messages or {},
+                  adapter = (function()
+                    local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+                    if adapters_ok and adapters.resolve and session_data.config and session_data.config.adapter then
+                      return adapters.resolve(session_data.config.adapter)
+                    end
+                    -- fallback to current adapter (if any) or nil
+                    return nil
+                  end)(),
+                  settings = (function()
+                    local schema_ok, schema = pcall(require, 'codecompanion.schema')
+                    if schema_ok and session_data.config and session_data.config.model and chat and chat.adapter then
+                      return schema.get_default(chat.adapter, { model = session_data.config.model })
+                    end
+                    return nil
+                  end)(),
+                }
+
+                -- Generate and persist
+                pcall(function()
+                  tg:generate(chat, function(new_title)
+                    if not new_title or new_title == '' then
+                      return
+                    end
+
+                    -- Read original file, update title, and write in place
+                    local session_path = get_session_path(meta.filename)
+                    local file = io.open(session_path, 'r')
+                    if not file then
+                      return
+                    end
+                    local content = file:read('*all')
+                    file:close()
+
+                    local loader = load
+                    local ok1, chunk = pcall(
+                      loader,
+                      content,
+                      nil,
+                      't',
+                      { pairs = pairs, ipairs = ipairs, type = type, tostring = tostring, tonumber = tonumber }
+                    )
+                    if not ok1 or not chunk then
+                      return
+                    end
+                    local ok2, data = pcall(chunk)
+                    if not ok2 or type(data) ~= 'table' then
+                      return
+                    end
+                    data.title = new_title
+
+                    local updated = 'return ' .. vim.inspect(data)
+                    local wf = io.open(session_path, 'w')
+                    if wf then
+                      wf:write(updated)
+                      wf:close()
+                    end
+                  end)
+                end)
+              end
+            end
+          end
+
           local chunk, compile_err = load(content, nil, 't', safe_env)
           local ok, session_data = false, nil
           if chunk then
@@ -397,6 +514,7 @@ function SessionManager.list_sessions(filter_opts)
               model = session_data.config and session_data.config.model or 'Unknown',
               chat_id = session_data.chat_id or 'unknown',
               file_size = stat.size,
+              title = session_data.title,
               preview = SessionManager.get_session_preview(session_data),
             })
           end
@@ -786,6 +904,12 @@ function SessionManager.restore_session(filename)
   end
 
   -- Add only the tools that were used in the original session
+  -- Preserve original session filename for subsequent saves
+  chat._session_filename = filename
+  chat.opts = chat.opts or {}
+  chat.opts.session_filename = filename
+
+  --
   local session_tools = session_data.tools or {}
 
   for _, tool_name in ipairs(session_tools) do

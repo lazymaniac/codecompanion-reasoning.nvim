@@ -95,23 +95,33 @@ function helpers.child_start(child)
     local function compile(code)
       local loader = loadstring or load
       local f, err = loader(code)
-      if not f then error(err) end
-      if setfenv then setfenv(f, CHILD_ENV) end
+      if not f then
+        error(err)
+      end
+      if setfenv then
+        setfenv(f, CHILD_ENV)
+      end
       return f
     end
 
-    child.is_running = function() return true end
+    child.is_running = function()
+      return true
+    end
     child.restart = function() end
     child.start = function() end
     child.stop = function() end
     child.job = child.job or {}
     child.lua = function(_, code)
-      if type(code) ~= 'string' then return nil end
+      if type(code) ~= 'string' then
+        return nil
+      end
       local f = compile(code)
       return f()
     end
     child.lua_get = function(_, expr)
-      if type(expr) ~= 'string' then return nil end
+      if type(expr) ~= 'string' then
+        return nil
+      end
       local f = compile('return ' .. expr)
       return f()
     end
@@ -136,14 +146,20 @@ function helpers.child_start(child)
       root .. '/lua/?/init.lua',
       package.path,
     }, ';')
-  ]], root)
+  ]],
+    root
+  )
 
   if _G.__CHILD_SHIM then
     -- Execute setup in child env
     local loader = loadstring or load
     local f = loader(setup_code)
-    if f and setfenv then setfenv(f, rawget(_G, '__CHILD_ENV')) end
-    if f then pcall(f) end
+    if f and setfenv then
+      setfenv(f, rawget(_G, '__CHILD_ENV'))
+    end
+    if f then
+      pcall(f)
+    end
   else
     child.lua(setup_code)
   end
