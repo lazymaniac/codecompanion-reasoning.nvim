@@ -43,7 +43,7 @@ return {
         properties = {
           question = {
             type = 'string',
-            description = 'Clear, concise and specific question about coding decision that needs user input. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
+            description = 'Clear, concise and specific question about any ambiguity that needs user input. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
           },
           options = {
             type = 'array',

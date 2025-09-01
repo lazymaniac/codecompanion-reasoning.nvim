@@ -12,38 +12,19 @@ if not log_ok then
 end
 
 local function find_project_root()
-  local root_patterns = { '.git', 'package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', '.project' }
-
-  local current_dir = vim.fn.getcwd()
-  local path_parts = vim.split(current_dir, '/')
-
-  for i = #path_parts, 1, -1 do
-    local test_path = '/' .. table.concat(path_parts, '/', 1, i)
-
-    for _, pattern in ipairs(root_patterns) do
-      if
-        vim.fn.filereadable(test_path .. '/' .. pattern) == 1 or vim.fn.isdirectory(test_path .. '/' .. pattern) == 1
-      then
-        return test_path
-      end
-    end
-  end
-
-  return current_dir
+  return vim.fn.getcwd()
 end
 
+-- Only used when we actually write to the file (on user approval).
 local function ensure_knowledge_file()
   local project_root = find_project_root()
   local codecompanion_dir = project_root .. '/.codecompanion'
   local knowledge_file = codecompanion_dir .. '/project-knowledge.md'
 
-  -- Create directory if it doesn't exist
   if vim.fn.isdirectory(codecompanion_dir) == 0 then
     vim.fn.mkdir(codecompanion_dir, 'p')
   end
 
-  -- Create basic knowledge file structure if it doesn't exist
-  -- (LLM will handle initialization via initialize_project_knowledge tool)
   if vim.fn.filereadable(knowledge_file) == 0 then
     local initial_content = [[# Project Knowledge
 
@@ -68,6 +49,11 @@ local function ensure_knowledge_file()
   end
 
   return knowledge_file
+end
+
+local function get_knowledge_file_path()
+  local project_root = find_project_root()
+  return project_root .. '/.codecompanion/project-knowledge.md'
 end
 
 local function get_recent_changed_files()
@@ -165,7 +151,10 @@ end
 
 -- Load project knowledge for auto-injection into chat context
 local function load_project_knowledge()
-  local knowledge_file = ensure_knowledge_file()
+  local knowledge_file = get_knowledge_file_path()
+  if vim.fn.filereadable(knowledge_file) == 0 then
+    return nil
+  end
 
   local file = io.open(knowledge_file, 'r')
   if not file then
@@ -243,7 +232,7 @@ _G.CodeCompanionProjectKnowledge = {
 }
 
 return {
-  name = 'update_project_knowledge',
+  name = 'project_knowledge',
 
   opts = {},
 
@@ -265,8 +254,9 @@ return {
 
       -- Show user approval dialog
       show_knowledge_approval_dialog(proposal, function(result)
+        local is_ok = type(result) == 'string' and result:match('^%s*✓') ~= nil
         callback({
-          status = 'success',
+          status = is_ok and 'success' or 'error',
           data = result,
         })
       end)
@@ -274,7 +264,9 @@ return {
   },
 
   schema = {
+    type = 'function',
     ['function'] = {
+      name = 'project_knowledge',
       description = 'Update project knowledge with new information (project context is auto-loaded at chat start)',
       parameters = {
         type = 'object',
@@ -290,7 +282,22 @@ return {
           },
         },
         required = { 'description' },
+        additionalProperties = false,
       },
+      strict = true,
     },
+  },
+
+  output = {
+    success = function(self, agent, cmd, stdout)
+      local chat = agent.chat
+      local result = vim.iter(stdout):flatten():join('\n')
+      return chat:add_tool_output(self, result, result)
+    end,
+    error = function(self, agent, cmd, stderr)
+      local chat = agent.chat
+      local errors = vim.iter(stderr):flatten():join('\n')
+      return chat:add_tool_output(self, errors)
+    end,
   },
 }

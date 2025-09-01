@@ -2,17 +2,25 @@
 
 Advanced reasoning tools extension for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
-This extension provides sophisticated AI reasoning capabilities including Chain of Thought, Tree of Thought, and Graph of Thought agents, plus interactive user consultation tools.
+This extension provides sophisticated AI reasoning capabilities (Chain/Tree/Graph of Thought agents, Meta agent, Ask User), project knowledge integration, and session management with titles and history.
 
 ## Features
 
-- **Chain of Thoughts Agent**: Sequential reasoning for complex problems
-- **Tree of Thoughts Agent**: Explores multiple solution branches
-- **Graph of Thoughts Agent**: Network-based reasoning with interconnected thoughts
-- **Ask User Tool**: Interactive decision-making with user consultation
-- **Meta Agent**: Automatically selects the best reasoning approach
-- **Tool Discovery**: Dynamic tool exploration and selection
-- **Reasoning Visualization**: Visual representation of thought processes
+- **Reasoning Agents**: Chain, Tree, and Graph of Thoughts; plus a **Meta Agent** that chooses the best approach.
+- **Ask User**: Interactive decision-making tool for ambiguous choices or confirmations.
+- **Project Knowledge**:
+  - Auto-loads context from `.codecompanion/project-knowledge.md` into new chats.
+  - `initialize_project_knowledge`: saves a comprehensive knowledge file provided by the model.
+  - `project_knowledge`: proposes changelog entries and updates the knowledge file with user approval.
+  - Auto-prompts to initialize when missing, and auto-submits the prompt to start immediately.
+- **Session Management**:
+  - Auto-save sessions, browse history, restore last session, and project-scoped views.
+  - Title generation on first message and periodic refresh (configurable).
+  - Optional startup dialog to continue last chat.
+- **Tool Discovery**: `add_tools` lists available tools and adds them to the current chat on demand.
+- **UI**:
+  - Session picker UI; picker backends: `telescope`, `fzf-lua`, `snacks`, or default.
+  - Reasoning visualization for agents.
 
 ## Requirements
 
@@ -30,7 +38,25 @@ This extension provides sophisticated AI reasoning capabilities including Chain 
     "olimorris/codecompanion.nvim",
   },
   config = function()
-    require("codecompanion-reasoning").setup()
+    require("codecompanion-reasoning").setup({
+      chat_history = {
+        auto_save = true,
+        auto_load_last_session = false,
+        auto_generate_title = true,
+        sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
+        max_sessions = 100,
+        enable_commands = true,
+        picker = 'auto', -- 'telescope' | 'fzf-lua' | 'snacks' | 'default' | 'auto'
+        continue_last_chat = false,
+        title_generation_opts = {
+          adapter = nil,
+          model = nil,
+          refresh_every_n_prompts = 3,
+          max_refreshes = 3,
+          format_title = nil,
+        },
+      },
+    })
   end,
 }
 ```
@@ -59,8 +85,7 @@ require("codecompanion-reasoning").setup({
 
 ### Integration with CodeCompanion
 
-The extension automatically registers with CodeCompanion when installed. You can
-also manually register it:
+The extension automatically registers with CodeCompanion when installed. To manually register:
 
 ```lua
 require("codecompanion").setup({
@@ -131,6 +156,15 @@ Automatically selects the most appropriate reasoning agent based on the problem 
 
 Dynamically discovers and suggests relevant tools for the current task.
 
+### Project Knowledge
+
+- `initialize_project_knowledge`: Create or overwrite `.codecompanion/project-knowledge.md` with provided markdown.
+- `project_knowledge`: Propose and store changelog updates (with file list), and auto-load context into new chats.
+
+Behavior:
+- On chat start, if the knowledge file is missing, you will be prompted to initialize it. The request is auto-submitted to the model.
+- Only `.codecompanion/project-knowledge.md` is considered for auto-injected context.
+
 ## Usage
 
 Once installed, the reasoning tools are automatically available in CodeCompanion chats. The AI will use them when appropriate, or you can request specific reasoning approaches:
@@ -139,7 +173,17 @@ Once installed, the reasoning tools are automatically available in CodeCompanion
 User: "Use chain of thought to analyze this complex function"
 User: "Apply tree of thought reasoning to find the best refactoring approach"
 User: "Use the ask user tool to help me decide between these options"
+User: "Initialize project knowledge for this repo"
 ```
+
+### Commands
+
+- `:CodeCompanionChatHistory`: Browse all sessions.
+- `:CodeCompanionChatLast`: Restore the most recent session.
+- `:CodeCompanionProjectHistory`: Browse sessions scoped to current cwd.
+- `:CodeCompanionProjectKnowledge`: Open `.codecompanion/project-knowledge.md` if present.
+- `:CodeCompanionInitProjectKnowledge`: Queue instructions to initialize project knowledge in the current chat.
+- `:CodeCompanionRefreshSessionTitles`: Regenerate session titles in the background.
 
 ## Development
 
@@ -172,3 +216,8 @@ MIT License - see LICENSE file for details.
 ## Credits
 
 @olimorris for such a great plugin
+
+---
+
+Notes
+- Project root is taken from Neovim `cwd` throughout the extension to match user workflow.

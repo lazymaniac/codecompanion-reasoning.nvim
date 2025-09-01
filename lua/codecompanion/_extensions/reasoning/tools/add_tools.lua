@@ -70,7 +70,7 @@ local function get_all_tools_with_schemas()
     ['meta_agent'] = true,
     ['ask_user'] = true,
     ['add_tools'] = true,
-    ['project_context'] = true,
+    ['project_knowledge'] = true,
   }
 
   for tool_name, tool_config in pairs(tools_config) do
@@ -202,7 +202,7 @@ local function handle_add_tool(args)
     ['meta_agent'] = true,
     ['ask_user'] = true,
     ['add_tools'] = true,
-    ['project_context'] = true,
+    ['project_knowledge'] = true,
   }
 
   if excluded_tools[args.tool_name] then

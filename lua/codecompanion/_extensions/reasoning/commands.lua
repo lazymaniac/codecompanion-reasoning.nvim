@@ -33,25 +33,7 @@ end
 ---View project knowledge file
 function Commands.view_project_knowledge()
   local function find_project_root()
-    local root_patterns = { '.git', 'package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', '.project' }
-
-    local current_dir = vim.fn.getcwd()
-    local path_parts = vim.split(current_dir, '/')
-
-    for i = #path_parts, 1, -1 do
-      local test_path = '/' .. table.concat(path_parts, '/', 1, i)
-
-      for _, pattern in ipairs(root_patterns) do
-        if
-          vim.fn.filereadable(test_path .. '/' .. pattern) == 1
-          or vim.fn.isdirectory(test_path .. '/' .. pattern) == 1
-        then
-          return test_path
-        end
-      end
-    end
-
-    return current_dir
+    return vim.fn.getcwd()
   end
 
   local project_root = find_project_root()
@@ -60,7 +42,7 @@ function Commands.view_project_knowledge()
   if vim.fn.filereadable(knowledge_file) == 1 then
     vim.cmd('edit ' .. knowledge_file)
   else
-    vim.notify('No project knowledge file found. Use store_knowledge tool to create one.', vim.log.levels.INFO)
+    vim.notify('No project knowledge file found. Use initialize_project_knowledge to create one.', vim.log.levels.INFO)
   end
 end
 
