@@ -161,10 +161,12 @@ Dynamically discovers and suggests relevant tools for the current task.
 - `project_knowledge`: Propose and store changelog updates (with optional file list). This tool only updates the file; it does not load context.
 
 Behavior:
+
 - On chat start, if the knowledge file is missing, you will be prompted to initialize it. The request is auto-submitted to the model.
 - Context is auto-injected by reading `.codecompanion/project-knowledge.md` directly and adding it as a hidden system message.
 
 Examples:
+
 - Initialize (auto or manual):
   - Start a new chat; if missing, you’ll get an initialization prompt which submits automatically.
   - Or run `:CodeCompanionInitProjectKnowledge` to queue the request in your current chat.
@@ -228,4 +230,5 @@ MIT License - see LICENSE file for details.
 ---
 
 Notes
+
 - Project root is taken from Neovim `cwd` throughout the extension to match user workflow.
