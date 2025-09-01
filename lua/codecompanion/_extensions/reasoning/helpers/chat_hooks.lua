@@ -146,46 +146,30 @@ end
 
 -- Auto-inject project context into new chats
 local function inject_project_context(chat)
-  if not _G.CodeCompanionProjectKnowledge then
-    -- Load the project knowledge module
-    pcall(require, 'codecompanion._extensions.reasoning.tools.project_knowledge')
-  end
+  -- Load raw project knowledge content directly from file
+  local knowledge_path = find_project_root() .. '/.codecompanion/project-knowledge.md'
+  if vim.fn.filereadable(knowledge_path) == 0 then return end
 
-  if _G.CodeCompanionProjectKnowledge and _G.CodeCompanionProjectKnowledge.auto_load_project_context then
-    local project_context = _G.CodeCompanionProjectKnowledge.auto_load_project_context()
+  local content
+  local ok = pcall(function()
+    local f = io.open(knowledge_path, 'r')
+    if f then content = f:read('*all'); f:close() end
+  end)
+  if not ok or not content or content == '' then return end
 
-    if project_context then
-      -- Insert project context at the beginning of chat context/system prompt
-      if chat and chat.context and chat.context.bufnr then
-        vim.schedule(function()
-          local bufnr = chat.context.bufnr
-          if vim.api.nvim_buf_is_valid(bufnr) then
-            -- Get current buffer content
-            local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-            -- Add project context at the top (after any existing system messages)
-            local context_lines = vim.split(project_context, '\n')
-            local insert_pos = 0
-
-            -- Find insertion point after existing system context
-            for i, line in ipairs(lines) do
-              if line:match('^# ') or line:match('^## ') then
-                insert_pos = i
-                break
-              end
-            end
-
-            -- Insert context with separator
-            local separator = { '', '---', '' }
-            local all_context = {}
-            vim.list_extend(all_context, context_lines)
-            vim.list_extend(all_context, separator)
-
-            vim.api.nvim_buf_set_lines(bufnr, insert_pos, insert_pos, false, all_context)
-          end
-        end)
+  -- Avoid duplicate injection: check existing messages for our tag or matching prefix
+  if chat and chat.messages then
+    for _, msg in ipairs(chat.messages) do
+      if (msg.opts and msg.opts.tag == 'project_knowledge') or (type(msg.content) == 'string' and msg.content:find('^PROJECT CONTEXT:')) then
+        return
       end
     end
+  end
+
+  if chat and chat.add_message then
+    pcall(function()
+      chat:add_message({ role = 'system', content = content }, { tag = 'project_knowledge', visible = false })
+    end)
   end
 end
 

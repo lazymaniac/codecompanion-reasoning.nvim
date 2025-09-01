@@ -152,69 +152,16 @@ end
 -- Load project knowledge for auto-injection into chat context
 local function load_project_knowledge()
   local knowledge_file = get_knowledge_file_path()
-  if vim.fn.filereadable(knowledge_file) == 0 then
-    return nil
-  end
+  if vim.fn.filereadable(knowledge_file) == 0 then return nil end
 
   local file = io.open(knowledge_file, 'r')
-  if not file then
-    return nil
-  end
-
+  if not file then return nil end
   local content = file:read('*all')
   file:close()
 
-  if not content or content == '' then
-    return nil
-  end
-
-  -- Parse and format for system context
-  local context = 'PROJECT CONTEXT:\n'
-
-  -- Extract project overview
-  local overview = content:match('## Project Overview\n(.-)##')
-  if overview and overview:match('%S') then
-    overview = overview:gsub('%*(.-)%*', ''):gsub('\n+', ' '):gsub('^%s*', ''):gsub('%s*$', '')
-    if overview ~= '' then
-      context = context .. '- ' .. overview .. '\n'
-    end
-  end
-
-  -- Extract directory structure
-  local directories = content:match('## Directory Structure\n(.-)##')
-  if directories and directories:match('%S') then
-    directories = directories:gsub('%*(.-)%*', ''):gsub('\n+', ' '):gsub('^%s*', ''):gsub('%s*$', '')
-    if directories ~= '' then
-      context = context .. '- ' .. directories .. '\n'
-    end
-  end
-
-  -- Extract current features
-  local features = content:match('## Current Features in Development\n(.-)$')
-  if not features then
-    features = content:match('## Current Features in Development\n(.-)##')
-  end
-  if features and features:match('%S') then
-    features = features:gsub('%*(.-)%*', ''):gsub('\n+', ' '):gsub('^%s*', ''):gsub('%s*$', '')
-    if features ~= '' then
-      context = context .. '- Current: ' .. features .. '\n'
-    end
-  end
-
-  -- Extract recent changelog entries (last 3)
-  local recent_changes = {}
-  for entry in content:gmatch('### %d%d%d%d%-%d%d%-%d%d\n%- %*%*(.-)%*%*') do
-    table.insert(recent_changes, entry)
-    if #recent_changes >= 3 then
-      break
-    end
-  end
-
-  if #recent_changes > 0 then
-    context = context .. '- Recent: ' .. table.concat(recent_changes, ', ') .. '\n'
-  end
-
-  return context
+  if not content or content == '' then return nil end
+  -- Return file content as-is; injection will place it as a hidden system message
+  return content
 end
 
 -- Auto-load project context - ONLY from our project knowledge file

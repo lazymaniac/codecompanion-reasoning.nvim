@@ -8,9 +8,9 @@ return {
   opts = {},
 
   cmds = {
-    ---Write/overwrite `.codecompanion/project-knowledge.md` with provided markdown content
+    --- Write/overwrite `.codecompanion/project-knowledge.md` with provided markdown content.
     ---@param self CodeCompanion.Tools.Tool
-    ---@param args { content: string }
+    ---@param args { content: string } The full markdown content to store.
     ---@param input any
     function(self, args, input)
       local content = args and args.content
@@ -50,13 +50,26 @@ return {
     type = 'function',
     ['function'] = {
       name = 'initialize_project_knowledge',
-      description = 'Create or reinitialize the project knowledge file with provided content. Always overwrites if the file exists.',
+      description = [[
+        Create or reinitialize the project knowledge file used by CodeCompanion.
+        This writes the supplied markdown string to `.codecompanion/project-knowledge.md`
+        in the current project's root, overwriting any existing file.
+        The directory `.codecompanion` is created automatically if it does not exist.
+        Example content:
+        ```markdown
+        # Project Overview
+        This project implements a Neovim plugin for advanced AI reasoning.
+        ## Architecture
+        - Lua modules under `lua/`
+        - Tests under `tests/`
+        ```
+      ]],
       parameters = {
         type = 'object',
         properties = {
           content = {
             type = 'string',
-            description = 'Full markdown content to save to .codecompanion/project-knowledge.md',
+            description = 'Full markdown content to save to `.codecompanion/project-knowledge.md`.',
           },
         },
         required = { 'content' },

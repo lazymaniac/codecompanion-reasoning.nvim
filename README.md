@@ -159,11 +159,20 @@ Dynamically discovers and suggests relevant tools for the current task.
 ### Project Knowledge
 
 - `initialize_project_knowledge`: Create or overwrite `.codecompanion/project-knowledge.md` with provided markdown.
-- `project_knowledge`: Propose and store changelog updates (with file list), and auto-load context into new chats.
+- `project_knowledge`: Propose and store changelog updates (with optional file list). This tool only updates the file; it does not load context.
 
 Behavior:
 - On chat start, if the knowledge file is missing, you will be prompted to initialize it. The request is auto-submitted to the model.
-- Only `.codecompanion/project-knowledge.md` is considered for auto-injected context.
+- Context is auto-injected by reading `.codecompanion/project-knowledge.md` directly and adding it as a hidden system message.
+
+Examples:
+- Initialize (auto or manual):
+  - Start a new chat; if missing, you’ll get an initialization prompt which submits automatically.
+  - Or run `:CodeCompanionInitProjectKnowledge` to queue the request in your current chat.
+  - You can also ask: “Initialize project knowledge for this repo with overview, directory structure, empty changelog, and empty current features.” The AI will draft content and call the tool.
+- Update changelog:
+  - Ask: “Log today’s change: added auto-submit on initialization and simplified project root to cwd (files: helpers/chat_hooks.lua, tools/initialize_project_knowledge.lua, tools/project_knowledge.lua, reasoning/commands.lua).”
+  - The tool will show an approval dialog and append an entry under “Changelog”.
 
 ## Usage
 
