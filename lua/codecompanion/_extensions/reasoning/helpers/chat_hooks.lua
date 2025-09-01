@@ -148,19 +148,29 @@ end
 local function inject_project_context(chat)
   -- Load raw project knowledge content directly from file
   local knowledge_path = find_project_root() .. '/.codecompanion/project-knowledge.md'
-  if vim.fn.filereadable(knowledge_path) == 0 then return end
+  if vim.fn.filereadable(knowledge_path) == 0 then
+    return
+  end
 
   local content
   local ok = pcall(function()
     local f = io.open(knowledge_path, 'r')
-    if f then content = f:read('*all'); f:close() end
+    if f then
+      content = f:read('*all')
+      f:close()
+    end
   end)
-  if not ok or not content or content == '' then return end
+  if not ok or not content or content == '' then
+    return
+  end
 
   -- Avoid duplicate injection: check existing messages for our tag or matching prefix
   if chat and chat.messages then
     for _, msg in ipairs(chat.messages) do
-      if (msg.opts and msg.opts.tag == 'project_knowledge') or (type(msg.content) == 'string' and msg.content:find('^PROJECT CONTEXT:')) then
+      if
+        (msg.opts and msg.opts.tag == 'project_knowledge')
+        or (type(msg.content) == 'string' and msg.content:find('^PROJECT CONTEXT:'))
+      then
         return
       end
     end

@@ -152,14 +152,20 @@ end
 -- Load project knowledge for auto-injection into chat context
 local function load_project_knowledge()
   local knowledge_file = get_knowledge_file_path()
-  if vim.fn.filereadable(knowledge_file) == 0 then return nil end
+  if vim.fn.filereadable(knowledge_file) == 0 then
+    return nil
+  end
 
   local file = io.open(knowledge_file, 'r')
-  if not file then return nil end
+  if not file then
+    return nil
+  end
   local content = file:read('*all')
   file:close()
 
-  if not content or content == '' then return nil end
+  if not content or content == '' then
+    return nil
+  end
   -- Return file content as-is; injection will place it as a hidden system message
   return content
 end
