@@ -177,13 +177,11 @@ Examples:
 
 ## Usage
 
-Once installed, the reasoning tools are automatically available in CodeCompanion chats. The AI will use them when appropriate, or you can request specific reasoning approaches:
+Once installed, the meta_agent is automatically available in CodeCompanion chats. The AI will use it when appropriate, or you can request specific reasoning approaches:
 
 ```
 User: "Use chain of thought to analyze this complex function"
 User: "Apply tree of thought reasoning to find the best refactoring approach"
-User: "Use the ask user tool to help me decide between these options"
-User: "Initialize project knowledge for this repo"
 ```
 
 ### Commands
@@ -228,7 +226,3 @@ MIT License - see LICENSE file for details.
 @olimorris for such a great plugin
 
 ---
-
-Notes
-
-- Project root is taken from Neovim `cwd` throughout the extension to match user workflow.
