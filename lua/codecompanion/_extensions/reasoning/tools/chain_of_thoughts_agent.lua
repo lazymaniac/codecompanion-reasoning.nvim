@@ -153,9 +153,25 @@ function Actions.add_step(args, agent_state)
     return { status = 'error', data = message }
   end
 
+  -- Short-term memory trace (last 6 steps)
+  local function trace()
+    local items = {}
+    local steps = agent_state.current_instance.steps
+    local start = math.max(1, #steps - 5)
+    for i = start, #steps do
+      local s = steps[i]
+      local snippet = s.content
+      if #snippet > 40 then
+        snippet = snippet:sub(1, 37) .. '...'
+      end
+      table.insert(items, string.format('#%d %s', s.step_number or i, s.type))
+    end
+    return table.concat(items, ' → ')
+  end
+
   return {
     status = 'success',
-    data = fmt('%s: %s', args.step_type, args.content),
+    data = fmt('%s: %s\nTrace: %s', args.step_type, args.content, trace()),
   }
 end
 
@@ -247,31 +263,43 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = [[Sequential step-by-step software engineering problem solver.
+      description = [[Structured, stepwise software reasoning agent for complex tasks. Records labeled steps (analysis, reasoning, task, validation), and performs periodic reflection to improve plan and execution.
 
-SUGGESTED WORKFLOW:
-1. Use `project_context` to understand more about the project you will work on
-2. Call `add_step` with your first chunk of the problem to analyze
-3. Use `ask_user` for decisions/validation during reasoning if needed
-4. Continue building the solution, each time by small step-by-step
-5. Call `reflect` to analyze progress and get some insights.
+USE WHEN
+- Multi-step changes, unclear code paths, or cross-file impact.
 
-CRITICAL TESTING REQUIREMENT:
-WHENEVER you make ANY code changes, you MUST immediately create/run tests to verify the changes work correctly:
-- After editing code → create/update tests → run test suite
-- Before making additional changes → ensure existing tests pass
-- Use validation steps specifically for testing activities
-- Never skip testing when code modifications are made
+WORKFLOW
+1) Use the auto-injected project knowledge for conventions. Discover and add needed tools via `add_tools` (list first, then add).
+2) Add small steps with `action="add_step"` and `step_type` in {analysis, reasoning, task, validation}.
+3) Reflect with `action="reflect"` after every 3–5 steps to adjust plan.
+4) Use `ask_user` before destructive changes or when multiple viable paths exist.
 
-IMPORTANT:
-Take small focused steps: analysis → find file → read → change part of code → TEST → change another part of code → TEST → reasoning → analysis...
-ALWAYS use companion tools:
- - `project_context` to get information about project like styling, testing, code structure etc.
- - `ask_user` for decisions, user help and opinions
- - `add_tools` for enhanced capabilities (like tools designed for looking for files, editing code, getting context of code symbols, executing bash commands to run tests...).
- ALWAYS take small but thoughtful and precise steps to maintain highest quality of produced solution.
- ALWAYS try to keep your token usage as low as possible BUT without sacrificing quality.
- ALWAYS try to squeeze as much of this tool as possible, it is designed to help you with reasoning, deduction, logical thinking, reflection and actually solving the problem in a best possible way without shortcuts or any guesses.
+RULES
+- Precision: One decision/change per step; keep step content ≤ 280 chars.
+- Validation: After any code edit, immediately add a validation step (run tests, lint, or a verifiable check).
+-- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
+- Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
+- Safety: Use `ask_user` before deletions, large rewrites, or API changes.
+- Output: Do not dump raw chain-of-thought; provide concise reasoning and the next concrete action.
+
+IF TESTS ARE ABSENT
+- Create minimal tests or `ask_user` to confirm an alternative verification strategy.
+
+COMPLETION
+- After successful implementation, call `project_knowledge` with a concise description and affected files.
+
+STOP WHEN
+- Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
+
+EXAMPLE (minimal)
+- `add_tools(action="list_tools")`
+- `add_tools(action="add_tool", tool_name="<needed_tool_from_list>")`
+- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Locate failing tests for validateInput and expected behavior")`
+- [use read/edit tools]
+- `chain_of_thoughts_agent(action="add_step", step_type="task", content="Implement missing validateInput behavior")`
+- `chain_of_thoughts_agent(action="add_step", step_type="validation", content="Run tests and confirm validateInput passes")`
+- `chain_of_thoughts_agent(action="reflect", content="Summarize progress and next steps")`
+- `project_knowledge(description="Implemented validateInput; added tests", files=["<files...>"])`
 ]],
       parameters = {
         type = 'object',

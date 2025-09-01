@@ -245,14 +245,23 @@ function Actions.add_thought(args, agent_state)
     return { status = 'error', data = error_msg }
   end
 
+  -- Node created; metadata is not stored to keep schema minimal
+
   -- Format the response with suggestions
+  local function path_str(node)
+    local names = {}
+    for _, n in ipairs(node:get_path()) do
+      table.insert(names, n.type)
+    end
+    return table.concat(names, ' → ')
+  end
+
   local response_data = fmt(
-    [[%s: %s
-Node ID: %s (for adding child thoughts)
-]],
+    '%s: %s\nNode ID: %s (add children with parent_id)\nPath: %s',
     string.upper(node_type:sub(1, 1)) .. node_type:sub(2),
     content,
-    new_node.id
+    new_node.id,
+    path_str(new_node)
   )
 
   return {
@@ -380,30 +389,44 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = [[Explores multiple reasoning paths towards the final goal in tree like structure for any software engineering problem.
+      description = [[Explore multiple solution paths in a tree of thoughts. Add concise thoughts under parent nodes to branch approaches, and reflect periodically to compare branches and choose the best next step.
 
-SUGGESTED WORKFLOW:
-1. Use `project_context` to understand more about the project you will work on
-2. Call `add_thought` to explore first chunk of the solution approach, then continue exploring multiple paths.
-3. Use `ask_user` for decisions/validation during reasoning if needed
-4. Continue building the solution, each time by small step-by-step
-5. Call `reflect` to analyze progress and get some insights.
+USE WHEN
+- You need to explore alternative designs/strategies and compare them.
 
-CRITICAL TESTING REQUIREMENT:
-WHENEVER you make ANY code changes, you MUST immediately create/run tests to verify the changes work correctly:
-- After editing code → create/update tests → run test suite
-- Before making additional changes → ensure existing tests pass
-- Create validation thought nodes specifically for testing activities
-- Never skip testing when code modifications are made
-- Use different branches to explore various testing approaches
+WORKFLOW
+1) Use the auto-injected project knowledge for conventions. Discover and add needed tools via `add_tools` (list first, then add).
+2) Start with `add_thought` on the root (type in {analysis, reasoning, task, validation}) to seed the problem framing.
+3) Branch by adding child thoughts (`parent_id` = a prior node’s ID). Keep children diverse (e.g., different files, algorithms, or trade‑offs).
+4) Reflect with `action="reflect"` to summarize explored branches, identify promising paths, and decide the next branch to extend.
+5) Use `ask_user` before any destructive change or when multiple viable paths exist.
 
-ALWAYS use companion tools:
- - `project_context` to get information about project like styling, testing, code structure etc.
- - `ask_user` for decisions, user help and opinions
- - `add_tools` for enhanced capabilities (like tools designed for looking for files, editing code, getting context of code symbols, executing bash commands to run tests...).
-ALWAYS take small but thoughtful and precise steps to maintain highest quality of produced solution.
-ALWAYS try to keep your token usage as low as possible BUT without sacrificing quality.
-ALWAYS try to squeeze as much of this tool as possible, it is designed to help you with reasoning, deduction, logical thinking, reflection and actually solving the problem in a best possible way without shortcuts or any guesses.
+RULES
+- Precision: One idea/change per thought; keep content ≤ 280 chars.
+- Breadth first, then depth: Prefer 2–4 children per promising node before deepening a single branch.
+- Depth cap before reflect: Avoid going deeper than 3–4 levels without a reflect.
+- Validation: After any code edit, add a validation thought (tests, lint, or verifiable check). Prefer dedicated validation branches.
+- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
+- Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
+- Safety: Use `ask_user` before deletions, large rewrites, or API changes.
+- Output: Do not dump raw chain-of-thought; write concise reasoning and the next concrete move.
+
+IF TESTS ARE ABSENT
+- Create minimal tests or `ask_user` to confirm an alternative verification strategy.
+
+COMPLETION
+- After successful implementation, call `project_knowledge` with a concise description and affected files.
+
+STOP WHEN
+- Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
+
+EXAMPLE (minimal)
+- `add_tools(action="list_tools")`
+- `add_tools(action="add_tool", tool_name="<needed_tool_from_list>")`
+- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Two options: fix validateInput in place vs. refactor utility module")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<node_id>", type="reasoning", content="Option A: targeted fix in utils.validateInput")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<node_id>", type="reasoning", content="Option B: refactor module; split validation helpers")`
+- `tree_of_thoughts_agent(action="reflect", content="Compare A vs B on scope, risk, test impact; choose next branch")`
 ]],
       parameters = {
         type = 'object',

@@ -47,7 +47,28 @@ return {
     type = 'function',
     ['function'] = {
       name = 'meta_agent',
-      description = '🚀 FIRST CHOICE for ANY coding request. Available agent: Chain of thoughts - Sequential problem solving, Tree of thoughts - Multiple perspective problem solving, Graph of thoughts: Problem solving with deep analysis and finding interconnections. ALWAYS use this tool FIRST for ANY coding requests before attempting manual analysis. ALL agents prioritize immediate testing after any code changes.',
+      description = [[Start every coding session with this tool.
+
+PURPOSE
+- Pick the reasoning agent that fits the task and attach essential companion tools (ask_user, add_tools, project_knowledge).
+
+WHY FIRST
+- Do not request specifics or act before tools are attached. Select an agent, then manage optional tools via add_tools.
+
+CHOICES
+- chain_of_thoughts_agent: sequential steps with reflection and evidence for actions.
+- tree_of_thoughts_agent: branching alternatives with evidence and periodic comparison.
+- graph_of_thoughts_agent: relationships + synthesis across aspects with evidence.
+
+COMPANION TOOLS (auto‑attached)
+- ask_user: interactive confirmation/decision tool for ambiguous choices or any potentially destructive change. Presents options and returns the user’s selection.
+- add_tools: manage optional capabilities. First list available tools, then add exact tool names needed (e.g., read/edit/test helpers).
+- project_knowledge: log a concise changelog entry (description + files) after successful work. Updates the knowledge file; it does not load context.
+
+PROTOCOL
+1) Call meta_agent to select an agent. Selecting an agent automatically attaches companion tools (ask_user, add_tools, project_knowledge) to this chat — you do not need to add them manually.
+2) Immediately call `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")` to add any optional read/edit/test tools before proceeding.
+3) Proceed with the chosen agent (small steps, reflect regularly, validate after edits, require evidence for actions).]],
       parameters = {
         type = 'object',
         properties = {
@@ -88,10 +109,30 @@ return {
           end
         end
 
-        local success_message =
-          fmt([[✅ %s ready! Companion tools: %s]], selected_agent, table.concat(added_companions, ', '))
+        -- Human-friendly labels
+        local agent_labels = {
+          chain_of_thoughts_agent = 'Chain of Thoughts',
+          tree_of_thoughts_agent = 'Tree of Thoughts',
+          graph_of_thoughts_agent = 'Graph of Thoughts',
+        }
+        local tool_labels = {
+          ask_user = 'Ask User',
+          add_tools = 'Add Tools',
+          project_knowledge = 'Project Knowledge',
+        }
 
-        chat:add_tool_output(self, success_message, success_message)
+        local human_agent = agent_labels[selected_agent] or selected_agent
+        local human_tools = {}
+        for _, t in ipairs(added_companions) do
+          table.insert(human_tools, tool_labels[t] or t)
+        end
+
+        local success_message = fmt('✅ %s agent is ready.', human_agent)
+        local tools_message = fmt('Attached companion tools: %s', table.concat(human_tools, ', '))
+        local next_message = 'Next: Use Add Tools to list optional tools, then add what you need before proceeding.'
+
+        local combined = table.concat({ success_message, tools_message, next_message }, '\n')
+        chat:add_tool_output(self, combined, combined)
       else
         chat:add_tool_output(
           self,

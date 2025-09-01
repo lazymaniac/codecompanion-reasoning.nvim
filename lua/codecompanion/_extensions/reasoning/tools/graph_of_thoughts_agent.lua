@@ -194,9 +194,7 @@ function Actions.add_node(args, agent_state)
 
   -- Format response with node ID for future connections
   local response_data = fmt(
-    [[%s: %s
-Node ID: %s (for connecting to this node)
-]],
+    '%s: %s\nNode ID: %s (connect using connect_to)',
     string.upper((args.node_type or 'analysis'):sub(1, 1)) .. (args.node_type or 'analysis'):sub(2),
     args.content,
     node_id
@@ -335,34 +333,34 @@ return {
     type = 'function',
     ['function'] = {
       name = 'graph_of_thoughts_agent',
-      description = [[Software engineering problem solver using graph like structure to deeply analyse and find non-trivial interconnections.
+      description = [[Model the problem as a graph of thoughts with typed nodes and explicit connections. Explore relationships, merge insights, and reflect to steer towards the best solution.
 
-SUGGESTED WORKFLOW:
-1. Use `project_context` to understand more about the project you will work on
-2. Call `add_node` with your first chunk of the problem to analyze
-3. Use `ask_user` for decisions/validation during reasoning if needed
-4. Continue adding connected nodes with `connect_to` parameter to gradually progress with solution
-5. Call `reflect` to analyze progress and get some insights.
+USE WHEN
+- You need to analyze cross-cutting concerns, dependencies, or multi-aspect trade-offs.
 
-CRITICAL TESTING REQUIREMENT:
-WHENEVER you make ANY code changes, you MUST immediately create/run tests to verify the changes work correctly:
-- After editing code → create/update tests → run test suite
-- Before making additional changes → ensure existing tests pass
-- Create validation nodes specifically for testing activities and connect them to implementation nodes
-- Use synthesis nodes to combine test results with implementation insights
-- Never skip testing when code modifications are made
-- Connect testing nodes to show relationships between different test scenarios
+WORKFLOW
+1) Use the auto-injected project knowledge for conventions. Discover and add needed tools via `add_tools` (list first, then add).
+2) Add nodes with `action="add_node"` and `node_type` in {analysis, reasoning, task, validation, synthesis}. Connect new nodes to relevant prior nodes via `connect_to`.
+3) Use `synthesis` nodes to combine insights across branches.
+4) Reflect with `action="reflect"` to summarize structure, gaps, and next edges to add.
+5) Use `ask_user` before destructive changes or when multiple viable paths exist.
 
-IMPORTANT: 
-Take small focused steps: analysis → analysis from other perspecive → find file → read → analysis → reasoning → change part of code → TEST → change another part of code → TEST → reasoning → analysis → synthesis ...
-ALWAYS use companion tools:
- - `project_context` to get information about project like styling, testing, code structure etc.
- - `ask_user` for decisions, user help and opinions
- - `add_tools` for enhanced capabilities (like tools designed for looking for files, editing code, getting context of code symbols, executing bash commands to run tests...).
+RULES
+- Precision: One idea/change per node; content ≤ 280 chars.
+- Validation: After any code edit, add a validation node (tests, lint, or verifiable check) and connect it to the implementation node.
+- Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
+- Safety: Use `ask_user` before deletions, large rewrites, or API changes.
+- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
+- Output: Do not dump raw chain-of-thought; write concise reasoning and the next concrete move.
 
-ALWAYS take small but thoughtful and precise steps to maintain highest quality of produced solution.
-ALWAYS try to keep your token usage as low as possible BUT without sacrificing quality.
-ALWAYS try to squeeze as much of this tool as possible, it is designed to help you with reasoning, deduction, logical thinking, reflection and actually solving the problem in a best possible way without shortcuts or any guesses.
+IF TESTS ARE ABSENT
+- Create minimal tests or `ask_user` to confirm an alternative verification strategy.
+
+COMPLETION
+- After successful implementation, call `project_knowledge` with a concise description and affected files.
+
+STOP WHEN
+- Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
 ]],
       parameters = {
         type = 'object',
