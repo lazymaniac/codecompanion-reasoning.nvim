@@ -1,17 +1,17 @@
 ---@class CodeCompanion.SessionOptimizer
----Session compaction and optimization utilities for chat history management
+---Chat session compaction utility that summarizes conversations into single messages
 local SessionOptimizer = {}
 
 local fmt = string.format
 
----Configuration for session optimization
+---Configuration for session compaction
 local DEFAULT_CONFIG = {
-  max_message_length = 2000,
-  remove_duplicate_messages = true,
-  remove_empty_messages = true,
-  compact_tool_outputs = true,
-  preserve_important_messages = true,
-  max_consecutive_duplicates = 2,
+  adapter = nil, -- defaults to current chat adapter
+  model = nil, -- defaults to current chat model
+  min_messages_for_compaction = 5, -- minimum messages before compaction
+  summary_max_words = 300, -- maximum words in generated summary
+  include_code_snippets = true, -- preserve important code examples
+  preserve_metadata = true, -- keep original session metadata
 }
 
 ---Create new session optimizer instance
@@ -23,380 +23,222 @@ function SessionOptimizer.new(opts)
   return self
 end
 
----Check if two messages are considered duplicates
----@param msg1 table First message
----@param msg2 table Second message
----@return boolean is_duplicate
-local function messages_are_duplicate(msg1, msg2)
-  if not msg1 or not msg2 then
-    return false
+---Compact a session by summarizing all messages into a single message
+---@param session_data table Complete session data
+---@param callback function Callback to receive compacted session
+function SessionOptimizer:compact_session(session_data, callback)
+  if not session_data.messages or #session_data.messages < self.config.min_messages_for_compaction then
+    -- Not enough messages to compact, return original
+    if callback then
+      callback(session_data)
+    end
+    return
   end
 
-  -- Same role and same content (ignoring timestamps and IDs)
-  if msg1.role == msg2.role then
-    local content1 = (msg1.content or ''):gsub('%s+', ' '):lower()
-    local content2 = (msg2.content or ''):gsub('%s+', ' '):lower()
-    return content1 == content2
+  -- Filter messages without tool calls (user and assistant only)
+  local relevant_messages = vim.tbl_filter(function(msg)
+    local has_content = msg.content and vim.trim(msg.content) ~= ''
+    local is_conversational = msg.role == 'user' or msg.role == 'assistant'
+    local no_tool_calls = not msg.tool_calls and not msg.tool_call_id
+    return has_content and is_conversational and no_tool_calls
+  end, session_data.messages)
+
+  if #relevant_messages == 0 then
+    -- No relevant messages to summarize, return original
+    if callback then
+      callback(session_data)
+    end
+    return
   end
 
-  return false
-end
+  -- Prepare conversation context for summarization
+  local conversation_lines = {}
+  for _, message in ipairs(relevant_messages) do
+    local role_prefix = message.role == 'user' and 'User' or 'Assistant'
+    local content = vim.trim(message.content)
 
----Check if message is empty or meaningless
----@param message table Message to check
----@return boolean is_empty
-local function is_empty_message(message)
-  if not message or not message.content then
-    return true
+    -- Truncate very long individual messages
+    if #content > 2000 then
+      content = content:sub(1, 2000) .. ' [message truncated]'
+    end
+
+    table.insert(conversation_lines, role_prefix .. ': ' .. content)
   end
 
-  local content = vim.trim(message.content)
-  if content == '' then
-    return true
+  local conversation_context = table.concat(conversation_lines, '\n\n')
+
+  -- Truncate total context if too long
+  if #conversation_context > 20000 then
+    conversation_context = conversation_context:sub(1, 20000) .. '\n\n[conversation truncated]'
   end
 
-  -- Check for very short or meaningless content
-  if #content < 3 then
-    return true
-  end
-
-  -- Common meaningless patterns
-  local meaningless_patterns = {
-    '^ok$',
-    '^yes$',
-    '^no$',
-    '^%.$',
-    '^%?$',
-    '^thanks?$',
-    '^thank you$',
-    '^thx$',
+  -- Create summarization prompt
+  local prompt_parts = {
+    'Summarize this chat conversation into a concise overview that captures:',
+    '• Main topics and themes discussed',
+    '• Key decisions, conclusions, or agreements reached',
+    '• Important facts, findings, or insights established',
+    '• Current tasks, open questions, or next steps',
   }
 
-  local content_lower = content:lower()
-  for _, pattern in ipairs(meaningless_patterns) do
-    if content_lower:match(pattern) then
-      return true
+  if self.config.include_code_snippets then
+    table.insert(prompt_parts, '• Essential code examples, patterns, or technical details')
+  end
+
+  table.insert(prompt_parts, '')
+  table.insert(
+    prompt_parts,
+    fmt(
+      'Keep the summary under %d words and focus on information needed to continue this conversation productively.',
+      self.config.summary_max_words
+    )
+  )
+  table.insert(prompt_parts, '')
+  table.insert(prompt_parts, 'Conversation:')
+  table.insert(prompt_parts, conversation_context)
+  table.insert(prompt_parts, '')
+  table.insert(prompt_parts, 'Summary:')
+
+  local prompt = table.concat(prompt_parts, '\n')
+
+  self:_make_summarization_request(session_data, prompt, function(summary, error_msg)
+    if not summary then
+      -- Failed to generate summary, return original session
+      if callback then
+        callback(session_data, error_msg)
+      end
+      return
+    end
+
+    -- Create compacted session with single summary message
+    local compacted = vim.deepcopy(session_data)
+    local original_count = #compacted.messages
+
+    -- Replace all messages with single summary message
+    compacted.messages = {
+      {
+        role = 'assistant',
+        content = fmt('**[Session Summary - %d messages compacted]**\n\n%s', original_count, summary),
+        opts = {
+          tag = 'session_summary',
+          compacted_at = os.time(),
+          compacted_date = os.date('%Y-%m-%d %H:%M:%S'),
+          original_message_count = original_count,
+        },
+      },
+    }
+
+    -- Update metadata
+    if self.config.preserve_metadata then
+      compacted.metadata = compacted.metadata or {}
+      compacted.metadata.compaction = {
+        original_message_count = original_count,
+        compacted_message_count = 1,
+        compacted_at = os.time(),
+        compacted_date = os.date('%Y-%m-%d %H:%M:%S'),
+        summary_word_count = #vim.split(summary, '%s+'),
+      }
+
+      -- Recalculate token estimate for summary
+      compacted.metadata.token_estimate = math.floor(#tostring(summary) / 4)
+    end
+
+    if callback then
+      callback(compacted)
+    end
+  end)
+end
+
+---Make adapter request for chat summarization
+---@param session_data table Session data for adapter context
+---@param prompt string Summarization prompt
+---@param callback function Callback to receive summary
+function SessionOptimizer:_make_summarization_request(session_data, prompt, callback)
+  -- Try to use CodeCompanion's http client for consistency
+  local client_ok, client = pcall(require, 'codecompanion.http')
+  local schema_ok, schema = pcall(require, 'codecompanion.schema')
+
+  if not client_ok or not schema_ok then
+    if callback then
+      callback(nil, 'CodeCompanion HTTP client not available')
+    end
+    return
+  end
+
+  -- Use session's adapter if available, otherwise try to get a default
+  local adapter = session_data.adapter
+  local settings = session_data.settings
+
+  if not adapter and session_data.opts and session_data.opts.adapter then
+    local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+    if adapters_ok and adapters.resolve then
+      adapter = adapters.resolve(session_data.opts.adapter)
     end
   end
 
-  return false
-end
-
----Check if message is important and should be preserved
----@param message table Message to check
----@return boolean is_important
-local function is_important_message(message)
-  if not message or not message.content then
-    return false
-  end
-
-  -- Tool calls and responses are usually important
-  if message.tool_calls or message.tool_call_id then
-    return true
-  end
-
-  -- Messages with specific metadata
-  if message.opts and (message.opts.tag or message.opts.reference) then
-    return true
-  end
-
-  -- Long messages are typically more important
-  local content = message.content or ''
-  if #content > 200 then
-    return true
-  end
-
-  -- Messages containing code blocks
-  if content:match('```') then
-    return true
-  end
-
-  -- Messages with structured content (lists, etc.)
-  if content:match('\n%s*[%-%*%+]%s') or content:match('\n%s*%d+%.%s') then
-    return true
-  end
-
-  return false
-end
-
----Truncate a message if it's too long while preserving important parts
----@param message table Message to truncate
----@param max_length number Maximum length
----@return table truncated_message
-local function truncate_message(message, max_length)
-  if not message.content or #message.content <= max_length then
-    return message
-  end
-
-  local content = message.content
-
-  -- Try to preserve code blocks
-  local code_blocks = {}
-  local code_pattern = '```[^`]*```'
-  for block in content:gmatch(code_pattern) do
-    table.insert(code_blocks, block)
-  end
-
-  -- If we have code blocks, try to keep them
-  if #code_blocks > 0 then
-    local total_code_length = 0
-    for _, block in ipairs(code_blocks) do
-      total_code_length = total_code_length + #block
+  if not adapter then
+    if callback then
+      callback(nil, 'No adapter available for summarization')
     end
+    return
+  end
 
-    -- If code blocks fit within limit, keep them and truncate around them
-    if total_code_length <= max_length * 0.8 then
-      local remaining = max_length - total_code_length - 50 -- buffer for truncation markers
-      local non_code = content:gsub(code_pattern, '')
-      if #non_code > remaining then
-        non_code = non_code:sub(1, remaining) .. '\n[truncated]'
+  -- Apply config overrides for adapter/model
+  if self.config.adapter then
+    local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+    if adapters_ok and adapters.resolve then
+      adapter = adapters.resolve(self.config.adapter)
+    end
+  end
+
+  if self.config.model then
+    settings = schema.get_default(adapter, { model = self.config.model })
+  end
+
+  settings = vim.deepcopy(adapter:map_schema_to_params(settings or {}))
+  settings.opts = settings.opts or {}
+  settings.opts.stream = false
+
+  local payload = {
+    messages = adapter:map_roles({
+      { role = 'user', content = prompt },
+    }),
+  }
+
+  client.new({ adapter = settings }):request(payload, {
+    callback = function(err, data, _adapter)
+      if err and err.stderr ~= '{}' then
+        if callback then
+          callback(nil, 'Error while generating summary: ' .. tostring(err.stderr))
+        end
+        return
       end
 
-      -- Reconstruct with code blocks (simplified)
-      content = non_code .. '\n\n' .. table.concat(code_blocks, '\n\n')
-    else
-      -- Just truncate normally if code blocks are too large
-      content = content:sub(1, max_length - 15) .. '\n[truncated]'
-    end
-  else
-    -- No code blocks, just truncate
-    content = content:sub(1, max_length - 15) .. '\n[truncated]'
-  end
-
-  local truncated = vim.deepcopy(message)
-  truncated.content = content
-  return truncated
-end
-
----Remove duplicate consecutive messages
----@param messages table[] List of messages
----@param config table Configuration options
----@return table[] deduplicated_messages
-function SessionOptimizer:remove_duplicate_messages(messages, config)
-  if not config.remove_duplicate_messages or #messages <= 1 then
-    return messages
-  end
-
-  local result = {}
-  local consecutive_count = 0
-  local last_message = nil
-
-  for _, message in ipairs(messages) do
-    local is_duplicate = messages_are_duplicate(message, last_message)
-
-    if is_duplicate then
-      consecutive_count = consecutive_count + 1
-      -- Only keep up to max_consecutive_duplicates
-      if consecutive_count <= config.max_consecutive_duplicates then
-        table.insert(result, message)
-      end
-    else
-      consecutive_count = 0
-      table.insert(result, message)
-    end
-
-    last_message = message
-  end
-
-  return result
-end
-
----Remove empty or meaningless messages
----@param messages table[] List of messages
----@param config table Configuration options
----@return table[] filtered_messages
-function SessionOptimizer:remove_empty_messages(messages, config)
-  if not config.remove_empty_messages then
-    return messages
-  end
-
-  return vim.tbl_filter(function(message)
-    -- Always preserve important messages
-    if config.preserve_important_messages and is_important_message(message) then
-      return true
-    end
-
-    return not is_empty_message(message)
-  end, messages)
-end
-
----Truncate overly long messages
----@param messages table[] List of messages
----@param config table Configuration options
----@return table[] truncated_messages
-function SessionOptimizer:truncate_long_messages(messages, config)
-  local result = {}
-
-  for _, message in ipairs(messages) do
-    if message.content and #message.content > config.max_message_length then
-      table.insert(result, truncate_message(message, config.max_message_length))
-    else
-      table.insert(result, message)
-    end
-  end
-
-  return result
-end
-
----Compact tool output messages
----@param messages table[] List of messages
----@param config table Configuration options
----@return table[] compacted_messages
-function SessionOptimizer:compact_tool_outputs(messages, config)
-  if not config.compact_tool_outputs then
-    return messages
-  end
-
-  local result = {}
-
-  for _, message in ipairs(messages) do
-    if message.role == 'tool' and message.content then
-      local content = message.content
-
-      -- Truncate very long tool outputs
-      if #content > 1000 then
-        -- Try to preserve important parts (errors, results)
-        local lines = vim.split(content, '\n')
-        local important_lines = {}
-        local total_length = 0
-
-        for _, line in ipairs(lines) do
-          local line_lower = line:lower()
-          -- Keep error messages, results, and short lines
-          if line_lower:match('error') or line_lower:match('result') or line_lower:match('warning') or #line < 100 then
-            table.insert(important_lines, line)
-            total_length = total_length + #line
-            if total_length > 800 then
-              break
+      if data and _adapter and _adapter.handlers and _adapter.handlers.chat_output then
+        local result = _adapter.handlers.chat_output(_adapter, data)
+        if result and result.status then
+          if result.status == 'success' then
+            local summary = vim.trim(result.output.content or '')
+            if callback then
+              callback(summary)
             end
+            return
+          elseif result.status == 'error' then
+            if callback then
+              callback(nil, 'Error while generating summary: ' .. tostring(result.output))
+            end
+            return
           end
         end
-
-        if #important_lines > 0 then
-          content = table.concat(important_lines, '\n') .. '\n[tool output truncated]'
-        else
-          content = content:sub(1, 500) .. '\n[tool output truncated]'
-        end
-
-        local compacted = vim.deepcopy(message)
-        compacted.content = content
-        table.insert(result, compacted)
-      else
-        table.insert(result, message)
       end
-    else
-      table.insert(result, message)
-    end
-  end
 
-  return result
-end
-
----Optimize a complete session by applying all enabled optimizations
----@param session_data table Complete session data
----@return table optimized_session_data
-function SessionOptimizer:optimize_session(session_data)
-  if not session_data.messages or #session_data.messages == 0 then
-    return session_data
-  end
-
-  local optimized = vim.deepcopy(session_data)
-  local messages = optimized.messages
-  local original_count = #messages
-
-  -- Apply optimizations in order
-  messages = self:remove_duplicate_messages(messages, self.config)
-  messages = self:remove_empty_messages(messages, self.config)
-  messages = self:truncate_long_messages(messages, self.config)
-  messages = self:compact_tool_outputs(messages, self.config)
-
-  -- Update session data
-  optimized.messages = messages
-  optimized.metadata = optimized.metadata or {}
-  optimized.metadata.total_messages = #messages
-  optimized.metadata.optimization = {
-    original_message_count = original_count,
-    optimized_message_count = #messages,
-    messages_removed = original_count - #messages,
-    optimized_at = os.time(),
-    optimized_date = os.date('%Y-%m-%d %H:%M:%S'),
-  }
-
-  -- Recalculate token estimate
-  local total_chars = 0
-  for _, message in ipairs(messages) do
-    if message.content then
-      total_chars = total_chars + #tostring(message.content)
-    end
-  end
-  optimized.metadata.token_estimate = math.floor(total_chars / 4)
-
-  return optimized
-end
-
----Get optimization statistics for a session
----@param session_data table Session data to analyze
----@return table stats Optimization statistics
-function SessionOptimizer:analyze_session(session_data)
-  if not session_data.messages then
-    return {
-      total_messages = 0,
-      empty_messages = 0,
-      duplicate_messages = 0,
-      long_messages = 0,
-      tool_messages = 0,
-      optimization_potential = 'none',
-    }
-  end
-
-  local messages = session_data.messages
-  local stats = {
-    total_messages = #messages,
-    empty_messages = 0,
-    duplicate_messages = 0,
-    long_messages = 0,
-    tool_messages = 0,
-    very_long_messages = 0,
-  }
-
-  local last_message = nil
-  for _, message in ipairs(messages) do
-    if is_empty_message(message) then
-      stats.empty_messages = stats.empty_messages + 1
-    end
-
-    if messages_are_duplicate(message, last_message) then
-      stats.duplicate_messages = stats.duplicate_messages + 1
-    end
-
-    if message.content and #message.content > self.config.max_message_length then
-      stats.long_messages = stats.long_messages + 1
-    end
-
-    if message.content and #message.content > self.config.max_message_length * 2 then
-      stats.very_long_messages = stats.very_long_messages + 1
-    end
-
-    if message.role == 'tool' then
-      stats.tool_messages = stats.tool_messages + 1
-    end
-
-    last_message = message
-  end
-
-  -- Determine optimization potential
-  local removable = stats.empty_messages + stats.duplicate_messages
-  local compactable = stats.long_messages + stats.tool_messages
-
-  if removable > stats.total_messages * 0.2 or compactable > stats.total_messages * 0.3 then
-    stats.optimization_potential = 'high'
-  elseif removable > 0 or compactable > 0 then
-    stats.optimization_potential = 'medium'
-  else
-    stats.optimization_potential = 'low'
-  end
-
-  return stats
+      if callback then
+        callback(nil, 'Failed to generate summary')
+      end
+    end,
+  }, {
+    silent = true,
+  })
 end
 
 return SessionOptimizer

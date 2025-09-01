@@ -1,5 +1,4 @@
 ---@class CodeCompanion.ChatHooks
----Simplified hooks using CodeCompanion event data directly
 local ChatHooks = {}
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
@@ -141,43 +140,6 @@ local function queue_initialization_instructions(chat)
   end
 end
 
--- Auto-inject project context into new chats
-local function inject_project_context(chat)
-  local knowledge_path = find_project_root() .. '/.codecompanion/project-knowledge.md'
-  if vim.fn.filereadable(knowledge_path) == 0 then
-    return
-  end
-
-  local content
-  local ok = pcall(function()
-    local f = io.open(knowledge_path, 'r')
-    if f then
-      content = f:read('*all')
-      f:close()
-    end
-  end)
-  if not ok or not content or content == '' then
-    return
-  end
-
-  if chat and chat.messages then
-    for _, msg in ipairs(chat.messages) do
-      if
-        (msg.opts and msg.opts.tag == 'project_knowledge')
-        or (type(msg.content) == 'string' and msg.content:find('^PROJECT CONTEXT:'))
-      then
-        return
-      end
-    end
-  end
-
-  if chat and chat.add_message then
-    pcall(function()
-      chat:add_message({ role = 'system', content = content }, { tag = 'project_knowledge', visible = false })
-    end)
-  end
-end
-
 -- Simplified hook setup using CodeCompanion event data - saves only when session ends
 local function setup_codecompanion_hooks()
   local group = vim.api.nvim_create_augroup('CodeCompanionReasoningHooks', { clear = true })
@@ -186,44 +148,33 @@ local function setup_codecompanion_hooks()
     pattern = { 'CodeCompanionChatCreated', 'CodeCompanionChatOpen' },
     group = group,
     callback = function(event)
-      if event.data and event.data.bufnr then
-        local buf = event.data.bufnr
-
-        -- Try to get the chat object
-        local chat_obj = nil
-        if buf and vim.api.nvim_buf_is_valid(buf) then
-          local ok, Chat = pcall(require, 'codecompanion.strategies.chat')
-          if ok and Chat.buf_get_chat then
-            local chat_ok, result = pcall(Chat.buf_get_chat, buf)
-            if chat_ok then
-              chat_obj = result
+      if not (event and event.data and event.data.bufnr) then
+        return
+      end
+      local buf = event.data.bufnr
+      if (not knowledge_file_exists()) and (not has_prompted_project_once()) then
+        vim.schedule(function()
+          vim.ui.select({ '✓ Yes', '✗ No' }, {
+            prompt = 'No project knowledge file found. Initialize now by letting the AI create it? ',
+          }, function(choice)
+            mark_project_prompted()
+            if choice ~= '✓ Yes' then
+              return
             end
-          end
-        end
-
-        if chat_obj then
-          inject_project_context(chat_obj)
-          if (not knowledge_file_exists()) and (not has_prompted_project_once()) then
-            vim.schedule(function()
-              vim.ui.select({ '✓ Yes', '✗ No' }, {
-                prompt = 'No project knowledge file found. Initialize now by letting the AI create it? ',
-              }, function(choice)
-                mark_project_prompted()
-
-                if choice ~= '✓ Yes' then
-                  return
-                end
-
-                ensure_codecompanion_dir()
-
+            ensure_codecompanion_dir()
+            local chat_obj = nil
+            local ok, Chat = pcall(require, 'codecompanion.strategies.chat')
+            if ok and Chat.buf_get_chat then
+              local chat_ok, result = pcall(Chat.buf_get_chat, buf)
+              if chat_ok then
+                chat_obj = result
                 add_tool_if_available(chat_obj, 'initialize_project_knowledge')
                 add_tool_if_available(chat_obj, 'add_tools')
-
-                queue_initialization_instructions(chat_obj)
-              end)
-            end)
-          end
-        end
+              end
+            end
+            queue_initialization_instructions(chat_obj)
+          end)
+        end)
       end
     end,
   })
@@ -249,14 +200,12 @@ local function setup_codecompanion_hooks()
         return
       end
 
-      -- Decide if we should generate or refresh a title based on interval cadence (1, 1+N, 1+2N, ...)
       local tg = TitleGenerator.new({ auto_generate_title = true })
       local should, is_refresh = tg:should_generate(chat_obj)
       if not should then
         return
       end
 
-      -- Run async generation; persist on chat object and let normal save persist it later
       tg:generate(chat_obj, function(title)
         if not title or title == '' then
           return

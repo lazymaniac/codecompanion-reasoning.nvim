@@ -1,5 +1,5 @@
 --=============================================================================
--- Reasoning Visualizer - ASCII visualization for reasoning structures
+-- Reasoning Visualizer - Unicode visualization for reasoning structures
 --=============================================================================
 
 local fmt = string.format

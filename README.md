@@ -12,6 +12,9 @@ This extension provides AI reasoning capabilities (Chain/Tree/Graph of Thought a
   - Auto-loads context from `.codecompanion/project-knowledge.md` into new chats.
   - `initialize_project_knowledge`: saves a comprehensive knowledge file provided by the model.
   - `project_knowledge`: proposes changelog entries and updates the knowledge file with user approval.
+- **Custom System Prompt**:
+  - On chat creation, the extension overwrites the default CodeCompanion system prompt with a concise, tool-driven prompt tailored for reasoning agents, companion tools, validation discipline, and concise output.
+  - See: `lua/codecompanion/_extensions/reasoning/helpers/system_prompt.lua`.
 - **Session Management**:
   - Auto-save sessions, browse history, restore last session, and project-scoped views.
   - Title generation on first message and periodic refresh (configurable).
@@ -163,7 +166,7 @@ Dynamically discovers and suggests relevant tools for the current task.
 Behavior:
 
 - On chat start, if the knowledge file is missing, you will be prompted to initialize it. The request is auto-submitted to the model.
-- Context is auto-injected by reading `.codecompanion/project-knowledge.md` directly and adding it as a hidden system message.
+- On chat start, the extension overwrites the system prompt and appends the full contents of `.codecompanion/project-knowledge.md` to that system message. If the prompt cannot be overridden, it falls back to adding a hidden system message with the file content.
 
 Examples:
 

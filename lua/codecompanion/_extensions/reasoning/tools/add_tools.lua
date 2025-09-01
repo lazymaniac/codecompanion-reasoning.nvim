@@ -71,6 +71,7 @@ local function get_all_tools_with_schemas()
     ['ask_user'] = true,
     ['add_tools'] = true,
     ['project_knowledge'] = true,
+    ['initialize_project_knowledge'] = true,
   }
 
   for tool_name, tool_config in pairs(tools_config) do
@@ -203,6 +204,7 @@ local function handle_add_tool(args)
     ['ask_user'] = true,
     ['add_tools'] = true,
     ['project_knowledge'] = true,
+    ['initialize_project_knowledge'] = true,
   }
 
   if excluded_tools[args.tool_name] then

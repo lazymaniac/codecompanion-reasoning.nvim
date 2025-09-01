@@ -65,6 +65,34 @@ function ReasoningExtension.setup(opts)
     }
   end
 
+  -- System prompt: provide a function value for CodeCompanion to call.
+  -- This keeps the prompt source in one place (helpers/system_prompt.lua)
+  -- and appends Project Knowledge if present.
+  local sp_ok, SystemPrompt = pcall(require, 'codecompanion._extensions.reasoning.helpers.system_prompt')
+  if sp_ok and SystemPrompt and type(SystemPrompt.get) == 'function' then
+    local prompt_fn = function()
+      local prompt = SystemPrompt.get()
+      local root = vim.fn.getcwd()
+      local knowledge_path = root .. '/.codecompanion/project-knowledge.md'
+      if vim.fn.filereadable(knowledge_path) == 1 then
+        local ok, content = pcall(function()
+          local f = io.open(knowledge_path, 'r')
+          if not f then return nil end
+          local c = f:read('*all')
+          f:close()
+          return c
+        end)
+        if ok and content and content ~= '' then
+          return prompt .. '\n\n---\n' .. content
+        end
+      end
+      return prompt
+    end
+    -- Newer CodeCompanion uses `config.opts.system_prompt`
+    config.opts = config.opts or {}
+    config.opts.system_prompt = prompt_fn
+  end
+
   for name, tool in pairs(reasoning_tools) do
     config.strategies.chat.tools[name] = {
       id = 'reasoning:' .. name,
