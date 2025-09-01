@@ -32,7 +32,6 @@ local function project_prompt_sentinel()
 end
 
 local function has_prompted_project_once()
-  -- Memory cache in current session to avoid fs hits
   _G.__CC_REASONING_PROMPTED = _G.__CC_REASONING_PROMPTED or {}
   local root = find_project_root()
   if _G.__CC_REASONING_PROMPTED[root] then
@@ -51,7 +50,6 @@ local function mark_project_prompted()
   local root = find_project_root()
   _G.__CC_REASONING_PROMPTED[root] = true
   local sentinel = project_prompt_sentinel()
-  -- Best-effort create
   local f = io.open(sentinel, 'w')
   if f then
     f:write('prompted=true\n')
@@ -101,7 +99,7 @@ local function queue_initialization_instructions(chat)
   local lines = {
     'Initialize Project Knowledge',
     '',
-    ('Goal: Create a comprehensive project knowledge file at `%s`.'):format(knowledge_path),
+    ('Goal: Create a CONCISE project knowledge file at `%s` under 1,500 tokens.'):format(knowledge_path),
     '',
     'Instructions:',
     '- Use `add_tools` to list available tools and add any read/write file tools needed to gather context.',
@@ -133,7 +131,6 @@ local function queue_initialization_instructions(chat)
     pcall(function()
       chat:add_message({ role = 'user', content = table.concat(lines, '\n') }, { visible = true })
     end)
-    -- Auto-submit the initialization request so the model starts working immediately
     if chat and type(chat.submit) == 'function' then
       vim.schedule(function()
         pcall(function()
@@ -146,7 +143,6 @@ end
 
 -- Auto-inject project context into new chats
 local function inject_project_context(chat)
-  -- Load raw project knowledge content directly from file
   local knowledge_path = find_project_root() .. '/.codecompanion/project-knowledge.md'
   if vim.fn.filereadable(knowledge_path) == 0 then
     return
@@ -164,7 +160,6 @@ local function inject_project_context(chat)
     return
   end
 
-  -- Avoid duplicate injection: check existing messages for our tag or matching prefix
   if chat and chat.messages then
     for _, msg in ipairs(chat.messages) do
       if
@@ -187,7 +182,6 @@ end
 local function setup_codecompanion_hooks()
   local group = vim.api.nvim_create_augroup('CodeCompanionReasoningHooks', { clear = true })
 
-  -- Auto-inject project context and bootstrap project knowledge on chat creation/open
   vim.api.nvim_create_autocmd('User', {
     pattern = { 'CodeCompanionChatCreated', 'CodeCompanionChatOpen' },
     group = group,
@@ -209,28 +203,22 @@ local function setup_codecompanion_hooks()
 
         if chat_obj then
           inject_project_context(chat_obj)
-          -- Prompt at most once per project (create sentinel regardless of choice)
           if (not knowledge_file_exists()) and (not has_prompted_project_once()) then
             vim.schedule(function()
               vim.ui.select({ '✓ Yes', '✗ No' }, {
                 prompt = 'No project knowledge file found. Initialize now by letting the AI create it? ',
               }, function(choice)
-                -- Mark as prompted so future auto-prompts are suppressed for this project
                 mark_project_prompted()
 
                 if choice ~= '✓ Yes' then
                   return
                 end
 
-                -- Ensure target directory exists early
                 ensure_codecompanion_dir()
 
-                -- Make tools available in the chat
                 add_tool_if_available(chat_obj, 'initialize_project_knowledge')
                 add_tool_if_available(chat_obj, 'add_tools')
-                -- Keep updates manual; initialization only adds required tools
 
-                -- Queue concrete instructions for the model
                 queue_initialization_instructions(chat_obj)
               end)
             end)

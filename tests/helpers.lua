@@ -127,7 +127,6 @@ function helpers.child_start(child)
     end
   end
 
-  -- Set up runtime path in child (or shim) process
   local root = vim.fn.fnamemodify(debug.getinfo(1).source:match('@(.*)'), ':h:h')
   local setup_code = string.format(
     [[local root = %q

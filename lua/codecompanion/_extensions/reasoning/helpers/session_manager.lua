@@ -617,8 +617,6 @@ function SessionManager.auto_save_session(chat)
 
   if not success then
     vim.notify(fmt('Failed to auto-save session: %s', result), vim.log.levels.WARN)
-  else
-    vim.notify(fmt('Auto-saved session'), vim.log.levels.DEBUG)
   end
 end
 
@@ -909,14 +907,10 @@ function SessionManager.restore_session(filename)
   chat.opts = chat.opts or {}
   chat.opts.session_filename = filename
 
-  --
   local session_tools = session_data.tools or {}
 
   for _, tool_name in ipairs(session_tools) do
-    -- Check if tool is already in use to avoid duplicates
-    if chat.tool_registry.in_use[tool_name] then
-      vim.notify(string.format('[SessionRestore] Tool %s already in use, skipping', tool_name), vim.log.levels.DEBUG)
-    else
+    if not chat.tool_registry.in_use[tool_name] then
       local tool_config = config.strategies.chat.tools[tool_name]
       if tool_config then
         local success, err = pcall(function()
@@ -929,7 +923,6 @@ function SessionManager.restore_session(filename)
           )
         end
       elseif config.strategies.chat.tools.groups and config.strategies.chat.tools.groups[tool_name] then
-        -- Try group addition as fallback
         local success, err = pcall(function()
           chat.tool_registry:add_group(tool_name, config.strategies.chat.tools)
         end)
@@ -948,7 +941,6 @@ function SessionManager.restore_session(filename)
   local added_reasoning = {}
   for _, message in ipairs(messages) do
     pcall(function()
-      -- If this is an assistant reasoning chunk, render it first using CC's reasoning formatter
       if message.role == 'llm' and message.reasoning and type(message.reasoning) == 'table' then
         local rtext = normalize_content(message.reasoning.content)
         local key = tostring(message.id or '') .. ':' .. tostring(#rtext)

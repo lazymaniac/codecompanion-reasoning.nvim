@@ -52,13 +52,13 @@ function M.setup(opts)
   opts = vim.tbl_deep_extend('force', {
     chat_history = {
       auto_save = true,
-      auto_load_last_session = false,
+      auto_load_last_session = true,
       auto_generate_title = true,
       sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
       max_sessions = 100,
       enable_commands = true,
       picker = 'auto',
-      continue_last_chat = false,
+      continue_last_chat = true,
       expiration_days = 0,
       enable_index = true,
       title_generation_opts = {

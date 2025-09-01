@@ -344,8 +344,17 @@ SUGGESTED WORKFLOW:
 4. Continue adding connected nodes with `connect_to` parameter to gradually progress with solution
 5. Call `reflect` to analyze progress and get some insights.
 
+CRITICAL TESTING REQUIREMENT:
+WHENEVER you make ANY code changes, you MUST immediately create/run tests to verify the changes work correctly:
+- After editing code → create/update tests → run test suite
+- Before making additional changes → ensure existing tests pass
+- Create validation nodes specifically for testing activities and connect them to implementation nodes
+- Use synthesis nodes to combine test results with implementation insights
+- Never skip testing when code modifications are made
+- Connect testing nodes to show relationships between different test scenarios
+
 IMPORTANT: 
-Take small focused steps: analysis → analysis from other perspecive → find file → read → analysis → reasoning → change part of code → test → change another part of code → test → reasoning → analysis → synthesis ...
+Take small focused steps: analysis → analysis from other perspecive → find file → read → analysis → reasoning → change part of code → TEST → change another part of code → TEST → reasoning → analysis → synthesis ...
 ALWAYS use companion tools:
  - `project_context` to get information about project like styling, testing, code structure etc.
  - `ask_user` for decisions, user help and opinions
@@ -376,7 +385,7 @@ Instructions:
 `analysis` - Analysis and exploration of the chunk of the problem.
 `reasoning` - Logical deduction and inference based on evidence.
 `task` - Small actionable step towards the final goal.
-'validation' - Actionable step that actually verifies current progress (like running test suite or removing, edititng or adding new test cases...)
+'validation' - MANDATORY step that verifies current progress, especially REQUIRED after any code changes. This includes: running test suite, creating new tests, updating existing tests, executing code to verify functionality, checking for errors/failures.
 `synthesis` - Combining multiple nodes to create new ideas or knowledge.\n]],
           },
           connect_to = {

@@ -47,7 +47,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'meta_agent',
-      description = '🚀 FIRST CHOICE for ANY coding request. Available agent: Chain of thoughts - Sequential problem solving, Tree of thoughts - Multiple perspective problem solving, Graph of thoughts: Problem solving with deep analysis and finding interconnections. ALWAYS use this tool FIRST for ANY coding requests before attempting manual analysis.',
+      description = '🚀 FIRST CHOICE for ANY coding request. Available agent: Chain of thoughts - Sequential problem solving, Tree of thoughts - Multiple perspective problem solving, Graph of thoughts: Problem solving with deep analysis and finding interconnections. ALWAYS use this tool FIRST for ANY coding requests before attempting manual analysis. ALL agents prioritize immediate testing after any code changes.',
       parameters = {
         type = 'object',
         properties = {
@@ -77,7 +77,7 @@ return {
       if agent_config and chat.tool_registry then
         chat.tool_registry:add(selected_agent, agent_config)
 
-        local companion_tools = { 'ask_user', 'add_tools', 'project_context' }
+        local companion_tools = { 'ask_user', 'add_tools', 'project_knowledge' }
         local added_companions = {}
 
         for _, tool_name in ipairs(companion_tools) do

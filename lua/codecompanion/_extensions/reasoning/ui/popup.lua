@@ -236,39 +236,20 @@ local function create_windows(popup_lines, highlights, width, height)
         vim.bo[popup_buf].modifiable = true
       end
 
-      -- Additional safety check before creating extmark
       local extmark_opts = {
         hl_group = hl.group,
         strict = false,
       }
 
-      -- Only add end_col if it's valid and greater than start_col
       if end_col ~= -1 and end_col > start_col and end_col <= line_len then
         extmark_opts.end_col = end_col
       end
 
-      -- Ensure line number is valid
       local line_count = vim.api.nvim_buf_line_count(popup_buf)
       if hl.line >= 0 and hl.line < line_count then
-        local success, err = pcall(vim.api.nvim_buf_set_extmark, popup_buf, ns_id, hl.line, start_col, extmark_opts)
-        if not success then
-          -- Log debug info if extmark fails
-          vim.notify(
-            string.format(
-              "Extmark failed: line=%d, start_col=%d, end_col=%s, line_len=%d, line_content='%s', error=%s",
-              hl.line,
-              start_col,
-              end_col == -1 and 'nil' or tostring(end_col),
-              line_len,
-              line_content:gsub('\n', '\\n'),
-              err
-            ),
-            vim.log.levels.WARN
-          )
-        end
+        pcall(vim.api.nvim_buf_set_extmark, popup_buf, ns_id, hl.line, start_col, extmark_opts)
       end
 
-      -- Restore original modifiable state
       if not was_modifiable then
         vim.bo[popup_buf].modifiable = false
       end

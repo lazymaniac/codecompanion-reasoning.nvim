@@ -2,7 +2,7 @@
 
 Advanced reasoning tools extension for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
-This extension provides sophisticated AI reasoning capabilities (Chain/Tree/Graph of Thought agents, Meta agent, Ask User), project knowledge integration, and session management with titles and history.
+This extension provides AI reasoning capabilities (Chain/Tree/Graph of Thought agents, Meta agent, Ask User), project knowledge integration, and session management with titles and history.
 
 ## Features
 
@@ -12,7 +12,6 @@ This extension provides sophisticated AI reasoning capabilities (Chain/Tree/Grap
   - Auto-loads context from `.codecompanion/project-knowledge.md` into new chats.
   - `initialize_project_knowledge`: saves a comprehensive knowledge file provided by the model.
   - `project_knowledge`: proposes changelog entries and updates the knowledge file with user approval.
-  - Auto-prompts to initialize when missing, and auto-submits the prompt to start immediately.
 - **Session Management**:
   - Auto-save sessions, browse history, restore last session, and project-scoped views.
   - Title generation on first message and periodic refresh (configurable).

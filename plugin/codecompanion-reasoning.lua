@@ -7,7 +7,7 @@ end
 vim.g.loaded_codecompanion_reasoning = 1
 
 -- Check if CodeCompanion is available
-local ok, codecompanion = pcall(require, "codecompanion")
+local ok, _ = pcall(require, "codecompanion")
 if not ok then
   vim.notify("CodeCompanion Reasoning: CodeCompanion.nvim not found", vim.log.levels.WARN)
   return

@@ -389,6 +389,14 @@ SUGGESTED WORKFLOW:
 4. Continue building the solution, each time by small step-by-step
 5. Call `reflect` to analyze progress and get some insights.
 
+CRITICAL TESTING REQUIREMENT:
+WHENEVER you make ANY code changes, you MUST immediately create/run tests to verify the changes work correctly:
+- After editing code → create/update tests → run test suite
+- Before making additional changes → ensure existing tests pass
+- Create validation thought nodes specifically for testing activities
+- Never skip testing when code modifications are made
+- Use different branches to explore various testing approaches
+
 ALWAYS use companion tools:
  - `project_context` to get information about project like styling, testing, code structure etc.
  - `ask_user` for decisions, user help and opinions
@@ -417,7 +425,7 @@ Instructions:
 'analysis' - Analysis and exploration of the chunk of the problem.
 'reasoning' - Logical deduction and inference based on evidence.
 'task' - Small actionable step towards the final goal.
-'validation' - Actionable step that actually verifies current progress (like running test suite or removing, edititng or adding new test cases...)
+'validation' - MANDATORY step that verifies current progress, especially REQUIRED after any code changes. This includes: running test suite, creating new tests, updating existing tests, executing code to verify functionality, checking for errors/failures.
 ]],
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },
