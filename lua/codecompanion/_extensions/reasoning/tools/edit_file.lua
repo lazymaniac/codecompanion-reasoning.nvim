@@ -459,17 +459,7 @@ return {
         return callback({ status = 'error', data = fmt("Failed to read file: '%s'", path) })
       end
 
-      -- Validation: ensure chat contains file context fragments to guide the LLM
-      local ok_ctx, reason =
-        validate_chat_has_context(self and self.chat, path, original, start_line, end_line, new_content)
-      if not ok_ctx then
-        local guidance = table.concat({
-          '[edit_file] Validation failed:',
-          reason or 'missing context',
-          'Please paste a small snippet from the target file (ideally including the lines you want to change) into the chat before invoking edit_file.',
-        }, ' ')
-        return callback({ status = 'error', data = guidance })
-      end
+      -- Skip chat context validation: proceed directly to compute and preview edit
 
       local ok_apply, updated_or_err = apply_edit(original, start_line, end_line, new_content)
       if not ok_apply then

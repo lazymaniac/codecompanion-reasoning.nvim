@@ -6,23 +6,83 @@ This extension provides AI reasoning capabilities (Chain/Tree/Graph of Thought a
 
 ## Features
 
-- **Reasoning Agents**: Chain, Tree, and Graph of Thoughts; plus a **Meta Agent** that chooses the best approach.
-- **Ask User**: Interactive decision-making tool for ambiguous choices or confirmations.
-- **Project Knowledge**:
-  - Auto-loads context from `.codecompanion/project-knowledge.md` into new chats.
-  - `initialize_project_knowledge`: saves a comprehensive knowledge file provided by the model.
-  - `project_knowledge`: proposes changelog entries and updates the knowledge file with user approval.
-- **Custom System Prompt**:
-  - On chat creation, the extension overwrites the default CodeCompanion system prompt with a concise, tool-driven prompt tailored for reasoning agents, companion tools, validation discipline, and concise output.
-  - See: `lua/codecompanion/_extensions/reasoning/helpers/system_prompt.lua`.
-- **Session Management**:
-  - Auto-save sessions, browse history, restore last session, and project-scoped views.
-  - Title generation on first message and periodic refresh (configurable).
-  - Optional startup dialog to continue last chat.
-- **Tool Discovery**: `add_tools` lists available tools and adds them to the current chat on demand.
-- **UI**:
-  - Session picker UI; picker backends: `telescope`, `fzf-lua`, `snacks`, or default.
-  - Reasoning visualization for agents.
+### Reasoning Agents
+
+This extension provides three powerful reasoning agents, each specialized for different types of programming tasks:
+
+- **Chain of Thoughts Agent**
+  - Best for: Simple, linear tasks with a clear path forward
+  - Examples: Small bug fixes, single-file changes, config updates
+  - Features: Sequential reasoning with evidence and reflection
+  - Workflow: Analysis → Action → Validation → Next Step
+
+- **Tree of Thoughts Agent**
+  - Best for: Tasks with multiple viable approaches
+  - Examples: API design, refactoring strategies, debugging complex issues
+  - Features: Explores multiple solution paths in parallel
+  - Workflow: Generate alternatives → Compare outcomes → Choose best path
+
+- **Graph of Thoughts Agent**
+  - Best for: Cross-cutting concerns and multi-module changes
+  - Examples: Features spanning services, repository-wide updates
+  - Features: Maps relationships, merges insights across branches
+  - Workflow: Map dependencies → Analyze impacts → Synthesize solution
+
+- **Meta Agent**
+  - Automatically selects the best reasoning agent for your task
+  - Attaches essential companion tools (Ask User, Project Knowledge, Add Tools)
+  - Guides the workflow: Analysis → Decision → Change → Validate
+
+### Interactive Tools
+
+- **Ask User**
+  - Interactive decision-making for ambiguous choices
+  - Required before destructive changes (deletions, rewrites)
+  - Presents numbered options with explanations
+  - Example: "Found failing tests. Should I: 1) Implement missing function, 2) Update tests?"
+
+- **Project Knowledge**
+  - Maintains `.codecompanion/project-knowledge.md` as source of truth
+  - Auto-loads into new chats for consistent context
+  - Records changes with `project_knowledge` tool
+  - Example changelog: "Added user authentication to API endpoints (auth.js, routes.js)"
+
+- **Tool Discovery**
+  - Dynamic tool management via `add_tools`
+  - Lists available capabilities
+  - Adds specific tools to current chat
+  - Example: `add_tools(action="list_tools")` then `add_tools(action="add_tool", tool_name="edit_file")`
+
+### Session Management
+
+- **History and Restoration**
+  - Auto-saves chat sessions
+  - Browse history with UI picker
+  - Restore previous sessions
+  - Project-scoped session views
+
+- **Smart Titles**
+  - Auto-generates descriptive titles
+  - Updates based on conversation progress
+  - Configurable refresh intervals
+  - Example: "Debugging authentication middleware timeout"
+
+### UI Features
+
+- **Session Navigation**
+  - Multiple picker backends:
+    - telescope
+    - fzf-lua
+    - snacks
+    - default
+  - Fast session switching
+  - Search and filter capabilities
+
+- **Reasoning Visualization**
+  - Visual representation of agent thought processes
+  - Track decision trees and graph relationships
+  - Monitor validation steps
+  - Review synthesis points
 
 ## Requirements
 
@@ -97,86 +157,6 @@ require("codecompanion").setup({
 })
 ```
 
-## Available Tools
-
-### Chain of Thoughts Agent
-
-Sequential reasoning tool that breaks down complex problems into logical steps.
-
-**Use cases:**
-
-- Complex algorithmic problems
-- Step-by-step debugging
-- Methodical code refactoring
-
-### Tree of Thoughts Agent
-
-Explores multiple solution paths simultaneously, evaluating different approaches.
-
-**Use cases:**
-
-- Design decisions with multiple viable options
-- Performance optimization with trade-offs
-- Architecture planning
-
-### Graph of Thoughts Agent
-
-Network-based reasoning that connects related concepts and explores relationships.
-
-**Use cases:**
-
-- System integration problems
-- Dependency analysis
-- Complex refactoring across modules
-
-### Ask User Tool
-
-Interactive tool that consults the user when multiple valid approaches exist.
-
-**Features:**
-
-- Clear question formatting
-- Multiple choice options
-- Context explanation
-- Custom response handling
-
-**Example usage:**
-
-```
-The AI will automatically use this tool when it encounters:
-- Multiple valid solutions
-- Destructive operations requiring confirmation
-- Architectural decisions
-- Ambiguous requirements
-```
-
-### Meta Agent
-
-Automatically selects the most appropriate reasoning agent based on the problem type.
-
-### Tool Discovery
-
-Dynamically discovers and suggests relevant tools for the current task.
-
-### Project Knowledge
-
-- `initialize_project_knowledge`: Create or overwrite `.codecompanion/project-knowledge.md` with provided markdown.
-- `project_knowledge`: Propose and store changelog updates (with optional file list). This tool only updates the file; it does not load context.
-
-Behavior:
-
-- On chat start, if the knowledge file is missing, you will be prompted to initialize it. The request is auto-submitted to the model.
-- On chat start, the extension overwrites the system prompt and appends the full contents of `.codecompanion/project-knowledge.md` to that system message. If the prompt cannot be overridden, it falls back to adding a hidden system message with the file content.
-
-Examples:
-
-- Initialize (auto or manual):
-  - Start a new chat; if missing, you’ll get an initialization prompt which submits automatically.
-  - Or run `:CodeCompanionInitProjectKnowledge` to queue the request in your current chat.
-  - You can also ask: “Initialize project knowledge for this repo with overview, directory structure, empty changelog, and empty current features.” The AI will draft content and call the tool.
-- Update changelog:
-  - Ask: “Log today’s change: added auto-submit on initialization and simplified project root to cwd (files: helpers/chat_hooks.lua, tools/initialize_project_knowledge.lua, tools/project_knowledge.lua, reasoning/commands.lua).”
-  - The tool will show an approval dialog and append an entry under “Changelog”.
 
 ## Usage
 

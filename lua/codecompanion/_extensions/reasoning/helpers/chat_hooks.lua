@@ -140,6 +140,42 @@ local function queue_initialization_instructions(chat)
   end
 end
 
+-- Patch CodeCompanion Chat to add line numbers in tool outputs
+local function patch_chat_line_numbering()
+  local ok_ln, LN = pcall(require, 'codecompanion._extensions.reasoning.helpers.line_numbering')
+  if not ok_ln then
+    return
+  end
+  local ok_chat, Chat = pcall(require, 'codecompanion.strategies.chat')
+  if not ok_chat or not Chat or type(Chat) ~= 'table' then
+    return
+  end
+  -- avoid double patching
+  if Chat.__cc_reasoning_ln_patched then
+    return
+  end
+  Chat.__cc_reasoning_ln_patched = true
+
+  local orig_new = Chat.new
+  if type(orig_new) ~= 'function' then
+    return
+  end
+
+  Chat.new = function(opts)
+    local chat = orig_new(opts)
+    -- Patch instance method if present
+    local orig_add_tool_output = chat and chat.add_tool_output
+    if type(orig_add_tool_output) == 'function' then
+      chat.add_tool_output = function(self, tool, for_user, for_llm, ...)
+        local u = LN.process(for_user)
+        local l = LN.process(for_llm or for_user)
+        return orig_add_tool_output(self, tool, u, l, ...)
+      end
+    end
+    return chat
+  end
+end
+
 -- Simplified hook setup using CodeCompanion event data - saves only when session ends
 local function setup_codecompanion_hooks()
   local group = vim.api.nvim_create_augroup('CodeCompanionReasoningHooks', { clear = true })
@@ -281,6 +317,8 @@ function ChatHooks.setup(opts)
   if auto_save_enabled then
     setup_codecompanion_hooks()
   end
+  -- Always attempt to patch Chat with line numbering for tool outputs
+  pcall(patch_chat_line_numbering)
 end
 
 return ChatHooks
