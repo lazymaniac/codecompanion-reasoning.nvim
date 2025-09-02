@@ -29,6 +29,21 @@ function helpers.expect_contains(substring, str)
   end
 end
 
+--- Assert that `str` does NOT match the given Lua pattern.
+--- Uses Lua patterns (not plain substring).
+--- @param pattern string Lua pattern to test
+--- @param str string The string to search in
+function helpers.expect_no_match(pattern, str)
+  local ok = (string.find(str, pattern) == nil)
+  if _G.MiniTest then
+    return _G.MiniTest.expect.equality(ok, true)
+  else
+    if not ok then
+      error(string.format("Expected no match for pattern '%s' in '%s'", pattern, str))
+    end
+  end
+end
+
 --- Assert that `value` is truthy.
 --- @param value any Value to check
 function helpers.expect_truthy(value)

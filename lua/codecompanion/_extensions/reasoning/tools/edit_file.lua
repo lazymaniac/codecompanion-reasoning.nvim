@@ -460,7 +460,8 @@ return {
       end
 
       -- Validation: ensure chat contains file context fragments to guide the LLM
-      local ok_ctx, reason = validate_chat_has_context(self and self.chat, path, original, start_line, end_line, new_content)
+      local ok_ctx, reason =
+        validate_chat_has_context(self and self.chat, path, original, start_line, end_line, new_content)
       if not ok_ctx then
         local guidance = table.concat({
           '[edit_file] Validation failed:',

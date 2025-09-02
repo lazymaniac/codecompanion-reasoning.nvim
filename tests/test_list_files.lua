@@ -57,4 +57,30 @@ T['list_files refuses outside root'] = function()
   h.expect_contains('Refusing to list outside project root', res.data)
 end
 
+T['list_files no-args uses gitignore'] = function()
+  child.lua([[
+    local Tool = require('codecompanion._extensions.reasoning.tools.list_files')
+    local res = Tool.cmds[1](Tool, nil, nil)
+    result_all = { status = res.status, data = res.data }
+  ]])
+
+  local res = child.lua_get('result_all')
+  h.eq('success', res.status)
+  h.expect_contains('lua/', res.data)
+  h.expect_no_match('^prompts/', res.data)
+  h.expect_no_match('\nprompts/', res.data)
+end
+
+T['list_files args also respect gitignore'] = function()
+  child.lua([[
+    local Tool = require('codecompanion._extensions.reasoning.tools.list_files')
+    local res = Tool.cmds[1](Tool, { dir = '.', glob = 'prompts/*' }, nil)
+    result_args_ignored = { status = res.status, data = res.data }
+  ]])
+
+  local res = child.lua_get('result_args_ignored')
+  h.eq('success', res.status)
+  h.expect_no_match('\nprompts/', res.data)
+end
+
 return T
