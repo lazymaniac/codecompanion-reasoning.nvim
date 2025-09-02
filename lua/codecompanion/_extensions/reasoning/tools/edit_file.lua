@@ -22,6 +22,150 @@ local function join_lines(lines)
   return table.concat(lines, '\n')
 end
 
+---Normalize text for fuzzy substring search
+---@param s string
+---@return string
+local function normalize_for_search(s)
+  if type(s) ~= 'string' then
+    return ''
+  end
+  -- lower, trim, collapse whitespace
+  s = s:gsub('\r', '')
+  s = s:lower()
+  s = s:gsub('%s+', ' ')
+  return vim.trim(s)
+end
+
+---Collect relevant chat text into one string
+---@param chat table|nil
+---@return string
+local function collect_chat_text(chat)
+  if not chat or not chat.messages or #chat.messages == 0 then
+    return ''
+  end
+  local parts = {}
+  for _, m in ipairs(chat.messages) do
+    local c = m and m.content
+    if type(c) == 'table' then
+      local chunks = {}
+      for _, v in ipairs(c) do
+        if type(v) == 'string' then
+          table.insert(chunks, v)
+        elseif type(v) == 'table' then
+          if type(v.text) == 'string' then
+            table.insert(chunks, v.text)
+          elseif type(v.content) == 'string' then
+            table.insert(chunks, v.content)
+          elseif type(v.value) == 'string' then
+            table.insert(chunks, v.value)
+          end
+        end
+      end
+      c = table.concat(chunks, '\n')
+    elseif type(c) ~= 'string' then
+      c = ''
+    end
+    if c and c ~= '' then
+      table.insert(parts, c)
+    end
+  end
+  return table.concat(parts, '\n\n')
+end
+
+---Build candidate fragments from the file around the edit range
+---@param original string[]
+---@param start_line integer
+---@param end_line integer
+---@param new_content string
+---@return string[] candidates
+local function build_context_candidates(original, start_line, end_line, new_content)
+  local candidates = {}
+  local line_count = #original
+
+  -- Helper to add a candidate if sufficiently informative
+  local function add_candidate(s)
+    if not s or s == '' then
+      return
+    end
+    local trimmed = vim.trim(s)
+    if #trimmed >= 8 then
+      table.insert(candidates, trimmed)
+    end
+  end
+
+  -- Prefer the original range (if replacing)
+  if start_line >= 1 and end_line >= start_line and end_line <= line_count then
+    local buf = {}
+    for i = start_line, end_line do
+      buf[#buf + 1] = original[i]
+    end
+    add_candidate(table.concat(buf, '\n'))
+  end
+
+  -- Add a few surrounding single-line anchors
+  local anchors = {
+    math.max(1, start_line - 1),
+    start_line,
+    math.min(line_count, end_line + 1),
+  }
+  local seen = {}
+  for _, ln in ipairs(anchors) do
+    if ln >= 1 and ln <= line_count and not seen[ln] then
+      seen[ln] = true
+      add_candidate(original[ln] or '')
+    end
+  end
+
+  -- Add new_content as a candidate if it's long enough
+  add_candidate(new_content)
+
+  -- Deduplicate
+  local uniq, out = {}, {}
+  for _, s in ipairs(candidates) do
+    if not uniq[s] then
+      uniq[s] = true
+      table.insert(out, s)
+    end
+  end
+  return out
+end
+
+---Validate that chat already contains some fragment from the file (or new content)
+---@param chat table|nil
+---@param path string
+---@param original string[]
+---@param start_line integer
+---@param end_line integer
+---@param new_content string
+---@return boolean ok, string? reason
+local function validate_chat_has_context(chat, path, original, start_line, end_line, new_content)
+  local chat_text = collect_chat_text(chat)
+  if chat_text == '' then
+    return false, 'No chat history found to validate context.'
+  end
+
+  local norm_chat = normalize_for_search(chat_text)
+  local candidates = build_context_candidates(original, start_line, end_line, new_content)
+  local base = vim.fn.fnamemodify(path, ':t'):lower()
+
+  -- If the filename appears with some code, consider it a weak signal; we still try fragments below
+  local filename_present = base ~= '' and norm_chat:find(base, 1, true) ~= nil
+
+  for _, frag in ipairs(candidates) do
+    local norm_frag = normalize_for_search(frag)
+    if #norm_frag >= 8 and norm_chat:find(norm_frag, 1, true) then
+      return true
+    end
+  end
+
+  if filename_present then
+    -- Filename present but no fragment matched: still fail, but provide targeted guidance
+    return false, 'Chat mentions the file but lacks a concrete code snippet from it.'
+  end
+
+  return false, 'Chat does not contain any recognizable fragment from the target file.'
+end
+
 ---Compute the updated file content given a line range replacement
 ---@param original string[] existing file lines
 ---@param start_line integer 1-based inclusive, or special insert rules (-1 for append)
@@ -313,6 +457,17 @@ return {
       local ok_read, original = pcall(vim.fn.readfile, path)
       if not ok_read or type(original) ~= 'table' then
         return callback({ status = 'error', data = fmt("Failed to read file: '%s'", path) })
+      end
+
+      -- Validation: ensure chat contains file context fragments to guide the LLM
+      local ok_ctx, reason = validate_chat_has_context(self and self.chat, path, original, start_line, end_line, new_content)
+      if not ok_ctx then
+        local guidance = table.concat({
+          '[edit_file] Validation failed:',
+          reason or 'missing context',
+          'Please paste a small snippet from the target file (ideally including the lines you want to change) into the chat before invoking edit_file.',
+        }, ' ')
+        return callback({ status = 'error', data = guidance })
       end
 
       local ok_apply, updated_or_err = apply_edit(original, start_line, end_line, new_content)
