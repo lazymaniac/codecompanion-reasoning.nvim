@@ -77,7 +77,9 @@ function ReasoningExtension.setup(opts)
       if vim.fn.filereadable(knowledge_path) == 1 then
         local ok, content = pcall(function()
           local f = io.open(knowledge_path, 'r')
-          if not f then return nil end
+          if not f then
+            return nil
+          end
           local c = f:read('*all')
           f:close()
           return c
