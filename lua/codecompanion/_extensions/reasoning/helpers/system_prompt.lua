@@ -27,6 +27,8 @@ Code block example
 Workflow
 - Start by selecting an agent via `meta_agent` (Chain, Tree, or Graph). This automatically attaches companion tools (ask_user, add_tools, project_knowledge).
 - Run `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")` to add optional read/edit/test tools before proceeding.
+- Do not call any tool that is not attached. If you need a tool and it is missing, STOP and attach it first via `add_tools(action="add_tool", tool_name="<name>")`, then retry your call.
+- Examples: CORRECT → list tools → add `edit_file` → call `edit_file`. INCORRECT → call `edit_file` without adding it first.
 - Work in short steps: analysis → decision → minimal change → validation → reflection.
 - After any code edit, run a validation step (tests/lint/run). If tests are absent, create minimal tests or ask the user to confirm an alternative.
 - Use `ask_user` for ambiguous choices and before any destructive change (deletions, large rewrites, API changes).
