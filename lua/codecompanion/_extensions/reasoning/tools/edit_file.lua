@@ -515,7 +515,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'edit_file',
-      description = 'Replace a line range with new content. Opens a diff preview in a split and waits for Accept (a) or Reject (q). Range is 1-based inclusive; use end_line = start_line-1 to insert before, or -1/-1 to append.',
+      description = 'Replace a line range with new content. Range is 1-based inclusive; use end_line = start_line-1 to insert before, or -1/-1 to append.',
       parameters = {
         type = 'object',
         additionalProperties = false,

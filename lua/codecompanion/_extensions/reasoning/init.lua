@@ -10,6 +10,7 @@ local function register_tools()
     'meta_agent',
     'add_tools',
     'edit_file',
+    'list_files',
     'project_knowledge',
     'initialize_project_knowledge',
   }
