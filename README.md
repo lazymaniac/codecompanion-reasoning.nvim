@@ -51,7 +51,7 @@ This extension provides three powerful reasoning agents, each specialized for di
   - Dynamic tool management via `add_tools`
   - Lists available capabilities
   - Adds specific tools to current chat
-  - Example: `add_tools(action="list_tools")` then `add_tools(action="add_tool", tool_name="edit_file")`
+  - Example: `add_tools(action="list_tools")` then `add_tools(action="add_tool", tool_name="<tool_from_list>")`
 
 ### Session Management
 

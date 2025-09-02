@@ -9,7 +9,6 @@ local function register_tools()
     'graph_of_thoughts_agent',
     'meta_agent',
     'add_tools',
-    'edit_file',
     'list_files',
     'project_knowledge',
     'initialize_project_knowledge',

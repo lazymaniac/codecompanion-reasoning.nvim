@@ -24,7 +24,7 @@ T['list_files basic listing'] = function()
   local res = child.lua_get('result')
   h.eq('success', res.status)
   h.expect_contains('meta_agent.lua', res.data)
-  h.expect_contains('edit_file.lua', res.data)
+  h.expect_contains('list_files.lua', res.data)
 end
 
 T['list_files with glob filter'] = function()
