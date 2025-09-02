@@ -1,5 +1,7 @@
 local fmt = string.format
 
+-- Utility helpers
+
 ---Safely split a string into lines without losing empty trailing lines
 ---@param s string
 ---@return string[]
@@ -7,9 +9,7 @@ local function split_lines(s)
   if s == nil or s == '' then
     return {}
   end
-  -- Use plain split; keepempty = true to preserve blanks
-  local parts = vim.split(s, '\n', { plain = true })
-  return parts
+  return vim.split(s, '\n', { plain = true })
 end
 
 ---Join lines with newlines (no trailing newline added implicitly)
@@ -29,7 +29,6 @@ end
 ---@param new_content string new block text
 ---@return boolean ok, string[]|string updated_lines_or_error
 local function apply_edit(original, start_line, end_line, new_content)
-  -- Input validation
   if type(original) ~= 'table' then
     return false, 'original must be a table of strings'
   end
@@ -40,64 +39,50 @@ local function apply_edit(original, start_line, end_line, new_content)
     return false, 'new_content must be a string'
   end
 
-  -- Convert to integers and validate
   start_line = math.floor(start_line)
   end_line = math.floor(end_line)
-
   local line_count = #original
 
-  -- Handle special cases
+  -- Append at EOF
   if start_line == -1 and end_line == -1 then
-    -- Append at EOF - always valid
     local result = {}
     for i = 1, line_count do
       result[i] = original[i]
     end
-    local new_lines = split_lines(new_content)
-    for _, line in ipairs(new_lines) do
-      table.insert(result, line)
+    for _, line in ipairs(split_lines(new_content)) do
+      result[#result + 1] = line
     end
     return true, result
   end
 
+  -- Insert before start_line
   if end_line == start_line - 1 then
-    -- Insert before start_line
     if start_line < 1 or start_line > line_count + 1 then
       return false, fmt('Invalid insert position: line %d (valid range: 1-%d)', start_line, line_count + 1)
     end
-
-    local result = {}
-    -- Copy lines before insertion point
+    local result, pos = {}, 0
     for i = 1, start_line - 1 do
-      result[i] = original[i]
+      pos = pos + 1
+      result[pos] = original[i]
     end
-
-    -- Insert new content
-    local new_lines = split_lines(new_content)
-    local pos = start_line - 1
-    for _, line in ipairs(new_lines) do
+    for _, line in ipairs(split_lines(new_content)) do
       pos = pos + 1
       result[pos] = line
     end
-
-    -- Copy lines after insertion point
     for i = start_line, line_count do
       pos = pos + 1
       result[pos] = original[i]
     end
-
     return true, result
   end
 
-  -- Replace range - validate bounds
+  -- Replace range
   if start_line < 1 or end_line < 1 then
     return false, fmt('Invalid range: lines must be >= 1, got start=%d, end=%d', start_line, end_line)
   end
-
   if start_line > end_line then
     return false, fmt('Invalid range: start_line (%d) > end_line (%d)', start_line, end_line)
   end
-
   if end_line > line_count then
     if line_count == 0 then
       return false, fmt('Cannot replace lines %d-%d in empty file', start_line, end_line)
@@ -106,141 +91,144 @@ local function apply_edit(original, start_line, end_line, new_content)
     end
   end
 
-  -- Build result efficiently using table.move when possible
-  local result = {}
-
-  -- Copy lines before replacement
-  if start_line > 1 then
-    for i = 1, start_line - 1 do
-      result[i] = original[i]
-    end
+  local result, pos = {}, 0
+  for i = 1, start_line - 1 do
+    pos = pos + 1
+    result[pos] = original[i]
   end
-
-  -- Insert new content
-  local new_lines = split_lines(new_content)
-  local pos = start_line - 1
-  for _, line in ipairs(new_lines) do
+  for _, line in ipairs(split_lines(new_content)) do
     pos = pos + 1
     result[pos] = line
   end
-
-  -- Copy lines after replacement
-  if end_line < line_count then
-    for i = end_line + 1, line_count do
-      pos = pos + 1
-      result[pos] = original[i]
-    end
+  for i = end_line + 1, line_count do
+    pos = pos + 1
+    result[pos] = original[i]
   end
-
   return true, result
 end
 
+---Choose a target window to display the diff
+---@param opts table|nil { target_win?: integer, target_buf?: integer }
+---@return integer winid
+local function pick_window(opts)
+  if opts and opts.target_buf and vim.api.nvim_buf_is_valid(opts.target_buf) then
+    local wid = vim.fn.bufwinid(opts.target_buf)
+    if wid ~= -1 and vim.api.nvim_win_is_valid(wid) then
+      local cfg = vim.api.nvim_win_get_config(wid)
+      if not cfg or cfg.relative == '' then
+        return wid
+      end
+    end
+  end
+  local target = opts and opts.target_win
+  if target and vim.api.nvim_win_is_valid(target) then
+    local cfg = vim.api.nvim_win_get_config(target)
+    if not cfg or cfg.relative == '' then
+      return target
+    end
+  end
+  local cur = vim.api.nvim_get_current_win()
+  local cfg = vim.api.nvim_win_get_config(cur)
+  if not cfg or cfg.relative == '' then
+    return cur
+  end
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local c = vim.api.nvim_win_get_config(w)
+    if not c or c.relative == '' then
+      return w
+    end
+  end
+  return cur
+end
+
+---Create a scratch diff buffer in a window and populate lines
+---@param win integer
+---@param diff_lines string[]
+---@return integer diff_buf
+local function create_diff_buffer(win, diff_lines)
+  local diff_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_win_set_buf(win, diff_buf)
+  vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
+  vim.bo[diff_buf].buftype = 'nofile'
+  vim.bo[diff_buf].bufhidden = 'wipe'
+  vim.bo[diff_buf].swapfile = false
+  vim.bo[diff_buf].modifiable = false
+  vim.bo[diff_buf].filetype = 'diff'
+  pcall(vim.api.nvim_set_option_value, 'conceallevel', 0, { win = win })
+  return diff_buf
+end
+
+---Add per-hunk virtual text hints and return first hunk line number
+---@param diff_buf integer
+---@param diff_lines string[]
+---@return integer|nil first_hunk_lnum 1-based line number in buffer
+local function add_hunk_hints(diff_buf, diff_lines)
+  local ns = vim.api.nvim_create_namespace('CodeCompanionEditDiff')
+  local first_hunk_lnum ---@type integer|nil
+  for i, line in ipairs(diff_lines) do
+    if line:find('^@@') then
+      pcall(vim.api.nvim_buf_set_extmark, diff_buf, ns, i - 1, 0, {
+        virt_text = { { '  [a] Accept  [q] Reject', 'Comment' } },
+        virt_text_pos = 'right_align',
+        priority = 100,
+      })
+      if not first_hunk_lnum then
+        first_hunk_lnum = i
+      end
+    end
+  end
+  return first_hunk_lnum
+end
+
+---Move cursor to first change and top-align
+---@param win integer
+---@param first_hunk_lnum integer|nil
+local function focus_first_change(win, first_hunk_lnum)
+  local target_line = first_hunk_lnum or 1
+  pcall(vim.api.nvim_win_set_cursor, win, { target_line, 0 })
+  pcall(vim.api.nvim_win_call, win, function()
+    pcall(vim.cmd, 'normal! zt')
+  end)
+end
+
 ---Open a diff preview using the target window (or a reasonable fallback)
+---@param path string
+---@param updated_lines string[]
+---@param on_decision fun(applied:boolean)
 ---@param opts table|nil Optional opts { target_win: integer?, target_buf: integer? }
 local function open_diff_preview(path, updated_lines, on_decision, opts)
   vim.schedule(function()
-    -- Try to reuse a reasonable window: current non-floating window
-    local function pick_window()
-      -- Use a window showing the desired buffer if available
-      if opts and opts.target_buf and vim.api.nvim_buf_is_valid(opts.target_buf) then
-        local wid = vim.fn.bufwinid(opts.target_buf)
-        if wid ~= -1 and vim.api.nvim_win_is_valid(wid) then
-          local cfg = vim.api.nvim_win_get_config(wid)
-          if not cfg or cfg.relative == '' then
-            return wid
-          end
-        end
-      end
-
-      -- Use provided target window if valid and not floating
-      local target = opts and opts.target_win
-      if target and vim.api.nvim_win_is_valid(target) then
-        local cfg = vim.api.nvim_win_get_config(target)
-        if not cfg or cfg.relative == '' then
-          return target
-        end
-      end
-
-      local cur = vim.api.nvim_get_current_win()
-      local cfg = vim.api.nvim_win_get_config(cur)
-      if not cfg or cfg.relative == '' then
-        return cur
-      end
-      local wins = vim.api.nvim_tabpage_list_wins(0)
-      for _, w in ipairs(wins) do
-        local c = vim.api.nvim_win_get_config(w)
-        if not c or c.relative == '' then
-          return w
-        end
-      end
-      return cur
-    end
-
-    local win = pick_window()
+    local win = pick_window(opts)
     if not vim.api.nvim_win_is_valid(win) then
       win = vim.api.nvim_get_current_win()
     end
 
-    -- Load the original file to capture its content and restore later
+    -- Load original file in target window to capture content and restore later
     vim.api.nvim_set_current_win(win)
     vim.cmd('edit ' .. vim.fn.fnameescape(path))
     local file_buf = vim.api.nvim_get_current_buf()
-
-    -- Prepare unified diff text
     local original_lines = vim.api.nvim_buf_get_lines(file_buf, 0, -1, false)
+
+    -- Build unified diff text (full context so entire file is visible)
     local old_text = table.concat(original_lines, '\n') .. '\n'
     local new_text = table.concat(updated_lines, '\n') .. '\n'
-    -- Use a large context so the unified diff shows the full file
     local full_ctx = math.max(#original_lines, #updated_lines)
-    local diff = vim.diff(old_text, new_text, {
+    local diff_payload = vim.diff(old_text, new_text, {
       result_type = 'unified',
       algorithm = 'myers',
       ctxlen = full_ctx,
       linematch = true,
     }) or ''
-
-    -- Prepend headers for better readability
     local header = fmt('--- a/%s\n+++ b/%s\n', path, path)
-    local diff_text = header .. diff
+    local diff_text = header .. diff_payload
     local diff_lines = vim.split(diff_text, '\n', { trimempty = true })
 
-    -- Create a scratch buffer to show unified diff in the same window
-    local diff_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_win_set_buf(win, diff_buf)
-    vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
-    vim.bo[diff_buf].buftype = 'nofile'
-    vim.bo[diff_buf].bufhidden = 'wipe'
-    vim.bo[diff_buf].swapfile = false
-    vim.bo[diff_buf].modifiable = false
-    vim.bo[diff_buf].filetype = 'diff'
-    pcall(vim.api.nvim_set_option_value, 'conceallevel', 0, { win = win })
+    -- Show diff buffer
+    local diff_buf = create_diff_buffer(win, diff_lines)
+    local first_hunk_lnum = add_hunk_hints(diff_buf, diff_lines)
+    focus_first_change(win, first_hunk_lnum)
 
-    -- Add virtual text hints at each hunk (no global top hint)
-    local ns = vim.api.nvim_create_namespace('CodeCompanionEditDiff')
-    local first_hunk_lnum ---@type integer|nil
-    for i, line in ipairs(diff_lines) do
-      if line:find('^@@') then
-        pcall(vim.api.nvim_buf_set_extmark, diff_buf, ns, i - 1, 0, {
-          virt_text = {
-            { '  [a] Accept  [q] Reject', 'Comment' },
-          },
-          virt_text_pos = 'right_align',
-          priority = 100,
-        })
-        if not first_hunk_lnum then
-          first_hunk_lnum = i
-        end
-      end
-    end
-
-    -- Jump to the start of the diff and scroll it into view
-    -- Prefer the first hunk header if present; otherwise go to the top
-    local target_line = first_hunk_lnum or 1
-    pcall(vim.api.nvim_win_set_cursor, win, { target_line, 0 })
-    pcall(vim.api.nvim_win_call, win, function()
-      pcall(vim.cmd, 'normal! zt')
-    end)
-
+    -- Cleanup helper
     local function cleanup_and_restore()
       if vim.api.nvim_win_is_valid(win) then
         vim.api.nvim_set_current_win(win)
@@ -251,8 +239,8 @@ local function open_diff_preview(path, updated_lines, on_decision, opts)
       end
     end
 
+    -- Accept/reject actions
     local function accept()
-      -- Apply changes to the actual buffer and save via :write to trigger autocmds
       local saved = false
       if file_buf and vim.api.nvim_buf_is_valid(file_buf) then
         pcall(vim.api.nvim_buf_set_option, file_buf, 'modifiable', true)
@@ -264,12 +252,9 @@ local function open_diff_preview(path, updated_lines, on_decision, opts)
           saved = true
         end
       end
-
       if not saved then
-        -- Fallback to direct file write if buffer operations fail
         pcall(vim.fn.writefile, updated_lines, path)
       end
-
       cleanup_and_restore()
       on_decision(true)
     end
