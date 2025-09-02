@@ -1,10 +1,10 @@
 ---@class CodeCompanion.Commands
----User commands for chat history and session management
 local Commands = {}
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 local SessionManagerUI = require('codecompanion._extensions.reasoning.ui.session_manager_ui')
 local ChatHooks = require('codecompanion._extensions.reasoning.helpers.chat_hooks')
+local SessionOptimizer = require('codecompanion._extensions.reasoning.helpers.session_optimizer')
 
 -- Command implementations
 
@@ -68,6 +68,106 @@ function Commands.show_project_history()
   session_ui:browse_project_sessions()
 end
 
+---Optimize current chat session by summarizing messages
+function Commands.optimize_current_session()
+  -- Get current buffer and try to extract chat object
+  local current_buf = vim.api.nvim_get_current_buf()
+  local chat_obj = nil
+
+  local ok, Chat = pcall(require, 'codecompanion.strategies.chat')
+  if not ok or not Chat.buf_get_chat then
+    vim.notify('CodeCompanion chat strategy not available', vim.log.levels.ERROR)
+    return
+  end
+
+  local chat_ok, result = pcall(Chat.buf_get_chat, current_buf)
+  if not chat_ok or not result then
+    vim.notify('No active CodeCompanion chat found in current buffer', vim.log.levels.WARN)
+    return
+  end
+  chat_obj = result
+
+  if not chat_obj.messages or #chat_obj.messages == 0 then
+    vim.notify('No messages to optimize', vim.log.levels.INFO)
+    return
+  end
+
+  vim.notify('Optimizing session, please wait...', vim.log.levels.INFO)
+
+  -- Create session optimizer and compact session
+  local optimizer = SessionOptimizer.new()
+  local session_data = {
+    messages = chat_obj.messages,
+    adapter = chat_obj.adapter,
+    settings = chat_obj.settings,
+    opts = chat_obj.opts,
+  }
+
+  optimizer:compact_session(session_data, function(compacted, error_msg)
+    if error_msg then
+      vim.schedule(function()
+        vim.notify('Failed to optimize session: ' .. error_msg, vim.log.levels.ERROR)
+      end)
+      return
+    end
+
+    if not compacted or not compacted.messages then
+      vim.schedule(function()
+        vim.notify('Session optimization produced no result', vim.log.levels.WARN)
+      end)
+      return
+    end
+
+    vim.schedule(function()
+      -- Find system message (usually first message with role='system')
+      local system_msg_index = nil
+      for i, msg in ipairs(chat_obj.messages) do
+        if msg.role == 'system' then
+          system_msg_index = i
+          break
+        end
+      end
+
+      -- Replace chat messages with optimized content
+      -- Keep system message if present, add summary as user message, then continue from there
+      local new_messages = {}
+
+      if system_msg_index then
+        table.insert(new_messages, chat_obj.messages[system_msg_index])
+      end
+
+      -- Add optimized summary as user message right after system prompt
+      local summary_message = compacted.messages[1]
+      summary_message.role = 'user' -- Change from assistant to user as requested
+      table.insert(new_messages, summary_message)
+
+      -- Replace current chat messages
+      chat_obj.messages = new_messages
+
+      -- Save the optimized session
+      pcall(function()
+        SessionManager.auto_save_session(chat_obj)
+      end)
+
+      -- Refresh the chat buffer display
+      if chat_obj.render then
+        pcall(function()
+          chat_obj:render()
+        end)
+      end
+
+      vim.notify(
+        string.format(
+          'Session optimized: %d messages compacted into 1 summary',
+          compacted.metadata and compacted.metadata.compaction and compacted.metadata.compaction.original_message_count
+            or 0
+        ),
+        vim.log.levels.INFO
+      )
+    end)
+  end)
+end
+
 function Commands.setup()
   vim.api.nvim_create_user_command('CodeCompanionChatHistory', Commands.show_chat_history, {
     desc = 'Show interactive chat session picker',
@@ -98,6 +198,10 @@ function Commands.setup()
     vim.notify('Refreshing session titles in background…', vim.log.levels.INFO)
   end, {
     desc = 'Regenerate and persist session titles using the LLM',
+  })
+
+  vim.api.nvim_create_user_command('CodeCompanionOptimizeSession', Commands.optimize_current_session, {
+    desc = 'Optimize current chat session by summarizing messages into a single summary',
   })
 
   -- Enable auto-save by default

@@ -2,7 +2,6 @@
 --- Reasoning plugin entry point for CodeCompanion.
 --- Provides a thin wrapper around the internal reasoning extension.
 
----@class CodeCompanion.ReasoningPlugin
 local M = {}
 
 M.version = '0.1.0'
@@ -222,9 +221,6 @@ function M.show_startup_dialog()
   end
 end
 
---- Generate title for a chat session.
---- @param chat table CodeCompanion chat object
---- @param callback? function Optional callback for async title generation
 function M.generate_title(chat, callback)
   local ok, ui = pcall(require, 'codecompanion._extensions.reasoning.ui.session_manager_ui')
   if ok and chat then
@@ -237,7 +233,17 @@ function M.generate_title(chat, callback)
   end
 end
 
---- Prevent accidental modification of the public API after initialization.
+--- Optimize the current chat session by summarizing messages into a single summary.
+--- The summary will be placed as a user message right after the system prompt.
+function M.optimize_current_session()
+  local ok, commands = pcall(require, 'codecompanion._extensions.reasoning.commands')
+  if ok and commands.optimize_current_session then
+    commands.optimize_current_session()
+  else
+    vim.notify('[codecompanion-reasoning.nvim] Failed to load session optimizer', vim.log.levels.ERROR)
+  end
+end
+
 setmetatable(M, {
   __newindex = function(_, key, _)
     error(string.format("[codecompanion-reasoning.nvim] Attempt to modify read‑only field '%s'", key), 2)

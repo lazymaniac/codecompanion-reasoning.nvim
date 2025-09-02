@@ -290,7 +290,9 @@ local function restore_chat_messages(chat, messages)
               added_reasoning[key] = true
               local mt = chat and chat.MESSAGE_TYPES or nil
               local opts = {}
-              if mt and mt.REASONING_MESSAGE then opts.type = mt.REASONING_MESSAGE end
+              if mt and mt.REASONING_MESSAGE then
+                opts.type = mt.REASONING_MESSAGE
+              end
               chat:add_buf_message({ role = config.constants.LLM_ROLE, content = rtext }, opts)
             end
           end
@@ -330,21 +332,27 @@ local function restore_chat_messages(chat, messages)
               -- Prefer strategy-aware rendering to preserve linkage; ensure UI visibility when supported
               local mapping = tool_call_map[restored_message.tool_call_id]
               local tool_name = (restored_message.tool_name or restored_message.name or (mapping and mapping.name))
-              local tool_obj = { function_call = { id = restored_message.tool_call_id, name = tool_name or 'unknown_tool' } }
+              local tool_obj =
+                { function_call = { id = restored_message.tool_call_id, name = tool_name or 'unknown_tool' } }
               pcall(function()
                 chat:add_tool_output(tool_obj, out_text, out_text)
               end)
               -- Some implementations don't push to buffer; add UI assistant message only when types are available
               local mt = chat and chat.MESSAGE_TYPES or nil
               if mt and mt.TOOL_MESSAGE then
-                chat:add_buf_message({ role = config.constants.LLM_ROLE, content = out_text }, { type = mt.TOOL_MESSAGE })
+                chat:add_buf_message(
+                  { role = config.constants.LLM_ROLE, content = out_text },
+                  { type = mt.TOOL_MESSAGE }
+                )
               end
             else
               -- Generic rendering for plain tool messages
               chat:add_message(to_add, { visible = true })
               local mt = chat and chat.MESSAGE_TYPES or nil
               local opts = {}
-              if mt and mt.TOOL_MESSAGE then opts.type = mt.TOOL_MESSAGE end
+              if mt and mt.TOOL_MESSAGE then
+                opts.type = mt.TOOL_MESSAGE
+              end
               chat:add_buf_message({ role = config.constants.LLM_ROLE, content = out_text }, opts)
             end
           else

@@ -56,9 +56,18 @@ WHY FIRST
 - Do not request specifics or act before tools are attached. Select an agent, then manage optional tools via add_tools.
 
 CHOICES
-- chain_of_thoughts_agent: sequential steps with reflection and evidence for actions.
-- tree_of_thoughts_agent: branching alternatives with evidence and periodic comparison.
-- graph_of_thoughts_agent: relationships + synthesis across aspects with evidence.
+- chain_of_thoughts_agent: sequential steps with reflection and evidence for actions. Best for simple, linear tasks with a single obvious path.
+- tree_of_thoughts_agent: branching alternatives with evidence and periodic comparison. Best when exploring multiple viable approaches or comparing trade-offs.
+- graph_of_thoughts_agent: relationships + synthesis across aspects with evidence. Best for cross-cutting work spanning multiple modules/components.
+
+SELECTION GUIDELINES
+- Prefer tree_of_thoughts_agent or graph_of_thoughts_agent for complex software engineering tasks. Use chain_of_thoughts_agent only for small, local, linear edits.
+- Choose tree_of_thoughts_agent when you need to generate and compare alternative designs, refactoring strategies, or debugging hypotheses.
+- Choose graph_of_thoughts_agent when the task spans multiple files/modules/services, requires mapping dependencies, or synthesizing information across components.
+- Examples:
+  - chain_of_thoughts_agent: small localized bug fix, rename, add a single helper, adjust one config.
+  - tree_of_thoughts_agent: API design with trade-offs, selecting libraries, multi-step refactor with strategy choices, ambiguous bug with multiple hypotheses.
+  - graph_of_thoughts_agent: feature touching many modules, cross-cutting concerns (auth/logging/telemetry), repository-wide refactor, plugin integration across subsystems.
 
 COMPANION TOOLS (auto‑attached)
 - ask_user: interactive confirmation/decision tool for ambiguous choices or any potentially destructive change. Presents options and returns the user’s selection.
@@ -74,7 +83,7 @@ PROTOCOL
         properties = {
           agent = {
             type = 'string',
-            description = 'Selected agent: chain_of_thoughts_agent (sequential), tree_of_thoughts_agent (multiple paths), graph_of_thoughts_agent (deep analysis)',
+            description = 'Selected agent. Prefer tree/graph for complex tasks: chain_of_thoughts_agent (simple, linear), tree_of_thoughts_agent (explore alternatives), graph_of_thoughts_agent (cross-module synthesis)',
             enum = { 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' },
           },
         },
