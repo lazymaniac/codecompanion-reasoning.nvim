@@ -32,6 +32,17 @@ if not log_ok then
 end
 local fmt = string.format
 
+local excluded_tools = {
+  ['chain_of_thoughts_agent'] = true,
+  ['tree_of_thoughts_agent'] = true,
+  ['graph_of_thoughts_agent'] = true,
+  ['meta_agent'] = true,
+  ['ask_user'] = true,
+  ['add_tools'] = true,
+  ['project_knowledge'] = true,
+  ['initialize_project_knowledge'] = true,
+}
+
 ---Extract the first sentence from a description
 ---@param description string The full description
 ---@return string First sentence of the description
@@ -61,18 +72,6 @@ local function get_all_tools_with_schemas()
   local tools_config = config.strategies.chat.tools
   local enabled_tools = ToolFilter.filter_enabled_tools(tools_config)
   local result = {}
-
-  -- Tools to exclude from discovery (these are automatically added or are primary agents)
-  local excluded_tools = {
-    ['chain_of_thoughts_agent'] = true,
-    ['tree_of_thoughts_agent'] = true,
-    ['graph_of_thoughts_agent'] = true,
-    ['meta_agent'] = true,
-    ['ask_user'] = true,
-    ['add_tools'] = true,
-    ['project_knowledge'] = true,
-    ['initialize_project_knowledge'] = true,
-  }
 
   for tool_name, tool_config in pairs(tools_config) do
     -- Skip special keys and excluded tools
@@ -195,17 +194,6 @@ local function handle_add_tool(args)
   if not args.tool_name then
     return { status = 'error', data = 'tool_name is required' }
   end
-
-  local excluded_tools = {
-    ['chain_of_thoughts_agent'] = true,
-    ['tree_of_thoughts_agent'] = true,
-    ['graph_of_thoughts_agent'] = true,
-    ['meta_agent'] = true,
-    ['ask_user'] = true,
-    ['add_tools'] = true,
-    ['project_knowledge'] = true,
-    ['initialize_project_knowledge'] = true,
-  }
 
   if excluded_tools[args.tool_name] then
     if args.tool_name:match('_agent$') then
