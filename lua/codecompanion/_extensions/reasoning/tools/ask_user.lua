@@ -37,7 +37,20 @@ return {
     type = 'function',
     ['function'] = {
       name = 'ask_user',
-      description = "Interactive consultation for coding decisions when multiple valid approaches exist. USE WHEN: Multiple valid solutions exist (refactor vs rewrite), destructive operations planned (delete code, major changes), architecture decisions affect maintainability, user intent unclear from request, performance/maintainability trade-offs exist and similar. DON'T use for: established coding standards, obvious technical choices, already decided matters.",
+      description = [[Interactive consultation for coding decisions when multiple valid approaches exist
+
+USE WHEN:
+- Multiple valid solutions exist (refactor vs rewrite)
+- Destructive operations planned (delete code, major changes)
+- Architecture decisions affect maintainability
+- User intent unclear from request
+- Performance/maintainability trade-offs exist and similar
+
+DON'T use for:
+- established coding standards
+- obvious technical choices
+- already decided matters
+]],
       parameters = {
         type = 'object',
         properties = {

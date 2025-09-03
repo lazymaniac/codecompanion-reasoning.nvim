@@ -249,27 +249,24 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = [[Structured, stepwise software reasoning agent for complex tasks. Records labeled steps (analysis, reasoning, task, validation), and performs periodic reflection to improve plan and execution.
-
-USE WHEN
-- Multi-step changes, unclear code paths, or cross-file impact.
+      description = [[Structured, stepwise software reasoning agent. Record labeled steps (analysis, reasoning, task, validation), and perform periodic reflection to improve plan and execution
 
 WORKFLOW
-1) Use the auto-injected project knowledge for conventions. Discover and add needed tools via `add_tools` (list first, then add).
-2) Add small steps with `action="add_step"` and `step_type` in {analysis, reasoning, task, validation}.
-3) Reflect with `action="reflect"` after every 3–5 steps to adjust plan.
-4) Use `ask_user` before destructive changes or when multiple viable paths exist.
+1) Use PROJECT CONTEXT for conventions. Discover and add needed tools via `add_tools` (list first, then add)
+2) Add small steps with `action="add_step"` and `step_type` in {analysis, reasoning, task, validation}
+3) Reflect with `action="reflect"` after every 3–5 steps to revise adjust plan
+4) Use `ask_user` when needed
 
 RULES
 - Precision: One decision/change per step; keep step content ≤ 280 chars.
 - Validation: After any code edit, immediately add a validation step (run tests, lint, or a verifiable check).
--- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
+- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
 - Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
 - Safety: Use `ask_user` before deletions, large rewrites, or API changes.
 - Output: Do not dump raw chain-of-thought; provide concise reasoning and the next concrete action.
 
 IF TESTS ARE ABSENT
-- Create minimal tests or `ask_user` to confirm an alternative verification strategy.
+- Create tests cases or `ask_user` to confirm an alternative verification strategy.
 
 COMPLETION
 - After successful implementation, call `project_knowledge` with a concise description and affected files.

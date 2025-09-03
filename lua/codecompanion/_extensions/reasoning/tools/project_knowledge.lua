@@ -36,10 +36,6 @@ local function ensure_knowledge_file()
 
 ## Changelog
 *Recent project changes will be logged here*
-
-## Current Features in Development
-*Active features being worked on*
-
 ]]
     local file = io.open(knowledge_file, 'w')
     if file then
@@ -54,22 +50,6 @@ end
 local function get_knowledge_file_path()
   local project_root = find_project_root()
   return project_root .. '/.codecompanion/project-knowledge.md'
-end
-
-local function get_recent_changed_files()
-  -- Get recently changed files from git
-  local handle = io.popen('git diff --name-only HEAD~3..HEAD 2>/dev/null')
-  if not handle then
-    return {}
-  end
-
-  local files = {}
-  for line in handle:lines() do
-    table.insert(files, line)
-  end
-  handle:close()
-
-  return files
 end
 
 local function format_knowledge_preview(proposal)
@@ -94,7 +74,6 @@ local function store_changelog_entry(knowledge_file, description, files)
   end
   entry = entry .. '\n\n'
 
-  -- Read current content
   local file = io.open(knowledge_file, 'r')
   if not file then
     return false
@@ -103,7 +82,6 @@ local function store_changelog_entry(knowledge_file, description, files)
   local content = file:read('*all')
   file:close()
 
-  -- Find changelog section and insert new entry
   local changelog_pattern = '## Changelog\n'
   local changelog_pos = content:find(changelog_pattern)
 
@@ -111,7 +89,6 @@ local function store_changelog_entry(knowledge_file, description, files)
     local insert_pos = changelog_pos + #changelog_pattern
     local new_content = content:sub(1, insert_pos) .. entry .. content:sub(insert_pos + 1)
 
-    -- Write updated content
     file = io.open(knowledge_file, 'w')
     if file then
       file:write(new_content)
@@ -166,22 +143,12 @@ local function load_project_knowledge()
   if not content or content == '' then
     return nil
   end
-  -- Return file content as-is; injection will place it as a hidden system message
   return content
 end
 
--- Auto-load project context - ONLY from our project knowledge file
-local function auto_load_project_context()
-  -- Only load from our project knowledge file, ignore other AI context files
-  local project_context = load_project_knowledge()
-
-  return project_context
-end
-
--- Export functions for use by chat hooks
 _G.CodeCompanionProjectKnowledge = {
   load_project_knowledge = load_project_knowledge,
-  auto_load_project_context = auto_load_project_context,
+  auto_load_project_context = load_project_knowledge,
 }
 
 return {
@@ -191,10 +158,9 @@ return {
 
   cmds = {
     function(self, args, input, callback)
-      -- Only for updating/storing knowledge, not loading
       local proposal = {
         description = args.description,
-        files = args.files or get_recent_changed_files(),
+        files = args.files,
       }
 
       if not proposal.description or proposal.description == '' then
@@ -205,7 +171,6 @@ return {
         return
       end
 
-      -- Show user approval dialog
       show_knowledge_approval_dialog(proposal, function(result)
         local is_ok = type(result) == 'string' and result:match('^%s*✓') ~= nil
         callback({

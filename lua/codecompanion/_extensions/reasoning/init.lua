@@ -86,12 +86,11 @@ function ReasoningExtension.setup(opts)
           return c
         end)
         if ok and content and content ~= '' then
-          return prompt .. '\n\n---\n' .. content
+          return prompt .. '\n\n---\n PROJECT CONTEXT\n' .. content
         end
       end
       return prompt
     end
-    -- Newer CodeCompanion uses `config.opts.system_prompt`
     config.opts = config.opts or {}
     config.opts.system_prompt = prompt_fn
   end

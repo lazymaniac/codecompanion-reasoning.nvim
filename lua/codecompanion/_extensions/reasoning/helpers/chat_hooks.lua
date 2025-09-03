@@ -139,7 +139,6 @@ local function queue_initialization_instructions(chat)
   end
 end
 
--- Simplified hook setup using CodeCompanion event data - saves only when session ends
 local function setup_codecompanion_hooks()
   local group = vim.api.nvim_create_augroup('CodeCompanionReasoningHooks', { clear = true })
 

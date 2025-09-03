@@ -14,10 +14,6 @@ if not log_ok then
 end
 local fmt = string.format
 
--- Simple meta agent: problem in, agent out
--- The LLM reads the descriptions and picks the best match
--- Then dynamically adds the selected agent to the chat
-
 ---@class CodeCompanion.Tool.MetaAgent: CodeCompanion.Tools.Tool
 return {
   name = 'meta_agent',
@@ -53,37 +49,28 @@ PURPOSE
 - Pick the reasoning agent that fits the task and attach essential companion tools (ask_user, add_tools, project_knowledge).
 
 WHY FIRST
-- Do not request specifics or act before tools are attached. Select an agent, then manage optional tools via add_tools.
+- Do not request specifics or act before tools are attached. Select an agent, then manage optional tools via `add_tools`.
 
 CHOICES
-- chain_of_thoughts_agent: sequential steps with reflection and evidence for actions. Best for simple, linear tasks with a single obvious path.
-- tree_of_thoughts_agent: branching alternatives with evidence and periodic comparison. Best when exploring multiple viable approaches or comparing trade-offs.
-- graph_of_thoughts_agent: relationships + synthesis across aspects with evidence. Best for cross-cutting work spanning multiple modules/components.
+- chain_of_thoughts_agent: sequential steps with reflection. Best for simple, linear tasks with a single obvious path.
+- tree_of_thoughts_agent: branching alternatives with periodic comparison. Best when exploring multiple viable approaches or comparing trade-offs.
+- graph_of_thoughts_agent: relationships + synthesis across aspects. Best for cross-cutting work spanning multiple modules/components or complex .
 
 SELECTION GUIDELINES
 - Prefer tree_of_thoughts_agent or graph_of_thoughts_agent for complex software engineering tasks. Use chain_of_thoughts_agent only for small, local, linear edits.
 - Choose tree_of_thoughts_agent when you need to generate and compare alternative designs, refactoring strategies, or debugging hypotheses.
-- Choose graph_of_thoughts_agent when the task spans multiple files/modules/services, requires mapping dependencies, or synthesizing information across components.
+- Choose graph_of_thoughts_agent when the task is complex, requires vast analysis or synthesizing new knowledge based on fidings to produce final solution.
 - Examples:
   - chain_of_thoughts_agent: small localized bug fix, rename, add a single helper, adjust one config.
   - tree_of_thoughts_agent: API design with trade-offs, selecting libraries, multi-step refactor with strategy choices, ambiguous bug with multiple hypotheses.
-  - graph_of_thoughts_agent: feature touching many modules, cross-cutting concerns (auth/logging/telemetry), repository-wide refactor, plugin integration across subsystems.
-
-COMPANION TOOLS (auto‑attached)
-- ask_user: interactive confirmation/decision tool for ambiguous choices or any potentially destructive change. Presents options and returns the user’s selection.
-- add_tools: manage optional capabilities. First list available tools, then add exact tool names needed (e.g., read/edit/test helpers).
-- project_knowledge: log a concise changelog entry (description + files) after successful work. Updates the knowledge file; it does not load context.
-
-PROTOCOL
-1) Call meta_agent to select an agent. Selecting an agent automatically attaches companion tools (ask_user, add_tools, project_knowledge) to this chat — you do not need to add them manually.
-2) Immediately call `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")` to add any optional read/edit/test tools before proceeding.
-3) Proceed with the chosen agent (small steps, reflect regularly, validate after edits, require evidence for actions).]],
+  - graph_of_thoughts_agent: feature touching many modules, cross-cutting concerns (auth/logging/telemetry), repository-wide refactor, plugin integration across subsystems, synthesizing new knowledge, designing new features.
+]],
       parameters = {
         type = 'object',
         properties = {
           agent = {
             type = 'string',
-            description = 'Selected agent. Prefer tree/graph for complex tasks: chain_of_thoughts_agent (simple, linear), tree_of_thoughts_agent (explore alternatives), graph_of_thoughts_agent (cross-module synthesis)',
+            description = 'Selected agent. Prefer tree/graph for complex tasks: chain_of_thoughts_agent (simple, linear), tree_of_thoughts_agent (explore alternatives), graph_of_thoughts_agent (complex interconnections and design)',
             enum = { 'chain_of_thoughts_agent', 'tree_of_thoughts_agent', 'graph_of_thoughts_agent' },
           },
         },

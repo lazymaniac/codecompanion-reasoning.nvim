@@ -47,7 +47,6 @@ function TreeNode:new(content, node_type, parent, depth)
 end
 
 function TreeNode:add_child(content, node_type)
-  -- Validate node type
   if node_type and not NODE_TYPES[node_type] then
     return nil,
       'Invalid node type: ' .. tostring(node_type) .. '. Valid types: ' .. table.concat(vim.tbl_keys(NODE_TYPES), ', ')
@@ -101,7 +100,6 @@ end
 function TreeOfThoughts:add_thought(parent_id, content, node_type)
   local parent_node = self.root
 
-  -- Find parent node if specified
   if parent_id and parent_id ~= 'root' then
     parent_node = self:find_node_by_id(parent_id)
     if not parent_node then
@@ -109,7 +107,6 @@ function TreeOfThoughts:add_thought(parent_id, content, node_type)
     end
   end
 
-  -- Add the new node
   local new_node, error_msg = parent_node:add_child(content, node_type)
   if not new_node then
     return nil, error_msg
@@ -147,15 +144,12 @@ function TreeOfThoughts:reflect()
     branches = {},
   }
 
-  -- Traverse tree and collect statistics
   local function traverse(node, depth)
     analysis.total_nodes = analysis.total_nodes + 1
     analysis.max_depth = math.max(analysis.max_depth, depth)
 
-    -- Track type distribution
     analysis.type_distribution[node.type] = (analysis.type_distribution[node.type] or 0) + 1
 
-    -- Track leaf nodes and branches
     if node:is_leaf() then
       analysis.leaf_nodes = analysis.leaf_nodes + 1
       if depth > 0 then -- Don't count root as branch
@@ -189,7 +183,6 @@ function TreeOfThoughts:reflect()
     table.insert(analysis.insights, string.format('%d exploration branches created', analysis.leaf_nodes))
   end
 
-  -- Type distribution insights
   local type_counts = {}
   for type, count in pairs(analysis.type_distribution) do
     if type ~= 'analysis' or count > 1 then -- Don't report single analysis (root)
@@ -229,7 +222,6 @@ function Actions.add_thought(args, agent_state)
 
   log:debug('[Tree of Thoughts Agent] Adding thought: %s (%s)', content, node_type)
 
-  -- Validate type
   local valid_types = { 'analysis', 'reasoning', 'task', 'validation' }
   if not vim.tbl_contains(valid_types, node_type) then
     return {
@@ -244,9 +236,6 @@ function Actions.add_thought(args, agent_state)
     return { status = 'error', data = error_msg }
   end
 
-  -- Node created; metadata is not stored to keep schema minimal
-
-  -- Format the response with suggestions
   local function path_str(node)
     local names = {}
     for _, n in ipairs(node:get_path()) do
@@ -277,8 +266,6 @@ function Actions.reflect(args, agent_state)
   local reflection_analysis = agent_state.current_instance:reflect()
 
   local output_parts = {}
-
-  -- Visualization removed
 
   table.insert(output_parts, 'Tree of Thoughts Reflection')
   table.insert(output_parts, fmt('Total nodes explored: %d', reflection_analysis.total_nodes))

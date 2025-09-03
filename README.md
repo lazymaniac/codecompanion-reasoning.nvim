@@ -1,8 +1,15 @@
 # CodeCompanion Reasoning Extension
 
-Advanced reasoning tools extension for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
+Agentic tools extension for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
 This extension provides AI reasoning capabilities (Chain/Tree/Graph of Thought agents, Meta agent, Ask User), project knowledge integration, and session management with titles and history.
+
+## Goals
+- Human id the loop - make work with LLMs more interactive
+- Fully automatic - no need to manually add tools when needed
+- Grow with project - keep track of recent changes
+- At least partially usable with open source models
+- Token efficient
 
 ## Features
 
@@ -77,12 +84,6 @@ This extension provides three powerful reasoning agents, each specialized for di
     - default
   - Fast session switching
   - Search and filter capabilities
-
-- **Reasoning Visualization**
-  - Visual representation of agent thought processes
-  - Track decision trees and graph relationships
-  - Monitor validation steps
-  - Review synthesis points
 
 ## Requirements
 

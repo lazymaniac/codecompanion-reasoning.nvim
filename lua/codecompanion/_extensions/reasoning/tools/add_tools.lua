@@ -251,18 +251,29 @@ return {
     type = 'function',
     ['function'] = {
       name = 'add_tools',
-      description = 'Two-step tool management: STEP 1: list_tools to see available tools, STEP 2: add_tool to add specific tools to your chat. Always complete both steps.',
+      description = [[Manage optional tools for this chat.
+Usage:
+1. Call with action="list_tools" to get the exact, addable tool names and brief descriptions.
+2. For each needed capability, call again with action="add_tool" and tool_name set to an exact name from the list. Do not guess names. After a tool is added, you may invoke it in subsequent tool calls by name in this conversation. If you try to use a tool that is not attached, first attach it via add_tools, then retry.
+
+Example sequence:
+- add_tools(action="list_tools")
+- add_tools(action="add_tool", tool_name="<exact_name_from_list>")
+- some work done, and new capability is needed
+- add_tools(action="add_tool", tool_name="<another_exact_name_from_list>")
+
+Scope: add only the tools you plan to use next.]],
       parameters = {
         type = 'object',
         properties = {
           action = {
             type = 'string',
-            description = "STEP 1: 'list_tools' to see available tools, STEP 2: 'add_tool' to actually add a specific tool to current chat",
+            description = [[Required action. Use 'list_tools' to retrieve the authoritative list of addable tools. Use 'add_tool' to attach one specific tool (by exact name) to the current chat. Any other value is invalid. When action='add_tool', 'tool_name' must be provided. Attempting to add excluded tools (reasoning agents or companion tools) returns an error.]],
             enum = { 'list_tools', 'add_tool' },
           },
           tool_name = {
             type = 'string',
-            description = 'Exact tool name to add (required for add_tool action)',
+            description = [[Exact tool key to add when action='add_tool'. Must match a name returned by add_tools(action='list_tools'); case-sensitive; add one tool per call. Omit for action='list_tools'.]],
           },
         },
         required = { 'action' },
