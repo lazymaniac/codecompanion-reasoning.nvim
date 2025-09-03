@@ -1,8 +1,8 @@
 # CodeCompanion Reasoning Extension
 
-Agentic tools extension for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
+An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim) that gives your chats structured “reasoning agents”, interactive tools, and practical session history.
 
-This extension provides AI reasoning capabilities (Chain/Tree/Graph of Thought agents, Meta agent, Ask User), project knowledge integration, and session management with titles and history.
+It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
 
 ## Goals
 - Human id the loop - make work with LLMs more interactive
@@ -62,6 +62,15 @@ This extension provides three powerful reasoning agents, each specialized for di
   - Adds specific tools to current chat
   - Example: `add_tools(action="list_tools")` then `add_tools(action="add_tool", tool_name="<tool_from_list>")`
 
+- **List Files**
+  - Fast file listing (respects `.gitignore` when in a Git repo)
+  - Filter by directory and glob (e.g., `dir="lua"`, `glob="**/*.lua"`)
+  - Great for quick repo orientation inside the chat
+
+- **Project Knowledge (Initializer)**
+  - `initialize_project_knowledge` bootstraps a `.codecompanion/project-knowledge.md` guide for your repo
+  - Captures conventions, how to run/test, and key directories so the model has reliable context
+
 ### Session Management
 
 - **History and Restoration**
@@ -75,6 +84,7 @@ This extension provides three powerful reasoning agents, each specialized for di
   - Updates based on conversation progress
   - Configurable refresh intervals
   - Example: "Debugging authentication middleware timeout"
+  - Command: `:CodeCompanionRefreshSessionTitles` regenerates titles for saved sessions
 
 ### UI Features
 
@@ -106,19 +116,24 @@ This extension provides three powerful reasoning agents, each specialized for di
     require("codecompanion-reasoning").setup({
       chat_history = {
         auto_save = true,
-        auto_load_last_session = false,
+        auto_load_last_session = true,
         auto_generate_title = true,
         sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
         max_sessions = 100,
         enable_commands = true,
         picker = 'auto', -- 'telescope' | 'fzf-lua' | 'snacks' | 'default' | 'auto'
-        continue_last_chat = false,
+        continue_last_chat = true,
         title_generation_opts = {
-          adapter = nil,
-          model = nil,
+          adapter = nil,   -- override to force a specific adapter for title generation
+          model = nil,     -- override to force a specific model for title generation
           refresh_every_n_prompts = 3,
           max_refreshes = 3,
-          format_title = nil,
+          format_title = nil, -- optional function to post-process the generated title
+        },
+        keymaps = {
+          rename = { n = 'r', i = '<M-r>' },
+          delete = { n = 'd', i = '<M-d>' },
+          duplicate = { n = '<C-y>', i = '<C-y>' },
         },
       },
     })
@@ -166,18 +181,34 @@ require("codecompanion").setup({
 Once installed, the meta_agent is automatically available in CodeCompanion chats. The AI will use it when appropriate, or you can request specific reasoning approaches:
 
 ```
-User: "Use chain of thought to analyze this complex function"
-User: "Apply tree of thought reasoning to find the best refactoring approach"
+User: "Use chain of thought to analyze this function"
+User: "Try tree of thought to compare refactoring options"
 ```
+
+### Tools & Agents at a Glance
+
+- Agents: `chain_of_thoughts_agent`, `tree_of_thoughts_agent`, `graph_of_thoughts_agent`, `meta_agent` (auto‑picks an agent and adds companion tools).
+- Companion tools: `ask_user` (decisions), `project_knowledge` (write to project knowledge), `add_tools` (discover/attach tools).
+- Utility tools: `list_files` (fast repo listing), `initialize_project_knowledge` (bootstrap the knowledge file).
+
+Attach optional tools before using them:
+- `add_tools(action="list_tools")`
+- `add_tools(action="add_tool", tool_name="<exact_name_from_list>")`
 
 ### Commands
 
 - `:CodeCompanionChatHistory`: Browse all sessions.
 - `:CodeCompanionChatLast`: Restore the most recent session.
 - `:CodeCompanionProjectHistory`: Browse sessions scoped to current cwd.
-- `:CodeCompanionProjectKnowledge`: Open `.codecompanion/project-knowledge.md` if present.
+- `:CodeCompanionProjectKnowledge`: Open `.codecompanion/project-knowledge.md` (if present) to view or edit.
 - `:CodeCompanionInitProjectKnowledge`: Queue instructions to initialize project knowledge in the current chat.
-- `:CodeCompanionRefreshSessionTitles`: Regenerate session titles in the background.
+- `:CodeCompanionRefreshSessionTitles`: Regenerate and persist titles for saved sessions.
+- `:CodeCompanionOptimizeSession`: Compact the current chat into a one‑message summary (keeps the system prompt and inserts a concise user summary).
+
+Picker keymaps in the session browser (normal/insert):
+- Rename: `r` / `<M-r>`
+- Delete: `d` / `<M-d>`
+- Duplicate: `<C-y>` / `<C-y>`
 
 ## Development
 
