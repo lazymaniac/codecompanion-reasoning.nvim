@@ -8,6 +8,7 @@ This extension provides AI reasoning capabilities (Chain/Tree/Graph of Thought a
 - Human id the loop - make work with LLMs more interactive
 - Fully automatic - no need to manually add tools when needed
 - Automatic Project Context initialization (conventions, how to run, test, directory structure...)
+- Integrated session history browser with automatic naming
 - Grow with project - keep track of recent changes
 - At least partially usable with open source models
 - Token efficient
