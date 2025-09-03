@@ -118,7 +118,6 @@ local function queue_initialization_instructions(chat)
   table.insert(lines, '  - Project Overview: what the project does, tech stack, how to run/test')
   table.insert(lines, '  - Directory Structure: key directories and their purposes')
   table.insert(lines, '  - Changelog: start empty')
-  table.insert(lines, '  - Current Features in Development: start empty')
   table.insert(lines, '')
   table.insert(
     lines,
