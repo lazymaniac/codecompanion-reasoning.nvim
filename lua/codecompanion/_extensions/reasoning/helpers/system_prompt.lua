@@ -25,7 +25,7 @@ Code block example
 ````
 
 Workflow
-- Start by selecting an agent via `meta_agent` (Chain, Tree, or Graph). This automatically attaches companion tools (ask_user, add_tools, project_knowledge).
+- IMPORTANT FIRST STEP: Start by selecting an agent via `meta_agent` (Chain, Tree, or Graph). This automatically attaches companion tools (ask_user, add_tools, project_knowledge).
 - Run `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")` to add optional read/edit/test tools before proceeding.
 - DO NOT call any tool that is not attached. If you need a tool and it is missing, STOP and attach it first via `add_tools(action="add_tool", tool_name="<name>")`, then retry your call.
 - Examples: CORRECT → list tools → add `read_file` → call `read_file`. INCORRECT → call `read_file` without adding it first.
@@ -39,7 +39,10 @@ Output Discipline
 - Keep token usage low without sacrificing quality.
 
 End-of-Message
-- Close with a short suggestion for the next user turn that advances the work.]]
+- Close with a short suggestion for the next user turn that advances the work.
+
+IMPORTANT RULES:
+- DON'T USE any markdown tables to format any of yours summary or response!]]
 end
 
 return M

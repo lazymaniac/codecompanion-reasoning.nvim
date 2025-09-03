@@ -121,7 +121,6 @@ function ChainOfThoughts:table_to_strings(t)
   return result
 end
 
-local ReasoningVisualizer = require('codecompanion._extensions.reasoning.helpers.reasoning_visualizer')
 local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   -- Fallback logging when CodeCompanion log is not available
@@ -184,10 +183,7 @@ function Actions.reflect(args, agent_state)
 
   local output_parts = {}
 
-  -- Add visual representation first
-  local visualization = ReasoningVisualizer.visualize_chain(agent_state.current_instance)
-  table.insert(output_parts, visualization)
-  table.insert(output_parts, '')
+  -- Visualization removed
 
   table.insert(output_parts, 'Reflection Analysis')
   table.insert(output_parts, fmt('Total steps: %d', reflection_analysis.total_steps))

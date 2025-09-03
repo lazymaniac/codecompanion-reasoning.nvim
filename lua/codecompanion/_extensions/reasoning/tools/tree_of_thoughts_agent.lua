@@ -2,7 +2,6 @@
 
 -- Tree of Thoughts classes (merged from helpers/tree_of_thoughts.lua)
 
-local ReasoningVisualizer = require('codecompanion._extensions.reasoning.helpers.reasoning_visualizer')
 local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
   -- Fallback logging when CodeCompanion log is not available
@@ -279,10 +278,7 @@ function Actions.reflect(args, agent_state)
 
   local output_parts = {}
 
-  -- Add visual representation first
-  local visualization = ReasoningVisualizer.visualize_tree(agent_state.current_instance.root)
-  table.insert(output_parts, visualization)
-  table.insert(output_parts, '')
+  -- Visualization removed
 
   table.insert(output_parts, 'Tree of Thoughts Reflection')
   table.insert(output_parts, fmt('Total nodes explored: %d', reflection_analysis.total_nodes))

@@ -140,42 +140,6 @@ local function queue_initialization_instructions(chat)
   end
 end
 
--- Patch CodeCompanion Chat to add line numbers in tool outputs
-local function patch_chat_line_numbering()
-  local ok_ln, LN = pcall(require, 'codecompanion._extensions.reasoning.helpers.line_numbering')
-  if not ok_ln then
-    return
-  end
-  local ok_chat, Chat = pcall(require, 'codecompanion.strategies.chat')
-  if not ok_chat or not Chat or type(Chat) ~= 'table' then
-    return
-  end
-  -- avoid double patching
-  if Chat.__cc_reasoning_ln_patched then
-    return
-  end
-  Chat.__cc_reasoning_ln_patched = true
-
-  local orig_new = Chat.new
-  if type(orig_new) ~= 'function' then
-    return
-  end
-
-  Chat.new = function(opts)
-    local chat = orig_new(opts)
-    -- Patch instance method if present
-    local orig_add_tool_output = chat and chat.add_tool_output
-    if type(orig_add_tool_output) == 'function' then
-      chat.add_tool_output = function(self, tool, for_user, for_llm, ...)
-        local u = LN.process(for_user)
-        local l = LN.process(for_llm or for_user)
-        return orig_add_tool_output(self, tool, u, l, ...)
-      end
-    end
-    return chat
-  end
-end
-
 -- Simplified hook setup using CodeCompanion event data - saves only when session ends
 local function setup_codecompanion_hooks()
   local group = vim.api.nvim_create_augroup('CodeCompanionReasoningHooks', { clear = true })
@@ -246,17 +210,13 @@ local function setup_codecompanion_hooks()
         if not title or title == '' then
           return
         end
-        -- Persist on chat object for subsequent saves and UI usage
         chat_obj.opts = chat_obj.opts or {}
         chat_obj.opts.title = title
-        -- Mark the current user count as applied to avoid re-running at same threshold
         local applied = chat_obj.opts._title_generated_counts or {}
         local count = (tg and tg._count_user_messages and tg:_count_user_messages(chat_obj)) or 0
         applied[count] = true
         chat_obj.opts._title_generated_counts = applied
 
-        -- Optionally trigger a lightweight autosave only once to persist title early
-        -- Do not spam saves: only auto-save if there is at least one message
         if chat_obj.messages and #chat_obj.messages > 0 then
           pcall(function()
             SessionManager.auto_save_session(chat_obj)
@@ -281,7 +241,6 @@ local function setup_codecompanion_hooks()
       local event_data = event.data
       local buf = event_data.bufnr
 
-      -- Try to get the full chat object using Chat.buf_get_chat
       local chat_obj = nil
       if buf and vim.api.nvim_buf_is_valid(buf) then
         local ok, Chat = pcall(require, 'codecompanion.strategies.chat')
@@ -293,11 +252,8 @@ local function setup_codecompanion_hooks()
         end
       end
 
-      -- Save session only when we have a complete chat object
       if chat_obj then
-        -- Hide tool output before saving (as mentioned in the PR)
         local success, err = pcall(function()
-          -- Save the session with tool outputs hidden from display
           SessionManager.auto_save_session(chat_obj)
         end)
         if not success then
@@ -317,8 +273,6 @@ function ChatHooks.setup(opts)
   if auto_save_enabled then
     setup_codecompanion_hooks()
   end
-  -- Always attempt to patch Chat with line numbering for tool outputs
-  pcall(patch_chat_line_numbering)
 end
 
 return ChatHooks
