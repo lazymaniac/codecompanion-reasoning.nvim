@@ -278,19 +278,6 @@ local function restore_chat_messages(chat, messages)
           end
         end)
 
-        if
-          restored_message.role == 'llm'
-          and (not restored_message.content or restored_message.content == '')
-          and restored_message.tool_calls
-        then
-          local parts = {}
-          for _, call in ipairs(restored_message.tool_calls) do
-            local fname = (call['function'] and call['function'].name) or 'tool'
-            table.insert(parts, fmt('called %s', fname))
-          end
-          restored_message.content = table.concat(parts, '; ')
-        end
-
         if restored_message.role == 'tool' and (not restored_message.content or restored_message.content == '') then
           local name = restored_message.tool_name or restored_message.name or 'tool'
           restored_message.content = fmt('[%s output]', name)
