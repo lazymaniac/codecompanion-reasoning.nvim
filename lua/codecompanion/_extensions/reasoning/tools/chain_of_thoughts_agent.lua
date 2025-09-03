@@ -249,7 +249,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = [[Structured, stepwise software reasoning agent. Record labeled steps (analysis, reasoning, task, validation), and perform periodic reflection to improve plan and execution
+      description = [[Structured, stepwise software reasoning agent. Record labeled steps (analysis, reasoning, task, validation), and perform periodic reflection to improve plan and execution.
 
 WORKFLOW
 1) Use PROJECT CONTEXT for conventions. Discover and add needed tools via `add_tools` (list first, then add)
@@ -274,15 +274,17 @@ COMPLETION
 STOP WHEN
 - Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
 
-EXAMPLE (minimal)
+EXAMPLE (golden path)
 - `add_tools(action="list_tools")`
-- `add_tools(action="add_tool", tool_name="<needed_tool_from_list>")`
-- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Locate failing tests for validateInput and expected behavior")`
-- [use read/edit tools]
-- `chain_of_thoughts_agent(action="add_step", step_type="task", content="Implement missing validateInput behavior")`
-- `chain_of_thoughts_agent(action="add_step", step_type="validation", content="Run tests and confirm validateInput passes")`
-- `chain_of_thoughts_agent(action="reflect", content="Summarize progress and next steps")`
-- `project_knowledge(description="Implemented validateInput; added tests", files=["<files...>"])`
+- `add_tools(action="add_tool", tool_name="list_files")`  — discover code locations fast
+- `list_files(dir="lua", glob="**/*validate*.*")`  — find relevant files
+- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Failing tests reference utils/validation.lua:validate_input edge‑case for empty strings")`
+- [open/edit file, make targeted change]
+- `chain_of_thoughts_agent(action="add_step", step_type="reasoning", content="Root cause: treated empty as truthy; adjust predicate and keep trimming")`
+- `chain_of_thoughts_agent(action="add_step", step_type="task", content="Update validate_input to handle empty/whitespace; preserve existing API")`
+- `chain_of_thoughts_agent(action="add_step", step_type="validation", content="Run tests; confirm validate_input cases pass and no regressions")`
+- `chain_of_thoughts_agent(action="reflect", content="Summarize fix, note any residual risks, propose follow‑up tests")`
+- `project_knowledge(description="Fix validate_input edge‑case; added tests", files=["lua/utils/validation.lua","tests/..."], tags=["bugfix","validation"])`
 ]],
       parameters = {
         type = 'object',

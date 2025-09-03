@@ -372,16 +372,13 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = [[Explore multiple solution paths in a tree of thoughts. Add concise thoughts under parent nodes to branch approaches, and reflect periodically to compare branches and choose the best next step.
-
-USE WHEN
-- You need to explore alternative designs/strategies and compare them.
+      description = [[Structured branching reasoning agent. Explore multiple solution paths as a tree; add concise thoughts under parent nodes, then reflect to compare branches and choose the best next approach.
 
 WORKFLOW
-1) Use the auto-injected project knowledge for conventions. Discover and add needed tools via `add_tools` (list first, then add).
+1) Use PROJECT CONTEXT for conventions. Discover and add needed tools via `add_tools` (list first, then add).
 2) Start with `add_thought` on the root (type in {analysis, reasoning, task, validation}) to seed the problem framing.
 3) Branch by adding child thoughts (`parent_id` = a prior node’s ID). Keep children diverse (e.g., different files, algorithms, or trade‑offs).
-4) Reflect with `action="reflect"` to summarize explored branches, identify promising paths, and decide the next branch to extend.
+4) Reflect with `action="reflect"` every 3–5 thoughts or after a depth change to summarize explored branches and pick the next branch to extend.
 5) Use `ask_user` before any destructive change or when multiple viable paths exist.
 
 RULES
@@ -392,10 +389,10 @@ RULES
 - Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
 - Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
 - Safety: Use `ask_user` before deletions, large rewrites, or API changes.
-- Output: Do not dump raw chain-of-thought; write concise reasoning and the next concrete move.
+- Output: Provide concise reasoning and the next concrete action.
 
 IF TESTS ARE ABSENT
-- Create minimal tests or `ask_user` to confirm an alternative verification strategy.
+- Create tests cases or `ask_user` to confirm an alternative verification strategy.
 
 COMPLETION
 - After successful implementation, call `project_knowledge` with a concise description and affected files.
@@ -403,13 +400,19 @@ COMPLETION
 STOP WHEN
 - Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
 
-EXAMPLE (minimal)
+EXAMPLE (golden path)
 - `add_tools(action="list_tools")`
-- `add_tools(action="add_tool", tool_name="<needed_tool_from_list>")`
-- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Two options: fix validateInput in place vs. refactor utility module")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<node_id>", type="reasoning", content="Option A: targeted fix in utils.validateInput")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<node_id>", type="reasoning", content="Option B: refactor module; split validation helpers")`
-- `tree_of_thoughts_agent(action="reflect", content="Compare A vs B on scope, risk, test impact; choose next branch")`
+- `add_tools(action="add_tool", tool_name="list_files")` — prepare to scope the change
+- `list_files(dir="lua", glob="**/*validation*.*")` — surface likely touchpoints
+- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Bug in input validation; 2 paths: small fix vs. module refactor")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<root_or_analysis_id>", type="reasoning", content="Option A: localized predicate fix in utils/validation.lua")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<root_or_analysis_id>", type="reasoning", content="Option B: refactor into helpers; clarify API and tests")`
+- `tree_of_thoughts_agent(action="reflect", content="Compare scope, risk, test impact; pick A first for speed, keep B as follow‑up")`
+- [implement chosen branch]
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<chosen_reasoning_id>", type="task", content="Adjust empty/whitespace handling; keep API stable")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<chosen_reasoning_id>", type="validation", content="Run tests; add missing edge‑cases; verify no regressions")`
+- `tree_of_thoughts_agent(action="reflect", content="Summarize outcome, capture learnings, decide whether to pursue Option B cleanup")`
+- `project_knowledge(description="Validation fix shipped; B refactor backlog item", files=["lua/utils/validation.lua","tests/..."], tags=["tot","bugfix"])`
 ]],
       parameters = {
         type = 'object',

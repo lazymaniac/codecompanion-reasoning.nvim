@@ -50,14 +50,6 @@ return {
       name = 'initialize_project_knowledge',
       description = [[
         Create or reinitialize the project knowledge file used by CodeCompanion.
-        Example content:
-        ```markdown
-        # Project Overview
-        This project implements a Neovim plugin for advanced AI reasoning.
-        ## Architecture
-        - Lua modules under `lua/`
-        - Tests under `tests/`
-        ```
       ]],
       parameters = {
         type = 'object',
