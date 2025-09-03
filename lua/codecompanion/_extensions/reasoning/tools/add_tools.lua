@@ -51,13 +51,11 @@ local function extract_first_sentence(description)
     return 'No description provided'
   end
 
-  -- Find the first sentence ending with period, exclamation, or question mark
   local first_sentence = description:match('^[^%.%!%?]*[%.%!%?]')
 
   if first_sentence then
     return first_sentence:gsub('^%s*(.-)%s*$', '%1') -- Trim whitespace
   else
-    -- If no sentence ending found, take first 80 characters and add ellipsis
     if #description <= 80 then
       return description
     else
@@ -74,7 +72,6 @@ local function get_all_tools_with_schemas()
   local result = {}
 
   for tool_name, tool_config in pairs(tools_config) do
-    -- Skip special keys and excluded tools
     if tool_name ~= 'opts' and tool_name ~= 'groups' and not excluded_tools[tool_name] then
       local is_enabled = enabled_tools[tool_name] or false
 
@@ -90,7 +87,6 @@ local function get_all_tools_with_schemas()
         error = nil,
       }
 
-      -- Try to resolve the tool to get schema
       if is_enabled and tool_config.callback then
         local ok, resolved_tool = pcall(function()
           return Tools.resolve(tool_config)
@@ -100,7 +96,6 @@ local function get_all_tools_with_schemas()
           tool_info.resolved = true
           tool_info.schema = resolved_tool.schema
 
-          -- Additional metadata from resolved tool
           if resolved_tool.handlers then
             tool_info.has_handlers = true
             tool_info.handler_types = vim.tbl_keys(resolved_tool.handlers)
@@ -137,7 +132,6 @@ local function list_tools()
 
   local output = {}
 
-  -- Count tools by status for summary
   local enabled_count = 0
   local total_count = 0
   for _, tool_info in pairs(all_tools) do
@@ -147,7 +141,6 @@ local function list_tools()
     end
   end
 
-  -- First line contains the most important summary
   table.insert(output, fmt('Found %d tools', total_count))
   table.insert(output, '')
   table.insert(output, 'Available Tools:')
@@ -218,7 +211,6 @@ local function handle_add_tool(args)
     return { status = 'error', data = fmt("Tool '%s' not found", args.tool_name) }
   end
 
-  -- Skip special keys
   if args.tool_name == 'opts' or args.tool_name == 'groups' then
     return { status = 'error', data = fmt("'%s' is not an addable tool", args.tool_name) }
   end

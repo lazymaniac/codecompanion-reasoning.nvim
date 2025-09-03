@@ -2,7 +2,6 @@
 
 local log_ok, log = pcall(require, 'codecompanion.utils.log')
 if not log_ok then
-  -- Fallback logging when CodeCompanion log is not available
   log = {
     debug = function(...) end,
     error = function(...)
@@ -12,7 +11,6 @@ if not log_ok then
 end
 local fmt = string.format
 
--- Node types for categorizing thoughts
 local NODE_TYPES = {
   analysis = true,
   reasoning = true,
@@ -72,11 +70,10 @@ function GraphOfThoughts:add_node(content, node_type, connect_to)
     return nil, 'Invalid node type: ' .. tostring(node_type) .. '. Valid types: ' .. table.concat(valid_types, ', ')
   end
 
-  local node = Node.new(content, node_type) -- Auto-generate ID
+  local node = Node.new(content, node_type)
   self.nodes[node.id] = node
   self.edges[node.id] = {}
 
-  -- Add edges if connect_to is provided
   if connect_to then
     for _, target_id in ipairs(connect_to) do
       if self.nodes[target_id] then
@@ -125,19 +122,16 @@ function GraphOfThoughts:reflect()
     complexity_metrics = {},
   }
 
-  -- Count edges and analyze types
   for _, edges in pairs(self.edges) do
     for _ in pairs(edges) do
       analysis.total_edges = analysis.total_edges + 1
     end
   end
 
-  -- Analyze node types
   for _, node in pairs(self.nodes) do
     analysis.type_distribution[node.type] = (analysis.type_distribution[node.type] or 0) + 1
   end
 
-  -- Generate insights
   if analysis.total_nodes > 10 then
     table.insert(
       analysis.insights,
@@ -147,7 +141,6 @@ function GraphOfThoughts:reflect()
     table.insert(analysis.insights, string.format('Growing reasoning graph with %d nodes', analysis.total_nodes))
   end
 
-  -- Type distribution insights
   local type_counts = {}
   for type, count in pairs(analysis.type_distribution) do
     table.insert(type_counts, string.format('%s:%d', type, count))
@@ -156,7 +149,6 @@ function GraphOfThoughts:reflect()
     table.insert(analysis.insights, 'Node types: ' .. table.concat(type_counts, ', '))
   end
 
-  -- Generate improvement suggestions
   if analysis.total_nodes == 0 then
     table.insert(analysis.improvements, 'Start by adding analysis nodes to explore the problem space')
   end
@@ -191,7 +183,6 @@ function Actions.add_node(args, agent_state)
     return { status = 'error', data = error }
   end
 
-  -- Format response with node ID for future connections
   local response_data = fmt(
     '%s: %s\nNode ID: %s (connect using connect_to)',
     string.upper((args.node_type or 'analysis'):sub(1, 1)) .. (args.node_type or 'analysis'):sub(2),
@@ -217,8 +208,6 @@ function Actions.reflect(args, agent_state)
   local reflection_analysis = agent_state.current_instance:reflect()
 
   local output_parts = {}
-
-  -- Visualization removed
 
   table.insert(output_parts, 'Graph of Thoughts Reflection')
   table.insert(output_parts, fmt('Total nodes: %d', reflection_analysis.total_nodes))
@@ -269,7 +258,6 @@ local function handle_action(args)
     return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
   end
 
-  -- Validate required parameters
   local validation_rules = {
     add_node = { 'content' },
     reflect = { 'content' },

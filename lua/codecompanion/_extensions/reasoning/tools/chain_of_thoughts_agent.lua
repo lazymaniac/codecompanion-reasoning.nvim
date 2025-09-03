@@ -1,5 +1,17 @@
 ---@class CodeCompanion.ChainOfThoughtAgent
 
+local log_ok, log = pcall(require, 'codecompanion.utils.log')
+if not log_ok then
+  log = {
+    debug = function(...) end,
+    error = function(...)
+      vim.notify(string.format(...), vim.log.levels.ERROR)
+    end,
+  }
+end
+local fmt = string.format
+local step_count = 0
+
 -- ChainOfThoughts class (merged from helpers/chain_of_thoughts.lua)
 local ChainOfThoughts = {}
 ChainOfThoughts.__index = ChainOfThoughts
@@ -50,7 +62,6 @@ function ChainOfThoughts:reflect()
   local insights = {}
   local improvements = {}
 
-  -- Handle empty chain
   if #self.steps == 0 then
     return {
       total_steps = 0,
@@ -59,7 +70,6 @@ function ChainOfThoughts:reflect()
     }
   end
 
-  -- Analyze step distribution
   local step_counts = {}
   for _, step in ipairs(self.steps) do
     step_counts[step.type] = (step_counts[step.type] or 0) + 1
@@ -67,7 +77,6 @@ function ChainOfThoughts:reflect()
 
   table.insert(insights, string.format('Step distribution: %s', table.concat(self:table_to_strings(step_counts), ', ')))
 
-  -- Check for logical progression
   local has_analysis = step_counts.analysis and step_counts.analysis > 0
   local has_reasoning = step_counts.reasoning and step_counts.reasoning > 0
   local has_tasks = step_counts.task and step_counts.task > 0
@@ -91,7 +100,6 @@ function ChainOfThoughts:reflect()
     table.insert(improvements, 'Add validation steps to verify reasoning')
   end
 
-  -- Check for reasoning quality
   local steps_with_reasoning = 0
   for _, step in ipairs(self.steps) do
     if step.reasoning and step.reasoning ~= '' then
@@ -112,7 +120,6 @@ function ChainOfThoughts:reflect()
   }
 end
 
--- Helper function to convert table to strings
 function ChainOfThoughts:table_to_strings(t)
   local result = {}
   for k, v in pairs(t) do
@@ -120,20 +127,6 @@ function ChainOfThoughts:table_to_strings(t)
   end
   return result
 end
-
-local log_ok, log = pcall(require, 'codecompanion.utils.log')
-if not log_ok then
-  -- Fallback logging when CodeCompanion log is not available
-  log = {
-    debug = function(...) end,
-    error = function(...)
-      vim.notify(string.format(...), vim.log.levels.ERROR)
-    end,
-  }
-end
-local fmt = string.format
-
-local step_count = 0
 
 local Actions = {}
 
@@ -152,7 +145,6 @@ function Actions.add_step(args, agent_state)
     return { status = 'error', data = message }
   end
 
-  -- Short-term memory trace (last 6 steps)
   local function trace()
     local items = {}
     local steps = agent_state.current_instance.steps
@@ -182,8 +174,6 @@ function Actions.reflect(args, agent_state)
   local reflection_analysis = agent_state.current_instance:reflect()
 
   local output_parts = {}
-
-  -- Visualization removed
 
   table.insert(output_parts, 'Reflection Analysis')
   table.insert(output_parts, fmt('Total steps: %d', reflection_analysis.total_steps))

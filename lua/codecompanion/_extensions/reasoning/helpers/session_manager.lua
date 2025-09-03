@@ -8,7 +8,6 @@ local SessionStorage = require('codecompanion._extensions.reasoning.helpers.sess
 local SessionDataTransformer = require('codecompanion._extensions.reasoning.helpers.session_data_transformer')
 local SessionRestorer = require('codecompanion._extensions.reasoning.helpers.session_restorer')
 
--- Configuration
 local CONFIG = {
   auto_save = true,
   auto_load_last_session = true,
@@ -167,14 +166,12 @@ function SessionManager.refresh_session_titles(filter_opts)
         end)(),
       }
 
-      -- Generate and persist
       pcall(function()
         tg:generate(chat, function(new_title)
           if not new_title or new_title == '' then
             return
           end
 
-          -- Read original file, update title, and write in place
           local raw_session_data, read_err = SessionStorage.read_session(meta.filename)
           if not raw_session_data then
             return
@@ -211,7 +208,6 @@ function SessionManager.cleanup_old_sessions()
     return
   end
 
-  -- Delete oldest sessions
   for i = max_sessions + 1, #sessions do
     SessionManager.delete_session(sessions[i].filename)
   end
@@ -228,12 +224,10 @@ function SessionManager.auto_save_session(chat)
     return
   end
 
-  -- Only save if there are actual messages to preserve
   if not chat.messages or #chat.messages == 0 then
     return
   end
 
-  -- Initialize session creation timestamp if not set
   if not chat._session_created_at then
     chat._session_created_at = os.time()
   end
@@ -254,7 +248,6 @@ function SessionManager.get_last_session()
     return nil, 'No sessions found'
   end
 
-  -- Sessions are already sorted by timestamp (newest first)
   local last_session = sessions[1]
   if not last_session or not last_session.filename or last_session.filename == '' then
     return nil, 'Invalid session data'
@@ -282,7 +275,6 @@ function SessionManager.auto_load_last_session()
 
   local last_session, err = SessionManager.get_last_session()
   if not last_session then
-    -- No sessions to load, no action needed
     return
   end
 
@@ -303,18 +295,14 @@ end
 function SessionManager.setup(new_config)
   if new_config then
     CONFIG = vim.tbl_deep_extend('force', CONFIG, new_config)
-    -- Propagate storage-related options such as sessions_dir, patterns, limits
     SessionStorage.setup(new_config)
   end
 
-  -- Set up auto-load if enabled
   if CONFIG.auto_load_last_session then
-    -- Create autocommand to auto-load on VimEnter
     local group = vim.api.nvim_create_augroup('CodeCompanionSessionAutoLoad', { clear = true })
     vim.api.nvim_create_autocmd('VimEnter', {
       group = group,
       callback = function()
-        -- Delay slightly to ensure everything is loaded
         vim.defer_fn(function()
           SessionManager.auto_load_last_session()
         end, 100)

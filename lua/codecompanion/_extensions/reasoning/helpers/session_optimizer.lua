@@ -28,14 +28,12 @@ end
 ---@param callback function Callback to receive compacted session
 function SessionOptimizer:compact_session(session_data, callback)
   if not session_data.messages or #session_data.messages < self.config.min_messages_for_compaction then
-    -- Not enough messages to compact, return original
     if callback then
       callback(session_data)
     end
     return
   end
 
-  -- Filter messages without tool calls (user and assistant only)
   local relevant_messages = vim.tbl_filter(function(msg)
     local has_content = msg.content and vim.trim(msg.content) ~= ''
     local is_conversational = msg.role == 'user' or msg.role == 'assistant'
@@ -44,20 +42,17 @@ function SessionOptimizer:compact_session(session_data, callback)
   end, session_data.messages)
 
   if #relevant_messages == 0 then
-    -- No relevant messages to summarize, return original
     if callback then
       callback(session_data)
     end
     return
   end
 
-  -- Prepare conversation context for summarization
   local conversation_lines = {}
   for _, message in ipairs(relevant_messages) do
     local role_prefix = message.role == 'user' and 'User' or 'Assistant'
     local content = vim.trim(message.content)
 
-    -- Truncate very long individual messages
     if #content > 2000 then
       content = content:sub(1, 2000) .. ' [message truncated]'
     end
@@ -67,12 +62,10 @@ function SessionOptimizer:compact_session(session_data, callback)
 
   local conversation_context = table.concat(conversation_lines, '\n\n')
 
-  -- Truncate total context if too long
   if #conversation_context > 20000 then
     conversation_context = conversation_context:sub(1, 20000) .. '\n\n[conversation truncated]'
   end
 
-  -- Create summarization prompt
   local prompt_parts = {
     'Summarize this chat conversation into a concise overview that captures:',
     '• Main topics and themes discussed',
@@ -103,18 +96,15 @@ function SessionOptimizer:compact_session(session_data, callback)
 
   self:_make_summarization_request(session_data, prompt, function(summary, error_msg)
     if not summary then
-      -- Failed to generate summary, return original session
       if callback then
         callback(session_data, error_msg)
       end
       return
     end
 
-    -- Create compacted session with single summary message
     local compacted = vim.deepcopy(session_data)
     local original_count = #compacted.messages
 
-    -- Replace all messages with single summary message
     compacted.messages = {
       {
         role = 'assistant',
@@ -128,7 +118,6 @@ function SessionOptimizer:compact_session(session_data, callback)
       },
     }
 
-    -- Update metadata
     if self.config.preserve_metadata then
       compacted.metadata = compacted.metadata or {}
       compacted.metadata.compaction = {
@@ -139,7 +128,6 @@ function SessionOptimizer:compact_session(session_data, callback)
         summary_word_count = #vim.split(summary, '%s+'),
       }
 
-      -- Recalculate token estimate for summary
       compacted.metadata.token_estimate = math.floor(#tostring(summary) / 4)
     end
 
@@ -154,7 +142,6 @@ end
 ---@param prompt string Summarization prompt
 ---@param callback function Callback to receive summary
 function SessionOptimizer:_make_summarization_request(session_data, prompt, callback)
-  -- Try to use CodeCompanion's http client for consistency
   local client_ok, client = pcall(require, 'codecompanion.http')
   local schema_ok, schema = pcall(require, 'codecompanion.schema')
 
@@ -165,7 +152,6 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
     return
   end
 
-  -- Use session's adapter if available, otherwise try to get a default
   local adapter = session_data.adapter
   local settings = session_data.settings
 
@@ -183,7 +169,6 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
     return
   end
 
-  -- Apply config overrides for adapter/model
   if self.config.adapter then
     local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
     if adapters_ok and adapters.resolve then

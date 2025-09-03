@@ -184,7 +184,6 @@ local function setup_codecompanion_hooks()
     pattern = 'CodeCompanionChatSubmitted',
     group = group,
     callback = function(event)
-      -- Try to get the full chat object
       local chat_obj = nil
       if event and event.data and event.data.bufnr and vim.api.nvim_buf_is_valid(event.data.bufnr) then
         local ok, Chat = pcall(require, 'codecompanion.strategies.chat')

@@ -1,7 +1,3 @@
-local function find_project_root()
-  return vim.fn.getcwd()
-end
-
 return {
   name = 'initialize_project_knowledge',
 
@@ -22,12 +18,13 @@ return {
         }
       end
 
-      -- Ensure directory and write file
-      local project_root = find_project_root()
+      local project_root = vim.fn.getcwd()
       local codecompanion_dir = project_root .. '/.codecompanion'
+
       if vim.fn.isdirectory(codecompanion_dir) == 0 then
         vim.fn.mkdir(codecompanion_dir, 'p')
       end
+
       local knowledge_path = codecompanion_dir .. '/project-knowledge.md'
 
       local ok, err = pcall(function()
@@ -35,6 +32,7 @@ return {
         f:write(content)
         f:close()
       end)
+
       if not ok then
         return { status = 'error', data = 'Failed to write project knowledge: ' .. tostring(err) }
       end
@@ -52,9 +50,6 @@ return {
       name = 'initialize_project_knowledge',
       description = [[
         Create or reinitialize the project knowledge file used by CodeCompanion.
-        This writes the supplied markdown string to `.codecompanion/project-knowledge.md`
-        in the current project's root, overwriting any existing file.
-        The directory `.codecompanion` is created automatically if it does not exist.
         Example content:
         ```markdown
         # Project Overview

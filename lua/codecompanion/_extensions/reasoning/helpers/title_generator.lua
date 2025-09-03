@@ -58,7 +58,6 @@ function TitleGenerator:should_generate(chat)
     return false, false
   end
 
-  -- Determine user message count and the configured interval
   local user_message_count = self:_count_user_messages(chat)
   local applied = (chat.opts and chat.opts._title_generated_counts) or {}
 
@@ -68,7 +67,6 @@ function TitleGenerator:should_generate(chat)
     n = 3
   end
 
-  -- Trigger on counts: 1, 1+n, 1+2n, ... and only once per count
   if user_message_count >= 1 then
     local should_at_this_count = ((user_message_count - 1) % n) == 0
     if should_at_this_count and not applied[user_message_count] then
@@ -94,7 +92,6 @@ function TitleGenerator:generate(chat, callback, is_refresh)
 
   is_refresh = is_refresh or false
 
-  -- Early return for disabled auto-generation, but allow refresh if explicitly requested
   if not is_refresh and chat.opts and chat.opts.title then
     if callback then
       callback(chat.opts.title)
@@ -102,7 +99,6 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     return
   end
 
-  -- Return early if no messages or messages is nil
   if not chat.messages or #chat.messages == 0 then
     if callback then
       callback(nil)
@@ -110,9 +106,7 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     return
   end
 
-  -- Filter relevant messages (ONLY user messages; exclude assistant and tagged/reference messages)
   local relevant_messages = vim.tbl_filter(function(msg)
-    -- Include user messages with actual content only
     local has_content = msg.content and vim.trim(msg.content) ~= ''
     local is_relevant_role = msg.role == 'user'
     local not_tagged = not (msg.opts and (msg.opts.tag or msg.opts.reference or msg.opts.context_id))
@@ -126,7 +120,6 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     return
   end
 
-  -- Show appropriate feedback only after validation
   if callback then
     if is_refresh then
       callback('Refreshing title...')
@@ -135,11 +128,9 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     end
   end
 
-  -- Extract conversation content based on whether this is a refresh or initial generation
   local conversation_context = ''
 
   if is_refresh then
-    -- For refreshes, use recent user conversation (last 6 user messages or all if fewer)
     local recent_count = math.min(6, #relevant_messages)
     local start_index = math.max(1, #relevant_messages - recent_count + 1)
     local recent_messages = {}
@@ -149,7 +140,6 @@ function TitleGenerator:generate(chat, callback, is_refresh)
       local role_prefix = msg.role == 'user' and 'User' or 'Assistant'
       local content = vim.trim(msg.content)
 
-      -- Truncate individual message if too long
       if #content > 1000 then
         content = content:sub(1, 1000) .. ' [truncated]'
       end
@@ -159,7 +149,6 @@ function TitleGenerator:generate(chat, callback, is_refresh)
 
     conversation_context = table.concat(recent_messages, '\n')
   else
-    -- For initial generation, use the first user message
     local first_user_msg = nil
     for _, msg in ipairs(relevant_messages) do
       if msg.role == 'user' then
@@ -177,7 +166,6 @@ function TitleGenerator:generate(chat, callback, is_refresh)
 
     local content = vim.trim(first_user_msg.content)
 
-    -- Truncate individual message if too long
     if #content > 1000 then
       content = content:sub(1, 1000) .. ' [truncated]'
     end
@@ -185,12 +173,10 @@ function TitleGenerator:generate(chat, callback, is_refresh)
     conversation_context = 'User: ' .. content
   end
 
-  -- Truncate total content if too long
   if #conversation_context > 10000 then
     conversation_context = conversation_context:sub(1, 10000) .. '\n[conversation truncated]'
   end
 
-  -- Create prompt for title generation
   local prompt
   if is_refresh then
     local original_title = (chat.opts and chat.opts.title) or 'Unknown'
@@ -236,12 +222,10 @@ end
 ---@param prompt string Title generation prompt
 ---@param callback function Callback to receive title
 function TitleGenerator:_make_adapter_request(chat, prompt, callback)
-  -- Try to use CodeCompanion's http client for consistency
   local client_ok, client = pcall(require, 'codecompanion.http')
   local schema_ok, schema = pcall(require, 'codecompanion.schema')
 
   if not client_ok or not schema_ok then
-    -- Fallback: use simple title generation if CodeCompanion internals not available
     local fallback_title = self:_generate_fallback_title(chat)
     if callback then
       callback(fallback_title)
@@ -304,7 +288,6 @@ function TitleGenerator:_make_adapter_request(chat, prompt, callback)
         end
       end
 
-      -- Fallback on any error
       local fallback_title = self:_generate_fallback_title(chat)
       if callback then
         callback(fallback_title)
@@ -323,7 +306,6 @@ function TitleGenerator:_generate_fallback_title(chat)
     return 'Empty Session'
   end
 
-  -- Find first user message
   local first_user_msg = nil
   for _, message in ipairs(chat.messages) do
     if message.role == 'user' and message.content then
@@ -336,7 +318,6 @@ function TitleGenerator:_generate_fallback_title(chat)
     return 'No User Input'
   end
 
-  -- Extract first line and truncate
   local first_line = first_user_msg:match('^[^\n\r]*') or first_user_msg
   if #first_line > 45 then
     return first_line:sub(1, 42) .. '...'

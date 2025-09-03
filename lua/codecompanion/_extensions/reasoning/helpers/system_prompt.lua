@@ -37,12 +37,11 @@ Workflow
 
 Output Discipline
 - Keep token usage low without sacrificing quality.
+- DON'T USE any markdown tables to format any of yours summary or response!
 
 End-of-Message
 - Close with a short suggestion for the next user turn that advances the work.
-
-IMPORTANT RULES:
-- DON'T USE any markdown tables to format any of yours summary or response!]]
+]]
 end
 
 return M

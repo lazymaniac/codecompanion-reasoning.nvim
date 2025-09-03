@@ -112,7 +112,6 @@ function SessionStorage.read_session(filename)
     return nil, fmt('Session file is empty: %s', session_path)
   end
 
-  -- Create a safe sandbox environment for loading session data
   local safe_env = {
     pairs = pairs,
     ipairs = ipairs,
@@ -122,7 +121,6 @@ function SessionStorage.read_session(filename)
     tonumber = tonumber,
   }
 
-  -- Load Lua data safely with sandbox
   local chunk, err = load(content, nil, 't', safe_env)
   if not chunk then
     return nil, fmt('Failed to parse session file: %s', err)
@@ -133,7 +131,6 @@ function SessionStorage.read_session(filename)
     return nil, fmt('Failed to execute session data: %s', session_data)
   end
 
-  -- Validate that the result is a table
   if type(session_data) ~= 'table' then
     return nil, 'Session data is not a valid table structure'
   end

@@ -16,14 +16,12 @@ end
 function SessionDataTransformer.extract_used_tools(chat)
   local tools_used = {}
 
-  -- First, check if chat has tool_registry with in_use tools
   if chat.tool_registry and chat.tool_registry.in_use then
     for tool_name, _ in pairs(chat.tool_registry.in_use) do
       tools_used[tool_name] = true
     end
   end
 
-  -- Fallback: extract from messages if tool_registry not available
   if next(tools_used) == nil and chat.messages then
     for _, message in ipairs(chat.messages) do
       if message.tool_calls then
@@ -36,7 +34,6 @@ function SessionDataTransformer.extract_used_tools(chat)
     end
   end
 
-  -- Convert to array and sort for consistent output
   local tools_array = {}
   for tool_name, _ in pairs(tools_used) do
     table.insert(tools_array, tool_name)
@@ -75,7 +72,6 @@ function SessionDataTransformer.generate_simple_title(messages)
     return 'Empty Session'
   end
 
-  -- Find first user message
   local first_user_msg = nil
   for _, message in ipairs(messages) do
     if message.role == 'user' and message.content then
@@ -88,7 +84,6 @@ function SessionDataTransformer.generate_simple_title(messages)
     return 'No User Input'
   end
 
-  -- Extract first line and truncate
   local first_line = first_user_msg:match('^[^\n\r]*') or first_user_msg
   if #first_line > 50 then
     return first_line:sub(1, 47) .. '...'
@@ -168,7 +163,6 @@ function SessionDataTransformer.prepare_chat_data(chat)
     created_at = os.date('%Y-%m-%d %H:%M:%S', created_time),
     updated_at = current_time,
 
-    -- Enhanced metadata
     chat_id = chat.id or 'unknown',
     cwd = cwd,
     project_root = cwd,
@@ -213,7 +207,6 @@ function SessionDataTransformer.get_session_preview(session_data)
   end
 
   if first_user_message then
-    -- Truncate to first line and limit length
     local first_line = first_user_message:match('^[^\n\r]*')
     if #first_line > 60 then
       return first_line:sub(1, 57) .. '...'
