@@ -252,29 +252,14 @@ return {
       description = [[Structured, stepwise software reasoning agent. Record labeled steps (analysis, reasoning, task, validation), and perform periodic reflection to improve plan and execution.
 
 WORKFLOW
-1) Use PROJECT CONTEXT for conventions. Discover and add needed tools via `add_tools` (list first, then add)
-2) Add small steps with `action="add_step"` and `step_type` in {analysis, reasoning, task, validation}
-3) Reflect with `action="reflect"` after every 3–5 steps to revise adjust plan
-4) Use `ask_user` when needed
+1) Add small steps with `action="add_step"` and `step_type` in {analysis, reasoning, task, validation}
+2) Reflect with `action="reflect"` after every 3–5 steps to revise and adjust the plan
 
-RULES
-- Precision: One decision/change per step; keep step content ≤ 280 chars.
-- Validation: After any code edit, immediately add a validation step (run tests, lint, or a verifiable check).
-- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
-- Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
-- Safety: Use `ask_user` before deletions, large rewrites, or API changes.
-- Output: Do not dump raw chain-of-thought; provide concise reasoning and the next concrete action.
+RULES (agent-specific)
+- Precision: One decision/change per step; keep step content ≤ 280 chars
+- Use the `validation` step type to capture immediate verification after edits
 
-IF TESTS ARE ABSENT
-- Create tests cases or `ask_user` to confirm an alternative verification strategy.
-
-COMPLETION
-- After successful implementation, call `project_knowledge` with a concise description and affected files.
-
-STOP WHEN
-- Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
-
-EXAMPLE (golden path)
+EXAMPLE (use as reference)
 - `add_tools(action="list_tools")`
 - `add_tools(action="add_tool", tool_name="list_files")`  — discover code locations fast
 - `list_files(dir="lua", glob="**/*validate*.*")`  — find relevant files

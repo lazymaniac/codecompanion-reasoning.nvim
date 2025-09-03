@@ -375,32 +375,17 @@ return {
       description = [[Structured branching reasoning agent. Explore multiple solution paths as a tree; add concise thoughts under parent nodes, then reflect to compare branches and choose the best next approach.
 
 WORKFLOW
-1) Use PROJECT CONTEXT for conventions. Discover and add needed tools via `add_tools` (list first, then add).
-2) Start with `add_thought` on the root (type in {analysis, reasoning, task, validation}) to seed the problem framing.
-3) Branch by adding child thoughts (`parent_id` = a prior node’s ID). Keep children diverse (e.g., different files, algorithms, or trade‑offs).
-4) Reflect with `action="reflect"` every 3–5 thoughts or after a depth change to summarize explored branches and pick the next branch to extend.
-5) Use `ask_user` before any destructive change or when multiple viable paths exist.
+1) Start with `add_thought` on the root (type in {analysis, reasoning, task, validation}) to seed the problem framing
+2) Branch by adding child thoughts (`parent_id` = a prior node’s ID). Keep children diverse (e.g., different files, algorithms, or trade‑offs)
+3) Reflect with `action="reflect"` every 3–5 thoughts or after a depth change to compare branches and pick the next one to extend
 
-RULES
-- Precision: One idea/change per thought; keep content ≤ 280 chars.
-- Breadth first, then depth: Prefer 2–4 children per promising node before deepening a single branch.
-- Depth cap before reflect: Avoid going deeper than 3–4 levels without a reflect.
-- Validation: After any code edit, add a validation thought (tests, lint, or verifiable check). Prefer dedicated validation branches.
-- Evidence: Ground your actions in observed facts (file paths, test output, diffs, line refs). Include this in your reasoning.
-- Tooling: First `add_tools(action="list_tools")`, then `add_tools(action="add_tool", tool_name="<from list>")`. Do not assume tool names.
-- Safety: Use `ask_user` before deletions, large rewrites, or API changes.
-- Output: Provide concise reasoning and the next concrete action.
+RULES (agent-specific)
+- Precision: One idea/change per thought; keep content ≤ 280 chars
+- Breadth first, then depth: Prefer 2–4 children per promising node before deepening a single branch
+- Depth cap before reflect: Avoid going deeper than 3–4 levels without a reflect
+- Prefer dedicated validation branches when verifying edits
 
-IF TESTS ARE ABSENT
-- Create tests cases or `ask_user` to confirm an alternative verification strategy.
-
-COMPLETION
-- After successful implementation, call `project_knowledge` with a concise description and affected files.
-
-STOP WHEN
-- Success criteria met; waiting on user input; destructive action requires confirmation; repeated failures demand strategy change.
-
-EXAMPLE (golden path)
+EXAMPLE (use as reference)
 - `add_tools(action="list_tools")`
 - `add_tools(action="add_tool", tool_name="list_files")` — prepare to scope the change
 - `list_files(dir="lua", glob="**/*validation*.*")` — surface likely touchpoints
