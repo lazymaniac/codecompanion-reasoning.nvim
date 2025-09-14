@@ -175,6 +175,20 @@ require("codecompanion").setup({
 })
 ```
 
+Add meta-agent as a default tool:
+
+```lua
+  strategies = {
+    chat = {
+      tools = {
+        opts = {
+          default_tools = {
+            'meta_agent',
+          },
+        },
+      },
+...
+```
 
 ## Usage
 

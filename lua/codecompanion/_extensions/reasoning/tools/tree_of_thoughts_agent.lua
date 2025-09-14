@@ -372,32 +372,48 @@ return {
     type = 'function',
     ['function'] = {
       name = 'tree_of_thoughts_agent',
-      description = [[Structured branching reasoning agent. Explore multiple solution paths as a tree; add concise thoughts under parent nodes, then reflect to compare branches and choose the best next approach.
+      description = [[
+MANDATORY Multi-Path Exploration Agent. Explore genuine alternative approaches through branching before solution convergence.
 
-WORKFLOW
-1) Start with `add_thought` on the root (type in {analysis, reasoning, task, validation}) to seed the problem framing
-2) Branch by adding child thoughts (`parent_id` = a prior node’s ID). Keep children diverse (e.g., different files, algorithms, or trade‑offs)
-3) Reflect with `action="reflect"` every 3–5 thoughts or after a depth change to compare branches and pick the next one to extend
+BRANCHING REQUIREMENTS (MANDATORY)
+- DECOMPOSITION MANDATE: Create 2-4 analysis nodes exploring different problem decomposition angles
+- ALTERNATIVE EXPLORATION: Generate 2-3 reasoning branches per major decision point with different approaches
+- EVIDENCE INVESTIGATION: Use task branches for contextual research (existing patterns, constraints, similar solutions)
+- COMPARATIVE VALIDATION: Validate multiple approaches before selecting optimal path
+- SYNTHESIS REQUIREMENT: Combine insights from best alternatives into integrated solution
 
-RULES (agent-specific)
-- Precision: One idea/change per thought; keep content ≤ 280 chars
-- Breadth first, then depth: Prefer 2–4 children per promising node before deepening a single branch
-- Depth cap before reflect: Avoid going deeper than 3–4 levels without a reflect
-- Prefer dedicated validation branches when verifying edits
+ENFORCED WORKFLOW PATTERN
+1) ROOT DECOMPOSITION: 2-4 analysis children exploring different problem facets
+2) EVIDENCE BRANCHES: Task nodes investigating context for each analysis angle
+3) SOLUTION ALTERNATIVES: 2-3 reasoning branches per analysis, proposing different approaches
+4) COMPARATIVE EVALUATION: Validation branches comparing alternatives on criteria (complexity, maintainability, risk)
+5) SYNTHESIS CONVERGENCE: Selected reasoning paths → integrated implementation
+
+DEPTH & BREADTH REQUIREMENTS
+- Minimum 3 levels deep per major branch before convergence
+- Minimum 2 alternatives per decision point
+- Evidence gathering required before solution proposals
+- Comparative analysis required before path selection
 
 EXAMPLE (use as reference)
 - `add_tools(action="list_tools")`
 - `add_tools(action="add_tool", tool_name="list_files")` — prepare to scope the change
 - `list_files(dir="lua", glob="**/*validation*.*")` — surface likely touchpoints
-- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Bug in input validation; 2 paths: small fix vs. module refactor")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<root_or_analysis_id>", type="reasoning", content="Option A: localized predicate fix in utils/validation.lua")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<root_or_analysis_id>", type="reasoning", content="Option B: refactor into helpers; clarify API and tests")`
-- `tree_of_thoughts_agent(action="reflect", content="Compare scope, risk, test impact; pick A first for speed, keep B as follow‑up")`
-- [implement chosen branch]
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<chosen_reasoning_id>", type="task", content="Adjust empty/whitespace handling; keep API stable")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<chosen_reasoning_id>", type="validation", content="Run tests; add missing edge‑cases; verify no regressions")`
-- `tree_of_thoughts_agent(action="reflect", content="Summarize outcome, capture learnings, decide whether to pursue Option B cleanup")`
-- `project_knowledge(description="Validation fix shipped; B refactor backlog item", files=["lua/utils/validation.lua","tests/..."], tags=["tot","bugfix"])`
+- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Problem angle 1: input validation edge cases")`
+- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Problem angle 2: API consistency across validation functions")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<analysis1_id>", type="task", content="Investigate current empty string handling patterns in codebase")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<analysis1_id>", type="reasoning", content="Option A: localized predicate fix in utils/validation.lua")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<analysis1_id>", type="reasoning", content="Option B: comprehensive validation refactor with helpers")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<optionA_id>", type="validation", content="Test Option A: impact scope, risk level, implementation time")`
+- `tree_of_thoughts_agent(action="add_thought", parent_id="<optionB_id>", type="validation", content="Test Option B: breaking changes, migration path, long-term benefits")`
+- `tree_of_thoughts_agent(action="reflect", content="Compare validated options; Option A wins on speed/risk, Option B for long-term")`
+- `project_knowledge(description="Multi-path validation analysis; chose localized fix", files=["lua/utils/validation.lua","tests/..."], tags=["tot","comparative-analysis"])`
+
+FORBIDDEN PATTERNS
+- Linear progression without genuine alternatives
+- Solutions without evidence-gathering task branches
+- Single-path reasoning without comparison
+- Jumping to implementation without exploring alternatives
 ]],
       parameters = {
         type = 'object',
@@ -413,13 +429,17 @@ EXAMPLE (use as reference)
           },
           type = {
             type = 'string',
-            description = [[Thought type: `analysis`, `reasoning`, `task`, `validation` (required for `add_thought`).
+            description = [[
+Thought type: `analysis`, `reasoning`, `task`, `validation` (required for `add_thought`)
 
-Instructions:
-'analysis' - Analysis and exploration of the chunk of the problem.
-'reasoning' - Logical deduction and inference based on evidence.
-'task' - Small actionable step towards the final goal.
-'validation' - MANDATORY step that verifies current progress, especially REQUIRED after any code changes. This includes: running test suite, creating new tests, updating existing tests, executing code to verify functionality, checking for errors/failures.
+BRANCHING-ENFORCED INSTRUCTIONS:
+`analysis` - Multi-dimensional problem decomposition ONLY. Must explore different facets/angles of the problem. REQUIRED: create multiple analysis children before reasoning. FORBIDDEN: single-angle analysis without alternatives.
+
+`reasoning` - Solution hypothesis based on gathered evidence. Must propose specific approaches with trade-offs. REQUIRED: multiple reasoning alternatives per analysis branch. FORBIDDEN: reasoning without evidence from task branches.
+
+`task` - Evidence investigation OR implementation actions. For evidence: research existing patterns, constraints, similar solutions. MANDATORY: evidence-gathering tasks must precede solution reasoning. REQUIRED: contextual investigation before proposals.
+
+`validation` - Comparative verification of reasoning alternatives. Must test feasibility, complexity, maintainability of different approaches. REQUIRED: validate multiple alternatives before path selection. FORBIDDEN: single-path validation without comparison.
 ]],
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },

@@ -249,27 +249,43 @@ return {
     type = 'function',
     ['function'] = {
       name = 'chain_of_thoughts_agent',
-      description = [[Structured, stepwise software reasoning agent. Record labeled steps (analysis, reasoning, task, validation), and perform periodic reflection to improve plan and execution.
+      description = [[
+MANDATORY Deep Sequential Reasoning Agent. For linear problems requiring thorough step-by-step investigation with evidence-based progression.
 
-WORKFLOW
-1) Add small steps with `action="add_step"` and `step_type` in {analysis, reasoning, task, validation}
-2) Reflect with `action="reflect"` after every 3–5 steps to revise and adjust the plan
+DEPTH REQUIREMENTS (MANDATORY)
+- DECOMPOSITION: Break requests into 2-3 analysis steps exploring different problem angles before reasoning
+- EVIDENCE GATHERING: Use task steps to investigate context (files, constraints, patterns) before proposing solutions
+- VALIDATION MANDATE: Every reasoning conclusion MUST be followed by validation step with concrete verification
+- REFLECTION FREQUENCY: Reflect every 4-5 steps to assess completeness and adjust direction
 
-RULES (agent-specific)
-- Precision: One decision/change per step; keep step content ≤ 280 chars
-- Use the `validation` step type to capture immediate verification after edits
+ENFORCED WORKFLOW PATTERN
+1) ANALYSIS phase: 2-3 analysis steps examining different aspects of the problem
+2) EVIDENCE phase: Task steps gathering contextual information (check existing code, constraints, requirements)
+3) REASONING phase: Logical deduction based on gathered evidence
+4) IMPLEMENTATION phase: Concrete task steps with specific actions
+5) VALIDATION phase: Verify each major reasoning step with tests/checks
+
+STEP TYPE REDEFINITIONS
+- `analysis`: ONLY for problem exploration from different angles; must investigate multiple aspects
+- `reasoning`: ONLY after evidence gathering; must reference specific evidence from task steps
+- `task`: Evidence collection (file checks, pattern analysis) OR concrete implementation actions
+- `validation`: MANDATORY verification after reasoning; must include specific testing/checking steps
 
 EXAMPLE (use as reference)
 - `add_tools(action="list_tools")`
 - `add_tools(action="add_tool", tool_name="list_files")`  — discover code locations fast
 - `list_files(dir="lua", glob="**/*validate*.*")`  — find relevant files
-- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Failing tests reference utils/validation.lua:validate_input edge‑case for empty strings")`
-- [open/edit file, make targeted change]
-- `chain_of_thoughts_agent(action="add_step", step_type="reasoning", content="Root cause: treated empty as truthy; adjust predicate and keep trimming")`
+- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Problem angle 1: failing tests reference utils/validation.lua edge‑case")`
+- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Problem angle 2: empty string handling inconsistency across codebase")`
+- `chain_of_thoughts_agent(action="add_step", step_type="task", content="Check existing validation patterns and empty string handling in codebase")`
+- `chain_of_thoughts_agent(action="add_step", step_type="reasoning", content="Root cause: treated empty as truthy based on evidence from validation patterns")`
 - `chain_of_thoughts_agent(action="add_step", step_type="task", content="Update validate_input to handle empty/whitespace; preserve existing API")`
 - `chain_of_thoughts_agent(action="add_step", step_type="validation", content="Run tests; confirm validate_input cases pass and no regressions")`
-- `chain_of_thoughts_agent(action="reflect", content="Summarize fix, note any residual risks, propose follow‑up tests")`
-- `project_knowledge(description="Fix validate_input edge‑case; added tests", files=["lua/utils/validation.lua","tests/..."], tags=["bugfix","validation"])`
+- `chain_of_thoughts_agent(action="reflect", content="Summarize fix based on multi-angle analysis and evidence")`
+
+FORBIDDEN: Single analysis→reasoning→task chains without evidence gathering or validation
+FORBIDDEN: Solutions without investigating existing context first
+REQUIRED: Minimum 6 steps for complex tasks (analysis×2, task×2, reasoning×1, validation×1)
 ]],
       parameters = {
         type = 'object',
@@ -285,13 +301,17 @@ EXAMPLE (use as reference)
           },
           step_type = {
             type = 'string',
-            description = [[Node type: `analysis`, `reasoning`, `task`, `validation` (required for `add_step`)
+            description = [[
+Step type: `analysis`, `reasoning`, `task`, `validation` (required for `add_step`)
 
-Instructions:
-'analysis' - Analysis and exploration of the chunk of the problem.
-'reasoning' - Logical deduction and inference based on evidence.
-'task' - Small actionable step towards the final goal.
-'validation' - MANDATORY step that verifies current progress, especially REQUIRED after any code changes. This includes: running test suite, creating new tests, updating existing tests, executing code to verify functionality, checking for errors/failures.
+DEPTH-ENFORCED INSTRUCTIONS:
+`analysis` - MANDATORY multi-angle problem exploration. Must examine different aspects/dimensions of the problem. FORBIDDEN: single-perspective analysis. REQUIRED: investigate 2-3 different angles before reasoning.
+
+`reasoning` - Evidence-based logical deduction ONLY. Must reference specific evidence gathered from task steps. FORBIDDEN: reasoning without prior evidence collection. REQUIRED: cite specific findings from investigation.
+
+`task` - Dual purpose: (1) Evidence collection (investigate existing code, patterns, constraints, requirements) OR (2) Concrete implementation actions. MANDATORY: evidence-gathering tasks must precede reasoning steps.
+
+`validation` - MANDATORY verification after reasoning conclusions. Must include specific testing/checking steps (run tests, verify functionality, check for regressions). REQUIRED: concrete validation actions, not abstract confirmations.
 ]],
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },

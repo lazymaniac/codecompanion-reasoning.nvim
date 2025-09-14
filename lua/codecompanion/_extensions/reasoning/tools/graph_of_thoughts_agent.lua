@@ -317,28 +317,55 @@ return {
     type = 'function',
     ['function'] = {
       name = 'graph_of_thoughts_agent',
-      description = [[Structured networked reasoning agent. Model the problem as a graph with typed nodes and explicit connections; explore relationships, synthesize insights, and reflect to steer toward the best solution.
+      description = [[
+MANDATORY Network-Based Investigation Agent. Model complex problems as interconnected evidence networks requiring deep cross-cutting analysis.
 
-WORKFLOW
-1) Add nodes with `action="add_node"` and `node_type` in {analysis, reasoning, task, validation, synthesis}; connect new nodes to relevant prior nodes via `connect_to`
-2) Use `synthesis` nodes to combine insights across branches
-3) Reflect with `action="reflect"` every 3–5 nodes to summarize structure, call out gaps, and decide next edges to add
+INVESTIGATION REQUIREMENTS (MANDATORY)
+- DECOMPOSITION NETWORK: 3-4 analysis nodes exploring different problem dimensions with interconnections
+- EVIDENCE MANDATES: Task nodes MUST gather contextual evidence before any reasoning attempts
+- CROSS-CONNECTION: Reasoning nodes MUST connect to evidence from multiple analysis branches
+- VALIDATION NETWORKS: All reasoning paths require validation nodes with specific verification steps
+- SYNTHESIS INTEGRATION: Combine validated insights across multiple investigation branches
 
-RULES (agent-specific)
-- Precision: One idea/change per node; keep content ≤ 280 chars
-- When verifying edits, add a `validation` node and connect it to the relevant implementation node
+MANDATORY NETWORK WORKFLOW
+1) PROBLEM SPACE MAPPING: Multiple analysis nodes examining different aspects (technical, business, user impact)
+2) EVIDENCE COLLECTION LAYER: Task nodes investigating each dimension (existing code, patterns, constraints, requirements)
+3) HYPOTHESIS NETWORK: Reasoning nodes proposing solutions based on cross-dimensional evidence
+4) VALIDATION MESH: Validation nodes testing each hypothesis against gathered evidence
+5) SYNTHESIS CONVERGENCE: Integration nodes combining validated approaches into cohesive solution
+
+NODE TYPE MANDATES
+- `analysis`: ONLY for multi-dimensional problem decomposition; minimum 3 different angles required
+- `task`: MANDATORY evidence collection phase; must investigate context before reasoning
+- `reasoning`: MUST connect to evidence from multiple task nodes; reference specific findings
+- `validation`: MANDATORY for each reasoning path; must verify against evidence and constraints
+- `synthesis`: ONLY for integrating multiple validated reasoning paths; show evidence cross-connections
+
+CROSS-CONNECTION REQUIREMENTS
+- Reasoning nodes MUST connect to 2+ evidence sources
+- Validation nodes MUST connect to their respective reasoning + evidence nodes
+- Synthesis nodes MUST integrate insights from 3+ different reasoning paths
+- Evidence task nodes should cross-reference related findings
 
 EXAMPLE (use as reference)
 - `add_tools(action="list_tools")`
 - `add_tools(action="add_tool", tool_name="list_files")` — inventory affected modules
 - `list_files(dir="lua", glob="**/*auth*|**/*api*|**/*logging*" )` — scope cross‑cutting areas
-- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Goal: add audit logging across auth + API flows; capture PII safely")`
-- `graph_of_thoughts_agent(action="add_node", node_type="reasoning", content="Insert audit events after successful auth, before API handler returns", connect_to=["<analysis_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="task", content="Add audit_logger dep; create emit_audit(event, meta)", connect_to=["<reasoning_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="validation", content="Unit tests for emit_audit; integration test for login+API event flow", connect_to=["<task_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="synthesis", content="Trace: auth -> audit -> API; confirm no sensitive payloads recorded", connect_to=["<analysis_id>","<validation_id>"])`
-- `graph_of_thoughts_agent(action="reflect", content="Summarize structure, highlight missing edges (e.g., error paths), and propose next connections")`
-- `project_knowledge(description="Audit logging across auth/API; tests added", files=["lua/..."], tags=["got","observability"])`
+- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Technical dimension: audit logging integration points across auth/API")`
+- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Security dimension: PII handling and data sensitivity in audit logs")`
+- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Performance dimension: logging overhead and async processing needs")`
+- `graph_of_thoughts_agent(action="add_node", node_type="task", content="Investigate existing auth flow touchpoints and current logging patterns", connect_to=["<tech_analysis_id>"])`
+- `graph_of_thoughts_agent(action="add_node", node_type="task", content="Analyze PII exposure risks in current API payloads and responses", connect_to=["<security_analysis_id>"])`
+- `graph_of_thoughts_agent(action="add_node", node_type="reasoning", content="Audit insertion strategy: post-auth hook + pre-response filter based on flow evidence", connect_to=["<tech_task_id>", "<security_task_id>"])`
+- `graph_of_thoughts_agent(action="add_node", node_type="validation", content="Test audit strategy: unit tests + integration tests for auth/API flows", connect_to=["<reasoning_id>", "<tech_task_id>"])`
+- `graph_of_thoughts_agent(action="add_node", node_type="synthesis", content="Integrated solution: async audit pipeline with PII filtering, validated across all dimensions", connect_to=["<reasoning_id>","<validation_id>","<security_analysis_id>"])`
+- `graph_of_thoughts_agent(action="reflect", content="Evidence network complete: technical, security, performance dimensions investigated and integrated")`
+
+FORBIDDEN PATTERNS
+- Linear analysis→reasoning→task chains
+- Reasoning without evidence connections
+- Solutions without validation networks
+- Single-source reasoning without cross-dimensional investigation
 ]],
       parameters = {
         type = 'object',
@@ -355,14 +382,20 @@ EXAMPLE (use as reference)
           node_type = {
             type = 'string',
             enum = { 'analysis', 'reasoning', 'task', 'validation', 'synthesis' },
-            description = [[Node type: `analysis`, `reasoning`, `task`, `validation`, `synthesis` (required for `add_node`)
+            description = [[
+Node type: `analysis`, `reasoning`, `task`, `validation`, `synthesis` (required for `add_node`)
 
-Instructions:
-`analysis` - Analysis and exploration of the chunk of the problem.
-`reasoning` - Logical deduction and inference based on evidence.
-`task` - Small actionable step towards the final goal.
-'validation' - MANDATORY step that verifies current progress, especially REQUIRED after any code changes. This includes: running test suite, creating new tests, updating existing tests, executing code to verify functionality, checking for errors/failures.
-`synthesis` - Combining multiple nodes to create new ideas or knowledge.\n]],
+NETWORK-ENFORCED INSTRUCTIONS:
+`analysis` - Multi-dimensional problem space mapping ONLY. Must explore different dimensions (technical, business, security, performance). REQUIRED: minimum 3 analysis nodes with different angles. FORBIDDEN: single-dimension analysis.
+
+`reasoning` - Cross-dimensional solution hypothesis. Must connect to evidence from multiple task nodes. REQUIRED: reference findings from 2+ evidence sources. FORBIDDEN: reasoning without cross-dimensional evidence connections.
+
+`task` - MANDATORY evidence collection phase. Must investigate context, patterns, constraints for specific problem dimensions. REQUIRED: gather concrete evidence before any reasoning attempts. FORBIDDEN: implementation tasks without evidence foundation.
+
+`validation` - Network verification of reasoning paths. Must test hypotheses against gathered evidence and constraints. REQUIRED: connect to both reasoning and evidence nodes. FORBIDDEN: validation without evidence cross-reference.
+
+`synthesis` - Multi-path integration ONLY. Must combine validated insights from multiple reasoning branches. REQUIRED: connect to 3+ different reasoning paths with evidence backing. FORBIDDEN: synthesis without cross-validated reasoning network.
+]],
           },
           connect_to = {
             type = 'array',
