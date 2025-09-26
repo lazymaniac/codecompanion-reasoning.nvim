@@ -18,5 +18,11 @@ end
 -- Add the extension itself to runtime path
 vim.opt.runtimepath:append(root)
 
+-- Add the base CodeCompanion plugin if available (needed for integration hooks)
+local cc_path = os.getenv('CODECOMPANION_PATH') or (root .. '/../codecompanion.nvim')
+if vim.fn.isdirectory(cc_path) == 1 then
+  vim.opt.runtimepath:append(cc_path)
+end
+
 -- Load MiniTest
 require("mini.test").setup()

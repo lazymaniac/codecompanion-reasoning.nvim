@@ -103,7 +103,10 @@ function ReasoningExtension.setup(opts)
     }
   end
 
-  return config
+  return {
+    tools = reasoning_tools,
+    config = config,
+  }
 end
 
 -- Export the tools for direct access if needed

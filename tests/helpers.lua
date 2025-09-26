@@ -154,6 +154,11 @@ function helpers.child_start(child)
       end
     end
     vim.opt.runtimepath:append(root)
+    local cc_path = os.getenv('CODECOMPANION_PATH') or (root .. '/../codecompanion.nvim')
+    if vim.fn.isdirectory(cc_path) == 1 then
+      vim.opt.runtimepath:append(cc_path)
+      package.path = cc_path .. '/lua/?.lua;' .. cc_path .. '/lua/?/init.lua;' .. package.path
+    end
     -- Ensure Lua can require project modules directly
     package.path = table.concat({
       root .. '/lua/?.lua',

@@ -223,7 +223,7 @@ local function setup_codecompanion_hooks()
   })
 
   vim.api.nvim_create_autocmd('User', {
-    pattern = 'CodeCompanionChatDone',
+    pattern = { 'CodeCompanionChatDone', 'CodeCompanionRequestStreaming' },
     group = group,
     callback = function(event)
       if not auto_save_enabled then
