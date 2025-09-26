@@ -182,8 +182,8 @@ function SessionStorage.delete_session(filename)
   end
 
   local session_path = SessionStorage.get_session_path(filename)
-  local err = vim.uv.fs_unlink(session_path)
-  if err then
+  local ok, err = vim.uv.fs_unlink(session_path)
+  if not ok then
     return false, fmt('Failed to delete session file %s: %s', session_path, err)
   end
 

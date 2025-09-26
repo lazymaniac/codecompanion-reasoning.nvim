@@ -131,8 +131,11 @@ T['direct API functions work'] = function()
   MiniTest.expect.equality(load_error, nil)
   MiniTest.expect.equality(#loaded_data.messages, 3)
 
-  -- Optionally attempt delete (non-fatal in some environments)
-  ReasoningPlugin.delete_session(session.filename)
+  -- Verify deletion removes the backing file
+  local delete_success = ReasoningPlugin.delete_session(session.filename)
+  MiniTest.expect.equality(delete_success, true)
+  local session_path = SessionManager.get_sessions_dir() .. '/' .. session.filename
+  MiniTest.expect.equality(vim.fn.filereadable(session_path), 0)
 end
 
 return T
