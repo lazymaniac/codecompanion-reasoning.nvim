@@ -73,6 +73,10 @@ local UI_CONFIG = {
   },
 }
 
+local PREVIEW_MESSAGE_LIMIT = 3
+local PREVIEW_LINE_WIDTH = 80
+local PREVIEW_LINE_SUFFIX = '...'
+
 local function sanitize_single_line(value)
   if value == nil then
     return ''
@@ -80,6 +84,65 @@ local function sanitize_single_line(value)
   local text_value = tostring(value)
   text_value = text_value:gsub('[\r\n]+', ' ')
   return vim.trim(text_value)
+end
+
+local function extract_message_text(message)
+  if not message then
+    return ''
+  end
+
+  local content = message.content
+  if type(content) == 'string' then
+    return content
+  end
+
+  if type(content) == 'table' then
+    local parts = {}
+    for _, chunk in ipairs(content) do
+      if type(chunk) == 'string' then
+        table.insert(parts, chunk)
+      elseif type(chunk) == 'table' then
+        if type(chunk.text) == 'string' then
+          table.insert(parts, chunk.text)
+        elseif type(chunk.content) == 'string' then
+          table.insert(parts, chunk.content)
+        end
+      end
+    end
+
+    if #parts > 0 then
+      return table.concat(parts, ' ')
+    end
+
+    return ''
+  end
+
+  if content == nil then
+    return ''
+  end
+
+  return tostring(content)
+end
+
+local function format_preview_message(prefix, text)
+  local sanitized = sanitize_single_line(text)
+  local available = PREVIEW_LINE_WIDTH - #prefix - #PREVIEW_LINE_SUFFIX
+  if available < 0 then
+    available = 0
+  end
+
+  local truncated = sanitized:sub(1, available)
+  if #sanitized > available then
+    truncated = truncated:gsub('%s+$', '')
+  end
+
+  truncated = truncated:gsub('[%.%!%?]+$', '')
+
+  if truncated == '' then
+    return prefix .. PREVIEW_LINE_SUFFIX
+  end
+
+  return prefix .. truncated .. PREVIEW_LINE_SUFFIX
 end
 
 -- Format session entry for the list pane (clean, minimal design)
@@ -242,32 +305,89 @@ local function build_session_preview(session)
   add_field('File Size', file_size_display, UI_CONFIG.colors.list_meta)
 
   -- Session Preview
-  if session.preview and session.preview ~= '' then
-    add_header('Session Preview')
-    local preview_text = session.preview:gsub('[\r\n]+', ' ')
-    if #preview_text > 200 then
-      preview_text = preview_text:sub(1, 197) .. '...'
-    end
-    local wrapped_lines = {}
-    local max_width = 50
-    local words = vim.split(preview_text, ' ')
-    local current_line = '    '
+  local preview_rendered = false
+  local load_err
+  if session.filename then
+    local session_data
+    session_data, load_err = SessionManager.load_session(session.filename)
 
-    for _, word in ipairs(words) do
-      if #current_line + #word + 1 > max_width then
-        table.insert(wrapped_lines, current_line)
-        current_line = '    ' .. word
-      else
-        current_line = current_line .. ' ' .. word
+    if session_data and session_data.messages then
+      local visible_messages = {}
+      for _, message in ipairs(session_data.messages) do
+        if message and message.visible ~= false then
+          local role = message.role or 'assistant'
+          if role == 'user' or role == 'assistant' or role == 'tool' then
+            local message_text = extract_message_text(message)
+            if sanitize_single_line(message_text) ~= '' then
+              table.insert(visible_messages, { role = role, content = message_text })
+            end
+          end
+        end
+      end
+
+      if #visible_messages > 0 then
+        add_header('Session Preview')
+        preview_rendered = true
+
+        local role_labels = {
+          user = 'User',
+          assistant = 'Assistant',
+          system = 'System',
+          tool = 'Tool',
+        }
+        local role_highlights = {
+          user = UI_CONFIG.colors.preview_message_user,
+          assistant = UI_CONFIG.colors.preview_message_assistant,
+          system = UI_CONFIG.colors.preview_label,
+          tool = UI_CONFIG.colors.preview_content,
+        }
+
+        local max_messages = math.min(#visible_messages, PREVIEW_MESSAGE_LIMIT)
+        for index = 1, max_messages do
+          local message = visible_messages[index]
+          local role = message.role or 'assistant'
+          local label = role_labels[role] or (role:gsub('^%l', string.upper))
+          local prefix = string.format('%s%s: ', UI_CONFIG.typography.preview_indent, label)
+
+          local rendered_line = format_preview_message(prefix, message.content)
+          add_line(rendered_line, role_highlights[role] or UI_CONFIG.colors.preview_content)
+
+          if index < max_messages then
+            add_line('', nil)
+          end
+        end
+
+        if #visible_messages > max_messages then
+          local remaining = #visible_messages - max_messages
+          local suffix = remaining == 1 and '' or 's'
+          add_line(
+            string.format('%s… %d more message%s', UI_CONFIG.typography.preview_indent, remaining, suffix),
+            UI_CONFIG.colors.preview_content
+          )
+        end
       end
     end
-    if current_line ~= '    ' then
-      table.insert(wrapped_lines, current_line)
-    end
 
-    for _, line in ipairs(wrapped_lines) do
-      add_line(line, UI_CONFIG.colors.preview_content)
+    if not preview_rendered and load_err then
+      add_header('Session Preview')
+      add_line(
+        string.format('%sUnable to load session preview: %s', UI_CONFIG.typography.preview_indent, load_err),
+        UI_CONFIG.colors.preview_value
+      )
+      preview_rendered = true
     end
+  end
+
+  if not preview_rendered and session.preview and session.preview ~= '' then
+    add_header('Session Preview')
+    preview_rendered = true
+    local prefix = UI_CONFIG.typography.preview_indent
+      .. (UI_CONFIG.icons.preview ~= '' and (UI_CONFIG.icons.preview .. ' ') or '')
+    local rendered_line = format_preview_message(prefix, session.preview)
+    add_line(rendered_line, UI_CONFIG.colors.preview_content)
+  elseif not preview_rendered then
+    add_header('Session Preview')
+    add_line(UI_CONFIG.typography.preview_indent .. 'No preview available', UI_CONFIG.colors.preview_content)
   end
 
   -- Quick Actions
