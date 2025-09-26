@@ -37,7 +37,7 @@ end
 ---   - chat_history.sessions_dir: string - Directory to store sessions (default: stdpath('data')/codecompanion-reasoning/sessions)
 ---   - chat_history.max_sessions: number (default: 100) - Maximum number of sessions to keep
 ---   - chat_history.enable_commands: boolean (default: true) - Enable user commands
----   - chat_history.picker: string (default: 'auto') - Picker backend: 'auto', 'telescope', 'fzf-lua', 'default'
+---   - chat_history.picker: string (default: 'default') - Picker backend: only 'default' is supported ('auto' alias)
 ---   - chat_history.continue_last_chat: boolean (default: false) - Show startup dialog for continuing last chat
 ---   - chat_history.title_generation_opts: table - Title generation configuration
 --- @return table|nil config The extension configuration, or nil if loading failed.
@@ -56,7 +56,7 @@ function M.setup(opts)
       sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
       max_sessions = 100,
       enable_commands = true,
-      picker = 'auto',
+      picker = 'default',
       continue_last_chat = true,
       expiration_days = 0,
       enable_index = true,

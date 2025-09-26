@@ -89,11 +89,7 @@ This extension provides three powerful reasoning agents, each specialized for di
 ### UI Features
 
 - **Session Navigation**
-  - Multiple picker backends:
-    - telescope
-    - fzf-lua
-    - snacks
-    - default
+  - Built-in picker for browsing sessions
   - Fast session switching
   - Search and filter capabilities
 
@@ -121,7 +117,7 @@ This extension provides three powerful reasoning agents, each specialized for di
         sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
         max_sessions = 100,
         enable_commands = true,
-        picker = 'auto', -- 'telescope' | 'fzf-lua' | 'snacks' | 'default' | 'auto'
+        picker = 'default', -- only 'default' is supported ('auto' remains an alias)
         continue_last_chat = true,
         title_generation_opts = {
           adapter = nil,   -- override to force a specific adapter for title generation

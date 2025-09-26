@@ -1,5 +1,5 @@
 ---@class CodeCompanion.Reasoning.SessionManagerUI
----UI manager for chat session management with multiple picker backends
+---UI manager for chat session management using the default picker
 local SessionManagerUI = {}
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
@@ -13,7 +13,7 @@ function SessionManagerUI.new(opts)
   local self = setmetatable({}, { __index = SessionManagerUI })
 
   self.opts = vim.tbl_deep_extend('force', {
-    picker = 'auto', -- 'auto', 'telescope', 'fzf-lua', 'snacks', 'default'
+    picker = 'default', -- only 'default' is supported ('auto' falls back for compatibility)
     auto_save = true,
     auto_generate_title = true,
     continue_last_chat = false,
