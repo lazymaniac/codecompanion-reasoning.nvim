@@ -73,6 +73,15 @@ local UI_CONFIG = {
   },
 }
 
+local function sanitize_single_line(value)
+  if value == nil then
+    return ''
+  end
+  local text_value = tostring(value)
+  text_value = text_value:gsub('[\r\n]+', ' ')
+  return vim.trim(text_value)
+end
+
 -- Format session entry for the list pane (clean, minimal design)
 ---@param session table Session info object
 ---@param index number Session index
@@ -86,9 +95,14 @@ local function format_session_list_entry(session, index, is_selected)
   local prefix = is_selected and UI_CONFIG.icons.selected or UI_CONFIG.icons.session
 
   -- Main session line shows generated title when available
-  local display_title = session.title and vim.trim(session.title) ~= '' and session.title or nil
-  display_title = display_title or (session.preview and session.preview:match('^[^\n\r]*'))
-  display_title = display_title or ('Session ' .. tostring(index))
+  local display_title = sanitize_single_line(session.title)
+  if display_title == '' then
+    local preview_line = session.preview and session.preview:match('^[^\n\r]*')
+    display_title = sanitize_single_line(preview_line)
+  end
+  if display_title == '' then
+    display_title = 'Session ' .. tostring(index)
+  end
 
   local session_title = fmt('%s%s %s', indent, prefix, display_title)
   table.insert(lines, session_title)
@@ -110,8 +124,16 @@ local function format_session_list_entry(session, index, is_selected)
   })
 
   -- Date line (more compact)
-  local date_parts = vim.split(session.created_at or '', ' ')
-  local date_display = #date_parts >= 2 and (date_parts[1] .. ' ' .. date_parts[2]) or session.created_at
+  local created_at = sanitize_single_line(session.created_at)
+  local date_display = created_at
+  if created_at ~= '' then
+    local date_parts = vim.split(created_at, ' ')
+    if #date_parts >= 2 then
+      date_display = date_parts[1] .. ' ' .. date_parts[2]
+    end
+  else
+    date_display = 'Unknown'
+  end
   local date_line = fmt('%s%s %s', indent, UI_CONFIG.icons.calendar, date_display)
   table.insert(lines, date_line)
   table.insert(highlights, {
@@ -122,14 +144,13 @@ local function format_session_list_entry(session, index, is_selected)
   })
 
   -- Model and message count (compact)
-  local stats_line = fmt(
-    '%s%s %s  %s %d',
-    indent,
-    UI_CONFIG.icons.model,
-    session.model,
-    UI_CONFIG.icons.messages,
-    session.total_messages
-  )
+  local model_name = sanitize_single_line(session.model)
+  if model_name == '' then
+    model_name = 'Unknown'
+  end
+  local total_messages = tonumber(session.total_messages) or 0
+  local stats_line =
+    fmt('%s%s %s  %s %d', indent, UI_CONFIG.icons.model, model_name, UI_CONFIG.icons.messages, total_messages)
   table.insert(lines, stats_line)
   table.insert(highlights, {
     line = 2,
@@ -174,7 +195,8 @@ local function build_session_preview(session)
   end
 
   local function add_field(label, value, value_hl)
-    local field_line = fmt('    %s: %s', label, value)
+    local display_value = sanitize_single_line(value)
+    local field_line = fmt('    %s: %s', label, display_value)
     table.insert(lines, field_line)
     -- Label highlight
     table.insert(highlights, {
@@ -195,16 +217,34 @@ local function build_session_preview(session)
 
   -- Session Overview
   add_header('Session Overview')
-  add_field('Title', session.title or 'Untitled', UI_CONFIG.colors.list_header)
-  add_field('Created', session.created_at or 'Unknown', UI_CONFIG.colors.list_date)
-  add_field('Model', session.model or 'Unknown', UI_CONFIG.colors.list_model)
-  add_field('Messages', tostring(session.total_messages or 0), UI_CONFIG.colors.accent_secondary)
-  add_field('File Size', vim.fn.fnamemodify(tostring(session.file_size or 0), ':.'), UI_CONFIG.colors.list_meta)
+  local overview_title = sanitize_single_line(session.title)
+  if overview_title == '' then
+    overview_title = 'Untitled'
+  end
+  local created_display = sanitize_single_line(session.created_at)
+  if created_display == '' then
+    created_display = 'Unknown'
+  end
+  local model_display = sanitize_single_line(session.model)
+  if model_display == '' then
+    model_display = 'Unknown'
+  end
+  local message_count = tostring(tonumber(session.total_messages) or 0)
+  local file_size_display = sanitize_single_line(vim.fn.fnamemodify(tostring(session.file_size or 0), ':.'))
+  if file_size_display == '' then
+    file_size_display = '0'
+  end
+
+  add_field('Title', overview_title, UI_CONFIG.colors.list_header)
+  add_field('Created', created_display, UI_CONFIG.colors.list_date)
+  add_field('Model', model_display, UI_CONFIG.colors.list_model)
+  add_field('Messages', message_count, UI_CONFIG.colors.accent_secondary)
+  add_field('File Size', file_size_display, UI_CONFIG.colors.list_meta)
 
   -- Session Preview
   if session.preview and session.preview ~= '' then
     add_header('Session Preview')
-    local preview_text = session.preview:gsub('\n', ' ')
+    local preview_text = session.preview:gsub('[\r\n]+', ' ')
     if #preview_text > 200 then
       preview_text = preview_text:sub(1, 197) .. '...'
     end
@@ -247,6 +287,7 @@ local function build_session_list_content(sessions, selected_index)
   local lines = {}
   local highlights = {}
   local line_offset = 0
+  local selected_row = nil
 
   -- Header
   table.insert(lines, '')
@@ -287,6 +328,10 @@ local function build_session_list_content(sessions, selected_index)
     -- Session list
     for i, session in ipairs(sessions) do
       local is_selected = (i == selected_index)
+      local entry_start = line_offset
+      if is_selected then
+        selected_row = entry_start
+      end
       local session_lines, session_highlights = format_session_list_entry(session, i, is_selected)
 
       -- Apply selection background
@@ -313,7 +358,7 @@ local function build_session_list_content(sessions, selected_index)
     end
   end
 
-  return lines, highlights
+  return lines, highlights, selected_row
 end
 
 -- Calculate optimal dimensions for the split-pane layout
@@ -377,7 +422,7 @@ end
 local function create_session_picker_windows(sessions, selected_index, dims)
   -- Create list pane (left side)
   local list_buf = vim.api.nvim_create_buf(false, true)
-  local list_lines, list_highlights = build_session_list_content(sessions, selected_index)
+  local list_lines, list_highlights, selected_row = build_session_list_content(sessions, selected_index)
   vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, list_lines)
   vim.bo[list_buf].bufhidden = 'wipe'
   vim.bo[list_buf].filetype = 'codecompanion-sessions-list'
@@ -401,6 +446,11 @@ local function create_session_picker_windows(sessions, selected_index, dims)
   local list_win = vim.api.nvim_open_win(list_buf, true, list_win_opts)
   vim.wo[list_win].winhl = 'FloatBorder:' .. UI_CONFIG.colors.border_focus
   vim.wo[list_win].cursorline = false
+  if selected_row and selected_row >= 0 then
+    pcall(vim.api.nvim_win_set_cursor, list_win, { selected_row + 1, 0 })
+  else
+    pcall(vim.api.nvim_win_set_cursor, list_win, { 1, 0 })
+  end
 
   -- Create preview pane (right side)
   local preview_buf = vim.api.nvim_create_buf(false, true)
@@ -444,14 +494,18 @@ local function setup_picker_mappings(windows, sessions, selected_index, callback
   local current_selection = selected_index
   local list_buf = windows.list.buf
   local preview_buf = windows.preview.buf
+  local list_win = windows.list.win
 
   local function update_display()
     -- Update list pane
-    local list_lines, list_highlights = build_session_list_content(sessions, current_selection)
+    local list_lines, list_highlights, selected_row = build_session_list_content(sessions, current_selection)
     vim.bo[list_buf].modifiable = true
     vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, list_lines)
     vim.bo[list_buf].modifiable = false
     apply_highlights(list_buf, list_highlights, 'list')
+    if selected_row and selected_row >= 0 then
+      pcall(vim.api.nvim_win_set_cursor, list_win, { selected_row + 1, 0 })
+    end
 
     -- Update preview pane
     local selected_session = sessions[current_selection]

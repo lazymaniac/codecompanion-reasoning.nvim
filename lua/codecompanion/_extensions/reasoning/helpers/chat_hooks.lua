@@ -121,9 +121,8 @@ local function queue_initialization_instructions(chat)
   table.insert(lines, '')
   table.insert(
     lines,
-    'When ready, CALL the tool `initialize_project_knowledge` with parameter `content` set to the full markdown text. That tool will save it to the path above.'
+    'When ready, CALL the tool `initialize_project_knowledge` with parameter `content` set to the full markdown text.'
   )
-  table.insert(lines, 'Important: After creation, future context is loaded only from this file.')
 
   if chat and chat.add_message then
     pcall(function()
