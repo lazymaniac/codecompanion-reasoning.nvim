@@ -103,7 +103,140 @@ end
 -- Create CodeCompanion chat instance
 ---@param session_data table
 ---@return table? chat, string? error_message
-local function create_codecompanion_chat(session_data)
+local function resolve_session_adapter(session_data)
+  local config_ok, config = pcall(require, 'codecompanion.config')
+  if not config_ok then
+    return nil, 'CodeCompanion config not available'
+  end
+
+  local adapter_name = nil
+  if session_data.config and session_data.config.adapter and session_data.config.adapter ~= 'unknown' then
+    adapter_name = session_data.config.adapter
+  end
+  if not adapter_name then
+    adapter_name = config.default_adapter
+  end
+
+  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+  if not adapters_ok or not adapters or not adapters.resolve then
+    return nil, 'CodeCompanion adapters not available'
+  end
+
+  local adapter = adapters.resolve(adapter_name)
+  if not adapter then
+    return nil, fmt('Failed to resolve adapter "%s"', tostring(adapter_name))
+  end
+
+  return adapter, adapter_name
+end
+
+local function apply_adapter_to_chat(chat, adapter, session_data)
+  if not chat or not adapter then
+    return nil, 'Invalid chat or adapter'
+  end
+
+  local helpers_ok, helpers = pcall(require, 'codecompanion.strategies.chat.helpers')
+  local schema_ok, schema = pcall(require, 'codecompanion.schema')
+  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+  local util_ok, util = pcall(require, 'codecompanion.utils')
+
+  chat.adapter = adapter
+
+  local settings = chat.settings
+  if schema_ok and schema and adapter.schema then
+    local desired = {}
+    local model = session_data.config and session_data.config.model
+    if model and model ~= 'unknown' then
+      desired.model = model
+    end
+    settings = schema.get_default(adapter, desired)
+  end
+
+  if settings then
+    if helpers_ok and helpers and helpers.apply_settings_and_model then
+      helpers.apply_settings_and_model(chat, settings)
+    elseif chat.apply_settings then
+      chat:apply_settings(settings)
+      if settings.model and chat.apply_model then
+        chat:apply_model(settings.model)
+      end
+    end
+  end
+
+  if chat.ui then
+    chat.ui.adapter = adapter
+    chat.ui.settings = chat.settings
+  end
+
+  if util_ok and util and adapters_ok and adapters and adapters.make_safe then
+    pcall(util.fire, 'ChatAdapter', {
+      adapter = adapters.make_safe(adapter),
+      bufnr = chat.bufnr,
+      id = chat.id,
+    })
+    if chat.settings and chat.settings.model then
+      pcall(util.fire, 'ChatModel', {
+        bufnr = chat.bufnr,
+        id = chat.id,
+        model = chat.settings.model,
+      })
+    end
+  end
+
+  return chat, chat.settings
+end
+
+local function prepare_existing_chat(chat, session_data)
+  local adapter, adapter_err = resolve_session_adapter(session_data)
+  if not adapter then
+    return nil, adapter_err
+  end
+
+  local applied_chat, applied_settings_or_err = apply_adapter_to_chat(chat, adapter, session_data)
+  if not applied_chat then
+    return nil, applied_settings_or_err
+  end
+
+  chat.opts = chat.opts or {}
+  if session_data.config then
+    chat.opts.adapter = session_data.config.adapter or chat.opts.adapter
+    chat.opts.model = session_data.config.model or chat.opts.model
+  end
+  if type(applied_settings_or_err) == 'table' then
+    chat.settings = applied_settings_or_err
+  end
+
+  pcall(function()
+    if chat.tool_registry and chat.tool_registry.clear then
+      chat.tool_registry:clear()
+    end
+  end)
+
+  chat.messages = {}
+  chat.context_items = {}
+  chat.cycle = session_data.metadata and session_data.metadata.cycle or 1
+  chat.header_line = 1
+
+  if chat.bufnr and vim.api.nvim_buf_is_valid(chat.bufnr) then
+    pcall(vim.api.nvim_buf_set_lines, chat.bufnr, 0, -1, false, {})
+  end
+
+  if chat.ui and chat.ui.render then
+    pcall(function()
+      chat.ui:render(chat.buffer_context, chat.messages, chat.opts)
+    end)
+  end
+
+  pcall(function()
+    if chat.add_system_prompt then
+      chat:add_system_prompt()
+    end
+  end)
+
+  return chat
+end
+
+local function create_codecompanion_chat(session_data, existing_chat)
   local function normalize_role(role)
     if role == 'assistant' or role == 'llm' or role == 'model' then
       return 'llm'
@@ -115,6 +248,14 @@ local function create_codecompanion_chat(session_data)
   local config_ok, config = pcall(require, 'codecompanion.config')
   if not config_ok then
     return nil, 'CodeCompanion config not available'
+  end
+
+  if existing_chat then
+    local prepared, err = prepare_existing_chat(existing_chat, session_data)
+    if not prepared then
+      return nil, err
+    end
+    return prepared, nil
   end
 
   local adapter_name = nil
@@ -389,14 +530,16 @@ end
 ---@param session_data table Loaded session data
 ---@param filename string Original session filename
 ---@return boolean success, string? error_message
-function SessionRestorer.restore_session(session_data, filename)
+function SessionRestorer.restore_session(session_data, filename, opts)
+  opts = opts or {}
   if not session_data then
     return false, 'Invalid session data'
   end
 
   session_data = optimize_session_messages(session_data)
 
-  local chat, err = create_codecompanion_chat(session_data)
+  local existing_chat = opts.chat
+  local chat, err = create_codecompanion_chat(session_data, existing_chat)
   if not chat then
     return false, err
   end
@@ -414,7 +557,7 @@ function SessionRestorer.restore_session(session_data, filename)
   finalize_chat_for_interaction(chat)
 
   vim.notify(fmt('Restored session: %s (%d messages)', filename, #(session_data.messages or {})), vim.log.levels.INFO)
-  return true, nil
+  return true, chat
 end
 
 return SessionRestorer

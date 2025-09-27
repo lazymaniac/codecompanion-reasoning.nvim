@@ -79,11 +79,11 @@ end
 ---Restore a chat session
 ---@param session table Session metadata
 function SessionManagerUI:restore_session(session)
-  local success, err = SessionManager.restore_session(session.filename)
+  local success, result = SessionManager.restore_session(session.filename)
   if success then
     vim.notify(string.format('Restored session: %s', session.title or session.filename), vim.log.levels.INFO)
   else
-    vim.notify(string.format('Failed to restore session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+    vim.notify(string.format('Failed to restore session: %s', result or 'unknown error'), vim.log.levels.ERROR)
   end
 end
 

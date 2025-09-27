@@ -40,7 +40,7 @@ return {
       description = [[Interactive consultation for coding decisions when multiple valid approaches exist
 
 USE WHEN:
-- Multiple valid solutions exist (refactor vs rewrite...)
+- Multiple valid solutions exist (refactor vs rewrite, implement code vs remove test...)
 - Destructive operations planned (delete code, major changes...)
 - Architecture decisions affect maintainability
 - User intent unclear from request

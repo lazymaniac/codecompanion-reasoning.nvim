@@ -73,6 +73,12 @@ This extension provides three powerful reasoning agents, each specialized for di
 
 ### Session Management
 
+- **Functionality-Specific Adapters**
+  - Configure different adapters/models per functionality
+  - Session optimization with fast local models (e.g., Ollama)
+  - Title generation with creative models (e.g., GPT-4)
+  - Cost and quality optimization per use case
+
 - **History and Restoration**
   - Auto-saves chat sessions
   - Browse history with UI picker
@@ -110,6 +116,17 @@ This extension provides three powerful reasoning agents, each specialized for di
   },
   config = function()
     require("codecompanion-reasoning").setup({
+      functionality_adapters = {
+        session_optimizer = {
+          adapter = nil, -- e.g., "ollama", defaults to session adapter
+          model = nil,   -- e.g., "gpt-oss", defaults to session model
+        },
+        title_generator = {
+          adapter = nil, -- e.g., "openai" 
+          model = nil,   -- e.g., "gpt-4"
+        },
+        -- meta_agent and reasoning_agents also available
+      },
       chat_history = {
         auto_save = true,
         auto_load_last_session = true,
@@ -123,7 +140,6 @@ This extension provides three powerful reasoning agents, each specialized for di
           adapter = nil,   -- override to force a specific adapter for title generation
           model = nil,     -- override to force a specific model for title generation
           refresh_every_n_prompts = 3,
-          max_refreshes = 3,
           format_title = nil, -- optional function to post-process the generated title
         },
         keymaps = {
@@ -157,6 +173,92 @@ use {
 require("codecompanion-reasoning").setup({
   enabled = true,
 })
+```
+
+### Functionality-Specific Adapters
+
+You can configure different adapters and models for each functionality, allowing you to optimize for different use cases:
+
+```lua
+require("codecompanion-reasoning").setup({
+  functionality_adapters = {
+    session_optimizer = {
+      adapter = "ollama",        -- Use Ollama for session optimization
+      model = "gpt-oss",         -- With a lightweight model
+    },
+    meta_agent = {
+      adapter = "ollama",        -- Meta agent selection
+      model = "llama3",          -- Can use a different model
+    },
+    reasoning_agents = {
+      adapter = "anthropic",     -- Reasoning agents don't make LLM calls
+      model = "claude-3-sonnet", -- But config here for future features
+    },
+    title_generator = {
+      adapter = "openai",        -- Use OpenAI for title generation
+      model = "gpt-4",           -- With GPT-4 for better titles
+    },
+  },
+  -- ... other configuration
+})
+```
+
+#### Available Functionalities
+
+- **`session_optimizer`**: Used when compacting chat sessions (`:CodeCompanionOptimizeSession`)
+  - Summarizes long conversations into concise overviews
+  - Good candidate for lightweight, fast models like `ollama/gpt-oss`
+
+- **`title_generator`**: Generates descriptive titles for chat sessions
+  - Creates meaningful names for session history
+  - Benefits from creative models like `gpt-4` or `claude-3-sonnet`
+
+- **`meta_agent`**: Selects appropriate reasoning agents (future feature)
+  - Currently just structures conversations
+  - Reserved for future LLM-based agent selection
+
+- **`reasoning_agents`**: Chain/Tree/Graph of Thoughts agents
+  - Currently only structure conversations without separate LLM calls
+  - Configuration reserved for future reasoning enhancements
+
+#### Adapter Priority
+
+The adapter resolver uses this precedence order:
+1. **Override config** (passed at runtime)
+2. **Functionality config** (your setup configuration)  
+3. **Session defaults** (current chat's adapter/model)
+
+#### Example Use Cases
+
+**Cost-Optimized Setup**: Use local models for background tasks:
+```lua
+functionality_adapters = {
+  session_optimizer = { adapter = "ollama", model = "gpt-oss" },
+  title_generator = { adapter = "ollama", model = "llama3" },
+}
+```
+
+**Quality-Focused Setup**: Use premium models for important tasks:
+```lua
+functionality_adapters = {
+  title_generator = { adapter = "openai", model = "gpt-4" },
+  session_optimizer = { adapter = "anthropic", model = "claude-3-sonnet" },
+}
+```
+
+**Mixed Setup**: Optimize per functionality:
+```lua
+functionality_adapters = {
+  session_optimizer = { adapter = "ollama", model = "gpt-oss" },      -- Fast local
+  title_generator = { adapter = "openai", model = "gpt-4" },          -- High quality
+}
+```
+
+**Legacy/Fallback**: Leave empty to use session adapter for all functionalities:
+```lua
+functionality_adapters = {
+  -- All functionalities will use the current chat's adapter/model
+}
 ```
 
 ### Integration with CodeCompanion
@@ -214,11 +316,6 @@ Attach optional tools before using them:
 - `:CodeCompanionInitProjectKnowledge`: Queue instructions to initialize project knowledge in the current chat.
 - `:CodeCompanionRefreshSessionTitles`: Regenerate and persist titles for saved sessions.
 - `:CodeCompanionOptimizeSession`: Compact the current chat into a one‑message summary (keeps the system prompt and inserts a concise user summary).
-
-Picker keymaps in the session browser (normal/insert):
-- Rename: `r` / `<M-r>`
-- Delete: `d` / `<M-d>`
-- Duplicate: `<C-y>` / `<C-y>`
 
 ## Development
 

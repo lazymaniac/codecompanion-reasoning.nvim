@@ -68,7 +68,10 @@ end
 ---@return table<string, table> Map of tool names to their complete information
 local function get_all_tools_with_schemas()
   local tools_config = config.strategies.chat.tools
-  local enabled_tools = ToolFilter.filter_enabled_tools(tools_config)
+  local enabled_tools = {}
+  if ToolFilter.filter_enabled_tools then
+    enabled_tools = ToolFilter.filter_enabled_tools(tools_config)
+  end
   local result = {}
 
   for tool_name, tool_config in pairs(tools_config) do
@@ -167,11 +170,7 @@ local function list_tools()
   table.insert(output, '---')
   table.insert(
     output,
-    'NEXT STEP: After reviewing this list, immediately call add_tools with action="add_tool" to add the tools you need!'
-  )
-  table.insert(
-    output,
-    'Example: Call add_tools with action="add_tool" and tool_name="insert_edit_into_file" to add file editing capability'
+    'NEXT STEP: Carefully review and remember this list so later when you need one (or more) of listed capbilities call `add_tools` with action="add_tool" to add the tools you need!'
   )
 
   return table.concat(output, '\n')
@@ -200,7 +199,10 @@ local function handle_add_tool(args)
     else
       return {
         status = 'error',
-        data = fmt("'%s' is automatically added as a companion tool when using reasoning agents.", args.tool_name),
+        data = fmt(
+          "'%s' is automatically added to every chat, so you never need to request it manually.",
+          args.tool_name
+        ),
       }
     end
   end
@@ -251,9 +253,10 @@ return {
     type = 'function',
     ['function'] = {
       name = 'add_tools',
-      description = [[Manage optional tools for this chat.
+      description = [[List and add tools (capabilities).
+
 Usage:
-1. Call with action="list_tools" to get the exact, addable tool names and brief descriptions.
+1. Call with action="list_tools" to get the exact, addable tool names and brief descriptions of each one of them.
 2. For each needed capability, call again with action="add_tool" and tool_name set to an exact name from the list. Do not guess names. After a tool is added, you may invoke it in subsequent tool calls by name in this conversation. If you try to use a tool that is not attached, first attach it via add_tools, then retry.
 
 Example sequence:
@@ -268,7 +271,7 @@ Scope: add only the tools you plan to use next.]],
         properties = {
           action = {
             type = 'string',
-            description = [[Required action. Use 'list_tools' to retrieve the authoritative list of addable tools. Use 'add_tool' to attach one specific tool (by exact name) to the current chat. Any other value is invalid. When action='add_tool', 'tool_name' must be provided. Attempting to add excluded tools (reasoning agents or companion tools) returns an error.]],
+            description = [[Required action. Use 'list_tools' to retrieve the authoritative list of addable tools. Use 'add_tool' to attach one specific tool (by exact name) to get familiar with it before using it. Any other value is invalid. When action='add_tool', 'tool_name' must be provided.]],
             enum = { 'list_tools', 'add_tool' },
           },
           tool_name = {

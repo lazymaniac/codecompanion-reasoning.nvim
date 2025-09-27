@@ -4,6 +4,18 @@ local SessionOptimizer = {}
 
 local fmt = string.format
 
+local config_ok, ReasoningConfig = pcall(require, 'codecompanion._extensions.reasoning.config')
+if not config_ok then
+  ReasoningConfig = {
+    merge_with_functionality = function(_, _, overrides)
+      return vim.deepcopy(overrides or {})
+    end,
+    get_functionality_adapter = function()
+      return nil
+    end,
+  }
+end
+
 ---Configuration for session compaction
 local DEFAULT_CONFIG = {
   adapter = nil, -- defaults to current chat adapter
@@ -19,7 +31,12 @@ local DEFAULT_CONFIG = {
 ---@return CodeCompanion.SessionOptimizer
 function SessionOptimizer.new(opts)
   local self = setmetatable({}, { __index = SessionOptimizer })
-  self.config = vim.tbl_deep_extend('force', DEFAULT_CONFIG, opts or {})
+  local merged_opts = ReasoningConfig.merge_with_functionality('session_optimizer', opts or {})
+  local config = vim.tbl_deep_extend('force', {}, DEFAULT_CONFIG)
+  if merged_opts and next(merged_opts) then
+    config = vim.tbl_deep_extend('force', config, merged_opts)
+  end
+  self.config = config
   return self
 end
 
@@ -154,11 +171,40 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
 
   local adapter = session_data.adapter
   local settings = session_data.settings
+  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
 
-  if not adapter and session_data.opts and session_data.opts.adapter then
-    local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+  local function resolve_adapter(value)
+    if not value then
+      return nil
+    end
+    if type(value) == 'table' then
+      return value
+    end
     if adapters_ok and adapters.resolve then
-      adapter = adapters.resolve(session_data.opts.adapter)
+      return adapters.resolve(value)
+    end
+    return nil
+  end
+
+  adapter = resolve_adapter(adapter)
+  local adapter_changed = false
+
+  if self.config.adapter then
+    local resolved = resolve_adapter(self.config.adapter)
+    if not resolved then
+      if callback then
+        callback(nil, fmt('Failed to resolve adapter "%s" for summarization', tostring(self.config.adapter)))
+      end
+      return
+    end
+    adapter = resolved
+    adapter_changed = true
+    settings = nil
+  elseif not adapter and session_data.opts and session_data.opts.adapter then
+    local resolved = resolve_adapter(session_data.opts.adapter)
+    if resolved then
+      adapter = resolved
+      adapter_changed = true
     end
   end
 
@@ -169,18 +215,14 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
     return
   end
 
-  if self.config.adapter then
-    local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
-    if adapters_ok and adapters.resolve then
-      adapter = adapters.resolve(self.config.adapter)
-    end
-  end
-
   if self.config.model then
     settings = schema.get_default(adapter, { model = self.config.model })
+  elseif adapter_changed or not settings then
+    settings = schema.get_default(adapter, settings or {})
   end
 
-  settings = vim.deepcopy(adapter:map_schema_to_params(settings or {}))
+  settings = settings or {}
+  settings = vim.deepcopy(adapter:map_schema_to_params(settings))
   settings.opts = settings.opts or {}
   settings.opts.stream = false
 

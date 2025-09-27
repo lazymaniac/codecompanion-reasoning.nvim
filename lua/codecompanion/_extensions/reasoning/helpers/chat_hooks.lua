@@ -109,10 +109,7 @@ local function queue_initialization_instructions(chat)
       '- Read these existing AI context files and extract relevant information: ' .. table.concat(present, ', ')
     )
   else
-    table.insert(
-      lines,
-      '- If no AI context files exist, infer details from README, package manifests, config files, and directory structure.'
-    )
+    table.insert(lines, '- Infer details from README, package manifests, config files, and directory structure.')
   end
   table.insert(lines, '- Draft the full content using the following structure:')
   table.insert(lines, '  - Project Overview: what the project does, tech stack, how to run/test')

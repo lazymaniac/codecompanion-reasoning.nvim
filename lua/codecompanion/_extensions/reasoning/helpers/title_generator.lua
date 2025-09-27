@@ -4,6 +4,15 @@ local TitleGenerator = {}
 
 local fmt = string.format
 
+local config_ok, ReasoningConfig = pcall(require, 'codecompanion._extensions.reasoning.config')
+if not config_ok then
+  ReasoningConfig = {
+    get_functionality_adapter = function()
+      return nil
+    end,
+  }
+end
+
 -- Configuration for title generation
 local DEFAULT_CONFIG = {
   auto_generate_title = true,
@@ -13,7 +22,6 @@ local DEFAULT_CONFIG = {
     -- Refresh cadence: every N user messages starting with the first one
     -- Counts triggering generation: 1, 1+N, 1+2N, ...
     refresh_every_n_prompts = 3,
-    max_refreshes = 3,
     format_title = nil, -- optional function to format generated titles
   },
 }
@@ -233,21 +241,70 @@ function TitleGenerator:_make_adapter_request(chat, prompt, callback)
     return
   end
 
-  local opts = self.opts.title_generation_opts or {}
-  local adapter = vim.deepcopy(chat.adapter)
-  local settings = vim.deepcopy(chat.settings)
+  local configured_opts = ReasoningConfig.get_functionality_adapter('title_generator') or {}
+  local generator_opts = self.opts.title_generation_opts or {}
+  local effective_opts = vim.tbl_deep_extend('force', vim.deepcopy(configured_opts), generator_opts)
 
-  if opts.adapter then
-    local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+
+  local function resolve_adapter(value)
+    if not value then
+      return nil
+    end
+    if type(value) == 'table' then
+      return value
+    end
     if adapters_ok and adapters.resolve then
-      adapter = adapters.resolve(opts.adapter)
+      return adapters.resolve(value)
+    end
+    return nil
+  end
+
+  local adapter = resolve_adapter(chat.adapter)
+  local adapter_changed = false
+
+  if effective_opts.adapter then
+    local resolved = resolve_adapter(effective_opts.adapter)
+    if not resolved then
+      vim.notify(
+        fmt(
+          'Failed to resolve adapter "%s" for title generation; using fallback title',
+          tostring(effective_opts.adapter)
+        ),
+        vim.log.levels.WARN
+      )
+      local fallback_title = self:_generate_fallback_title(chat)
+      if callback then
+        callback(fallback_title)
+      end
+      return
+    end
+    adapter = resolved
+    adapter_changed = true
+  elseif not adapter and chat.opts and chat.opts.adapter then
+    local resolved = resolve_adapter(chat.opts.adapter)
+    if resolved then
+      adapter = resolved
+      adapter_changed = true
     end
   end
 
-  if opts.model then
-    settings = schema.get_default(adapter, { model = opts.model })
+  if not adapter then
+    local fallback_title = self:_generate_fallback_title(chat)
+    if callback then
+      callback(fallback_title)
+    end
+    return
   end
 
+  local settings = chat.settings and vim.deepcopy(chat.settings) or nil
+  if effective_opts.model then
+    settings = schema.get_default(adapter, { model = effective_opts.model })
+  elseif adapter_changed or not settings then
+    settings = schema.get_default(adapter, settings or {})
+  end
+
+  settings = settings or {}
   settings = vim.deepcopy(adapter:map_schema_to_params(settings))
   settings.opts = settings.opts or {}
   settings.opts.stream = false
@@ -275,8 +332,8 @@ function TitleGenerator:_make_adapter_request(chat, prompt, callback)
           if result.status == 'success' then
             local title = vim.trim(result.output.content or '')
             -- Apply format_title function if provided
-            if self.opts.title_generation_opts.format_title then
-              title = self.opts.title_generation_opts.format_title(title)
+            if effective_opts.format_title then
+              title = effective_opts.format_title(title)
             end
             if callback then
               callback(title)

@@ -8,11 +8,91 @@ local SessionStorage = require('codecompanion._extensions.reasoning.helpers.sess
 local SessionDataTransformer = require('codecompanion._extensions.reasoning.helpers.session_data_transformer')
 local SessionRestorer = require('codecompanion._extensions.reasoning.helpers.session_restorer')
 
+local immediate_auto_load_scheduled = false
+local pending_auto_load = nil
+
 local CONFIG = {
   auto_save = true,
   auto_load_last_session = true,
   auto_generate_title = true,
 }
+
+local function perform_auto_load(chat)
+  if not pending_auto_load or pending_auto_load.executing then
+    return
+  end
+  if not chat or not chat.bufnr or not vim.api.nvim_buf_is_valid(chat.bufnr) then
+    return
+  end
+
+  pending_auto_load.executing = true
+  local filename = pending_auto_load.filename
+
+  vim.schedule(function()
+    if not vim.api.nvim_buf_is_valid(chat.bufnr) then
+      pending_auto_load = nil
+      return
+    end
+
+    local session_data, load_err = SessionManager.load_session(filename)
+    if not session_data then
+      pending_auto_load = nil
+      if load_err then
+        vim.notify(fmt('Failed to load session "%s": %s', filename, load_err), vim.log.levels.WARN)
+      end
+      return
+    end
+
+    local ok, restored_chat_or_err = SessionRestorer.restore_session(session_data, filename, { chat = chat })
+    pending_auto_load = nil
+    if not ok then
+      vim.notify(fmt('Failed to restore session "%s": %s', filename, restored_chat_or_err), vim.log.levels.WARN)
+      return
+    end
+
+    local restored_chat = restored_chat_or_err or chat
+    if restored_chat and restored_chat.bufnr and vim.api.nvim_buf_is_valid(restored_chat.bufnr) then
+      local win = vim.fn.bufwinid(restored_chat.bufnr)
+      if win ~= -1 and vim.api.nvim_win_is_valid(win) then
+        pcall(vim.api.nvim_set_current_win, win)
+      else
+        pcall(vim.api.nvim_set_current_buf, restored_chat.bufnr)
+      end
+    end
+  end)
+end
+
+local function attempt_pending_auto_load()
+  if not pending_auto_load then
+    return false
+  end
+
+  local ok_chat_mod, Chat = pcall(require, 'codecompanion.strategies.chat')
+  if not ok_chat_mod or not Chat or not Chat.buf_get_chat then
+    return false
+  end
+
+  local current_buf = vim.api.nvim_get_current_buf()
+  if vim.api.nvim_buf_is_valid(current_buf) and vim.bo[current_buf].filetype == 'codecompanion' then
+    local ok_chat, chat = pcall(Chat.buf_get_chat, current_buf)
+    if ok_chat and chat then
+      perform_auto_load(chat)
+      return true
+    end
+  end
+
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == 'codecompanion' then
+      local ok_chat, chat = pcall(Chat.buf_get_chat, buf)
+      if ok_chat and chat then
+        perform_auto_load(chat)
+        return true
+      end
+    end
+  end
+
+  return false
+end
 
 -- Save chat session to file
 ---@param chat table CodeCompanion chat object
@@ -273,16 +353,16 @@ function SessionManager.auto_load_last_session()
     return
   end
 
-  local last_session, err = SessionManager.get_last_session()
+  local last_session = SessionManager.get_last_session()
   if not last_session then
     return
   end
 
-  -- Restore the last session
-  local success, restore_err = SessionManager.restore_session(last_session)
-  if not success then
-    vim.notify(fmt('Failed to auto-load last session: %s', restore_err), vim.log.levels.WARN)
-  end
+  pending_auto_load = pending_auto_load or { executing = false }
+  pending_auto_load.filename = last_session
+  pending_auto_load.executing = false
+
+  attempt_pending_auto_load()
 end
 
 -- Get sessions directory path
@@ -306,6 +386,39 @@ function SessionManager.setup(new_config)
         vim.defer_fn(function()
           SessionManager.auto_load_last_session()
         end, 100)
+      end,
+    })
+
+    if vim.v.vim_did_enter == 1 and not immediate_auto_load_scheduled then
+      immediate_auto_load_scheduled = true
+      vim.defer_fn(function()
+        SessionManager.auto_load_last_session()
+      end, 100)
+    end
+
+    vim.api.nvim_create_autocmd('User', {
+      pattern = 'CodeCompanionChatCreated',
+      group = group,
+      callback = function(event)
+        if not pending_auto_load then
+          return
+        end
+
+        if not event or not event.data or not event.data.bufnr then
+          return
+        end
+
+        local ok_chat_mod, Chat = pcall(require, 'codecompanion.strategies.chat')
+        if not ok_chat_mod or not Chat or not Chat.buf_get_chat then
+          return
+        end
+
+        local ok_chat, chat = pcall(Chat.buf_get_chat, event.data.bufnr)
+        if not ok_chat or not chat then
+          return
+        end
+
+        perform_auto_load(chat)
       end,
     })
   end

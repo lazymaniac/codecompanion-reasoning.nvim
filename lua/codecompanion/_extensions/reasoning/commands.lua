@@ -22,9 +22,9 @@ function Commands.load_last_session()
     return
   end
 
-  local success, restore_err = SessionManager.restore_session(last_session)
+  local success, restored_chat_or_err = SessionManager.restore_session(last_session)
   if not success then
-    vim.notify(string.format('Failed to restore last session: %s', restore_err), vim.log.levels.ERROR)
+    vim.notify(string.format('Failed to restore last session: %s', restored_chat_or_err), vim.log.levels.ERROR)
   else
     vim.notify(string.format('Restored last session: %s', last_session), vim.log.levels.INFO)
   end

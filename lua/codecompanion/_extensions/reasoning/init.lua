@@ -1,6 +1,8 @@
 ---@class CodeCompanion.Extension.Reasoning
 local ReasoningExtension = {}
 
+local Config = require('codecompanion._extensions.reasoning.config')
+
 local function register_tools()
   local tools = {
     'ask_user',
@@ -29,30 +31,30 @@ local function register_tools()
 end
 
 function ReasoningExtension.setup(opts)
-  opts = opts or {}
+  local merged_opts = Config.setup(opts)
 
   local reasoning_tools = register_tools()
 
   -- Initialize chat hooks for auto-save functionality
   local chat_hooks_ok, chat_hooks = pcall(require, 'codecompanion._extensions.reasoning.helpers.chat_hooks')
   if chat_hooks_ok then
-    chat_hooks.setup(opts.chat_history or { auto_save = true })
+    chat_hooks.setup(merged_opts.chat_history or { auto_save = true })
   end
 
   -- Initialize session manager with configuration
   local session_manager_ok, session_manager =
     pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
-  if session_manager_ok and opts.chat_history then
+  if session_manager_ok and merged_opts.chat_history then
     session_manager.setup({
-      sessions_dir = opts.chat_history.sessions_dir,
-      max_sessions = opts.chat_history.max_sessions,
-      auto_save = opts.chat_history.auto_save,
-      auto_load_last_session = opts.chat_history.auto_load_last_session,
+      sessions_dir = merged_opts.chat_history.sessions_dir,
+      max_sessions = merged_opts.chat_history.max_sessions,
+      auto_save = merged_opts.chat_history.auto_save,
+      auto_load_last_session = merged_opts.chat_history.auto_load_last_session,
     })
   end
 
   -- Setup user commands if enabled
-  if opts.chat_history and opts.chat_history.enable_commands ~= false then
+  if merged_opts.chat_history and merged_opts.chat_history.enable_commands ~= false then
     local commands_ok, commands = pcall(require, 'codecompanion._extensions.reasoning.commands')
     if commands_ok then
       commands.setup()
@@ -96,16 +98,29 @@ function ReasoningExtension.setup(opts)
   end
 
   for name, tool in pairs(reasoning_tools) do
-    config.strategies.chat.tools[name] = {
+    local tool_entry = {
       id = 'reasoning:' .. name,
       description = tool.schema['function'].description,
       callback = tool,
     }
+
+    local adapter_config = Config.get_tool_adapter(name)
+    if adapter_config then
+      if adapter_config.adapter then
+        tool_entry.adapter = adapter_config.adapter
+      end
+      if adapter_config.model then
+        tool_entry.model = adapter_config.model
+      end
+    end
+
+    config.strategies.chat.tools[name] = tool_entry
   end
 
   return {
     tools = reasoning_tools,
     config = config,
+    options = merged_opts,
   }
 end
 

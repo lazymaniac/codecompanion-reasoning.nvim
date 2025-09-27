@@ -9,6 +9,8 @@ M.version = '0.1.0'
 ---@type table|nil
 local _extension
 
+local Config = require('codecompanion._extensions.reasoning.config')
+
 --- Load the internal reasoning extension lazily.
 --- @return table|nil ext The loaded extension or nil on failure.
 local function load_extension()
@@ -32,13 +34,13 @@ end
 --- This forwards the configuration to the internal extension.
 --- @param opts? table Optional configuration table with the following options:
 ---   - chat_history.auto_save: boolean (default: true) - Enable auto-saving of chat sessions
----   - chat_history.auto_load_last_session: boolean (default: false) - Automatically load the last session on startup
+---   - chat_history.auto_load_last_session: boolean (default: true) - Automatically load the last session on startup
 ---   - chat_history.auto_generate_title: boolean (default: true) - Automatically generate titles for sessions
 ---   - chat_history.sessions_dir: string - Directory to store sessions (default: stdpath('data')/codecompanion-reasoning/sessions)
 ---   - chat_history.max_sessions: number (default: 100) - Maximum number of sessions to keep
 ---   - chat_history.enable_commands: boolean (default: true) - Enable user commands
 ---   - chat_history.picker: string (default: 'default') - Picker backend: only 'default' is supported ('auto' alias)
----   - chat_history.continue_last_chat: boolean (default: false) - Show startup dialog for continuing last chat
+---   - chat_history.continue_last_chat: boolean (default: true) - Show startup dialog for continuing last chat
 ---   - chat_history.title_generation_opts: table - Title generation configuration
 --- @return table|nil config The extension configuration, or nil if loading failed.
 function M.setup(opts)
@@ -47,36 +49,9 @@ function M.setup(opts)
     return nil
   end
 
-  -- Default configuration
-  opts = vim.tbl_deep_extend('force', {
-    chat_history = {
-      auto_save = true,
-      auto_load_last_session = true,
-      auto_generate_title = true,
-      sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
-      max_sessions = 100,
-      enable_commands = true,
-      picker = 'default',
-      continue_last_chat = true,
-      expiration_days = 0,
-      enable_index = true,
-      title_generation_opts = {
-        adapter = nil,
-        model = nil,
-        -- Refresh every N user messages starting with the first one (1, 1+N, ...)
-        refresh_every_n_prompts = 3,
-        max_refreshes = 3,
-        format_title = nil,
-      },
-      keymaps = {
-        rename = { n = 'r', i = '<M-r>' },
-        delete = { n = 'd', i = '<M-d>' },
-        duplicate = { n = '<C-y>', i = '<C-y>' },
-      },
-    },
-  }, opts or {})
+  local merged = Config.setup(opts)
 
-  return ext.setup(opts)
+  return ext.setup(merged)
 end
 
 --- Get the list of available reasoning tools.
