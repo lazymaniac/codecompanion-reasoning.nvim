@@ -146,6 +146,7 @@ end
 message_handlers.user = function(chat, message, registry)
   chat:add_message(message)
   chat:add_buf_message(message)
+  chat.ui:add_line_break()
 end
 
 -- Handle LLM messages with optional tool calls and reasoning
@@ -156,6 +157,7 @@ message_handlers.llm = function(chat, message, registry)
       role = 'llm',
       content = message.reasoning.content,
     }, { type = chat.MESSAGE_TYPES.REASONING_MESSAGE })
+    chat.ui:add_line_break()
   end
 
   -- Handle tool calls and register them
@@ -175,6 +177,7 @@ message_handlers.llm = function(chat, message, registry)
 
   if not message.reasoning then
     chat:add_buf_message(message)
+    chat.ui:add_line_break()
   end
 end
 
@@ -189,14 +192,18 @@ message_handlers.tool = function(chat, message, registry)
     tool_obj.function_call = registry[tool_use_id].call
 
     pcall(function()
+      chat.ui:add_line_break()
       chat:add_tool_output(tool_obj, content, content)
+      chat.ui:add_line_break()
     end)
   else
     -- Tool result without proper call ID - fallback
+    chat.ui:add_line_break()
     chat:add_message({
       role = 'tool',
       content = content,
     }, { visible = true })
+    chat.ui:add_line_break()
   end
 end
 
@@ -292,7 +299,6 @@ function SessionRestorer.restore_session(session_data, filename, opts)
   end
 
   local existing_chat = opts.chat
-  vim.notify('Existing chat: ' .. vim.inspect(existing_chat))
   local chat, err = create_codecompanion_chat(session_data, existing_chat)
   if not chat then
     return false, err

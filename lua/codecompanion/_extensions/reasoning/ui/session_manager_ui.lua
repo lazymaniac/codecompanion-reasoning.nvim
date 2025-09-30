@@ -78,9 +78,7 @@ end
 ---@param opts? table Optional restore options forwarded to the session manager
 function SessionManagerUI:restore_session(session, opts)
   local success, result = SessionManager.restore_session(session.filename, opts)
-  if success then
-    vim.notify(string.format('Restored session: %s', session.title or session.filename), vim.log.levels.INFO)
-  else
+  if not success then
     vim.notify(string.format('Failed to restore session: %s', result or 'unknown error'), vim.log.levels.ERROR)
   end
 end
