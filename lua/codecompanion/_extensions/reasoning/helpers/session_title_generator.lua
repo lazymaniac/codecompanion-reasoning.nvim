@@ -83,8 +83,8 @@ function SessionTitleGenerator:generate(chat, callback)
 
   local relevant_messages = vim.tbl_filter(function(msg)
     local has_content = msg.content and vim.trim(vim.inspect(msg.content)) ~= ''
-    local is_relevant_role = msg.role == 'user'
-    return has_content and is_relevant_role
+    local not_system_role = msg.role ~= 'system'
+    return has_content and not_system_role
   end, chat.messages)
 
   if #relevant_messages == 0 then
@@ -95,34 +95,25 @@ function SessionTitleGenerator:generate(chat, callback)
     return
   end
 
-  if callback then
-    callback('Generating title...')
-  end
-
   local conversation_context = ''
 
-  local first_user_msg = nil
-  for _, msg in ipairs(relevant_messages) do
-    if msg.role == 'user' then
-      first_user_msg = msg
-      break
-    end
-  end
+  local first_msg = relevant_messages[1]
 
-  if not first_user_msg then
+  if not first_msg then
     if callback then
       callback(nil)
     end
     return
   end
 
-  local content = type(first_user_msg.content) == 'string' and vim.trim(first_user_msg.content) or vim.trim(vim.inspect(first_user_msg.content))
+  local content = type(first_msg.content) == 'string' and vim.trim(first_msg.content)
+    or vim.trim(vim.inspect(first_msg.content))
 
   if #content > 1000 then
     content = content:sub(1, 1000) .. ' [truncated]'
   end
 
-  conversation_context = 'User: ' .. content
+  conversation_context = 'Content: ' .. content
 
   if #conversation_context > 10000 then
     conversation_context = conversation_context:sub(1, 10000) .. '\n[conversation truncated]'

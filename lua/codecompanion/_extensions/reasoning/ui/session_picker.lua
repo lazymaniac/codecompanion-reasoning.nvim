@@ -928,8 +928,6 @@ function SessionPicker._handle_regenerate_title(session, callback)
     return
   end
 
-  vim.notify('Session Data: ' .. vim.inspect(session_data))
-
   -- Create mock chat object for title generation
   local mock_chat = {
     messages = session_data.messages or {},
