@@ -122,23 +122,20 @@ This extension provides three powerful reasoning agents, each specialized for di
           model = nil,   -- e.g., "gpt-oss", defaults to session model
         },
         title_generator = {
-          adapter = nil, -- e.g., "openai" 
-          model = nil,   -- e.g., "gpt-4"
-        },
+          adapter = nil, -- override adapter for title generation, defaults to session adapter
+          model = nil,   -- override model for title generation, defaults to session model
+        }
         -- meta_agent and reasoning_agents also available
       },
       chat_history = {
         auto_save = true,
-        auto_load_last_session = true,
         auto_generate_title = true,
         sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
         max_sessions = 100,
         enable_commands = true,
         picker = 'default', -- only 'default' is supported ('auto' remains an alias)
-        continue_last_chat = true,
+        continue_chat = true, -- true (auto load last session), false (disable auto load)
         title_generation_opts = {
-          adapter = nil,   -- override to force a specific adapter for title generation
-          model = nil,     -- override to force a specific model for title generation
           refresh_every_n_prompts = 3,
           format_title = nil, -- optional function to post-process the generated title
         },
@@ -202,6 +199,15 @@ require("codecompanion-reasoning").setup({
   -- ... other configuration
 })
 ```
+
+### Chat History Continuation
+
+Control startup behaviour with `chat_history.continue_chat`:
+
+- `true` *(default)* — automatically reopen the latest saved chat when CodeCompanion starts.
+- `false` — skip the automatic restore.
+
+Legacy `auto_load_last_session` and `continue_last_chat` booleans still work; they emit a deprecation warning and map to the new boolean internally.
 
 #### Available Functionalities
 
