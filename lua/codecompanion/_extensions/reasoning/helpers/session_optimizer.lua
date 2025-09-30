@@ -3,40 +3,12 @@
 local SessionOptimizer = {}
 
 local fmt = string.format
-
-local config_ok, ReasoningConfig = pcall(require, 'codecompanion._extensions.reasoning.config')
-if not config_ok then
-  ReasoningConfig = {
-    merge_with_functionality = function(_, _, overrides)
-      return vim.deepcopy(overrides or {})
-    end,
-    get_functionality_adapter = function()
-      return nil
-    end,
-  }
-end
-
----Configuration for session compaction
-local DEFAULT_CONFIG = {
-  adapter = nil, -- defaults to current chat adapter
-  model = nil, -- defaults to current chat model
-  min_messages_for_compaction = 5, -- minimum messages before compaction
-  summary_max_words = 300, -- maximum words in generated summary
-  include_code_snippets = true, -- preserve important code examples
-  preserve_metadata = true, -- keep original session metadata
-}
+local config = require('codecompanion._extensions.reasoning.config')
 
 ---Create new session optimizer instance
----@param opts? table Configuration options
 ---@return CodeCompanion.SessionOptimizer
-function SessionOptimizer.new(opts)
+function SessionOptimizer.new()
   local self = setmetatable({}, { __index = SessionOptimizer })
-  local merged_opts = ReasoningConfig.merge_with_functionality('session_optimizer', opts or {})
-  local config = vim.tbl_deep_extend('force', {}, DEFAULT_CONFIG)
-  if merged_opts and next(merged_opts) then
-    config = vim.tbl_deep_extend('force', config, merged_opts)
-  end
-  self.config = config
   return self
 end
 
@@ -44,7 +16,7 @@ end
 ---@param session_data table Complete session data
 ---@param callback function Callback to receive compacted session
 function SessionOptimizer:compact_session(session_data, callback)
-  if not session_data.messages or #session_data.messages < self.config.min_messages_for_compaction then
+  if not session_data.messages then
     if callback then
       callback(session_data)
     end
@@ -52,10 +24,13 @@ function SessionOptimizer:compact_session(session_data, callback)
   end
 
   local relevant_messages = vim.tbl_filter(function(msg)
-    local has_content = msg.content and vim.trim(msg.content) ~= ''
-    local is_conversational = msg.role == 'user' or msg.role == 'assistant'
-    local no_tool_calls = not msg.tool_calls and not msg.tool_call_id
-    return has_content and is_conversational and no_tool_calls
+    local normalized_content = msg.content or ''
+    -- Handle case where content might be a table
+    if type(normalized_content) == 'table' then
+      normalized_content = vim.inspect(normalized_content)
+    end
+    local has_content = vim.trim(normalized_content) ~= ''
+    return has_content
   end, session_data.messages)
 
   if #relevant_messages == 0 then
@@ -68,39 +43,36 @@ function SessionOptimizer:compact_session(session_data, callback)
   local conversation_lines = {}
   for _, message in ipairs(relevant_messages) do
     local role_prefix = message.role == 'user' and 'User' or 'Assistant'
-    local content = vim.trim(message.content)
-
-    if #content > 2000 then
-      content = content:sub(1, 2000) .. ' [message truncated]'
+    local content = message.content or ''
+    -- Handle case where content might be a table
+    if type(content) == 'table' then
+      content = vim.inspect(content)
     end
+    content = vim.trim(content)
 
+    -- Pass full content without any truncation
     table.insert(conversation_lines, role_prefix .. ': ' .. content)
   end
 
   local conversation_context = table.concat(conversation_lines, '\n\n')
 
-  if #conversation_context > 20000 then
-    conversation_context = conversation_context:sub(1, 20000) .. '\n\n[conversation truncated]'
-  end
-
   local prompt_parts = {
     'Summarize this chat conversation into a concise overview that captures:',
-    '• Main topics and themes discussed',
-    '• Key decisions, conclusions, or agreements reached',
-    '• Important facts, findings, or insights established',
-    '• Current tasks, open questions, or next steps',
+    '- Main topics and themes discussed',
+    '- Key decisions, conclusions, or agreements reached',
+    '- Important facts, findings, or insights established',
   }
 
-  if self.config.include_code_snippets then
-    table.insert(prompt_parts, '• Essential code examples, patterns, or technical details')
-  end
-
   table.insert(prompt_parts, '')
+
+  -- Get word limit from config
+  local max_words = config.get().session_optimizer.summary_max_words
   table.insert(
     prompt_parts,
     fmt(
-      'Keep the summary under %d words and focus on information needed to continue this conversation productively.',
-      self.config.summary_max_words
+      'Keep the summary under %d words and focus on information needed to continue this conversation productively. %d words is not a hard limit, if you need more space to include all necessary context please do so.',
+      max_words,
+      max_words
     )
   )
   table.insert(prompt_parts, '')
@@ -124,7 +96,7 @@ function SessionOptimizer:compact_session(session_data, callback)
 
     compacted.messages = {
       {
-        role = 'assistant',
+        role = 'user',
         content = fmt('**[Session Summary - %d messages compacted]**\n\n%s', original_count, summary),
         opts = {
           tag = 'session_summary',
@@ -135,18 +107,16 @@ function SessionOptimizer:compact_session(session_data, callback)
       },
     }
 
-    if self.config.preserve_metadata then
-      compacted.metadata = compacted.metadata or {}
-      compacted.metadata.compaction = {
-        original_message_count = original_count,
-        compacted_message_count = 1,
-        compacted_at = os.time(),
-        compacted_date = os.date('%Y-%m-%d %H:%M:%S'),
-        summary_word_count = #vim.split(summary, '%s+'),
-      }
+    compacted.metadata = compacted.metadata or {}
+    compacted.metadata.compaction = {
+      original_message_count = original_count,
+      compacted_message_count = 1,
+      compacted_at = os.time(),
+      compacted_date = os.date('%Y-%m-%d %H:%M:%S'),
+      summary_word_count = #vim.split(summary, '%s+'),
+    }
 
-      compacted.metadata.token_estimate = math.floor(#tostring(summary) / 4)
-    end
+    compacted.metadata.token_estimate = math.floor(#summary / 4)
 
     if callback then
       callback(compacted)
@@ -169,12 +139,11 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
     return
   end
 
-  local adapter = session_data.adapter
   local settings = session_data.settings
   local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
 
   local function resolve_adapter(value)
-    if not value then
+    if not value or value == 'unknown' then
       return nil
     end
     if type(value) == 'table' then
@@ -186,25 +155,37 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
     return nil
   end
 
-  adapter = resolve_adapter(adapter)
+  local adapter
   local adapter_changed = false
 
-  if self.config.adapter then
-    local resolved = resolve_adapter(self.config.adapter)
+  if config.get().session_optimizer.adapter then
+    local resolved = resolve_adapter(config.get().session_optimizer.adapter)
     if not resolved then
       if callback then
-        callback(nil, fmt('Failed to resolve adapter "%s" for summarization', tostring(self.config.adapter)))
+        callback(
+          nil,
+          fmt('Failed to resolve adapter "%s" for summarization', tostring(config.get().session_optimizer.adapter))
+        )
       end
       return
     end
     adapter = resolved
     adapter_changed = true
     settings = nil
-  elseif not adapter and session_data.opts and session_data.opts.adapter then
-    local resolved = resolve_adapter(session_data.opts.adapter)
-    if resolved then
-      adapter = resolved
-      adapter_changed = true
+  else
+    local candidates = {
+      { value = session_data.adapter, source = 'session_data.adapter' },
+      { value = session_data.config and session_data.config.adapter, source = 'session_data.config' },
+      { value = session_data.opts and session_data.opts.adapter, source = 'session_data.opts' },
+    }
+
+    for _, candidate in ipairs(candidates) do
+      local resolved = resolve_adapter(candidate.value)
+      if resolved then
+        adapter = resolved
+        adapter_changed = candidate.source ~= 'session_data.adapter'
+        break
+      end
     end
   end
 
@@ -215,8 +196,12 @@ function SessionOptimizer:_make_summarization_request(session_data, prompt, call
     return
   end
 
-  if self.config.model then
-    settings = schema.get_default(adapter, { model = self.config.model })
+  if not settings and session_data.config then
+    settings = vim.deepcopy(session_data.config)
+  end
+
+  if config.get().session_optimizer.model then
+    settings = schema.get_default(adapter, { model = config.get().session_optimizer.model })
   elseif adapter_changed or not settings then
     settings = schema.get_default(adapter, settings or {})
   end

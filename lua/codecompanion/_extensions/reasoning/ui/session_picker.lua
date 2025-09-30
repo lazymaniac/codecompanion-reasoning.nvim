@@ -167,7 +167,10 @@ local function format_session_list_entry(session, index, is_selected)
     display_title = 'Session ' .. tostring(index)
   end
 
-  local session_title = fmt('%s%s %s', indent, prefix, display_title)
+  -- Add favorite icon if session is favorited
+  local favorite_indicator = session.is_favorite and '★ ' or ''
+
+  local session_title = fmt('%s%s %s%s', indent, prefix, favorite_indicator, display_title)
   table.insert(lines, session_title)
 
   -- Highlight prefix
@@ -293,16 +296,30 @@ local function build_session_preview(session)
     model_display = 'Unknown'
   end
   local message_count = tostring(tonumber(session.total_messages) or 0)
-  local file_size_display = sanitize_single_line(vim.fn.fnamemodify(tostring(session.file_size or 0), ':.'))
-  if file_size_display == '' then
-    file_size_display = '0'
+  -- Token estimation instead of file size
+  local token_estimate = 'Unknown'
+  if session.token_estimate then
+    token_estimate = tostring(session.token_estimate)
+  elseif session.file_size then
+    -- Rough estimation: 4 characters per token
+    token_estimate = tostring(math.floor(session.file_size / 4))
   end
 
   add_field('Title', overview_title, UI_CONFIG.colors.list_header)
   add_field('Created', created_display, UI_CONFIG.colors.list_date)
   add_field('Model', model_display, UI_CONFIG.colors.list_model)
   add_field('Messages', message_count, UI_CONFIG.colors.accent_secondary)
-  add_field('File Size', file_size_display, UI_CONFIG.colors.list_meta)
+  add_field('Est. Tokens', token_estimate, UI_CONFIG.colors.list_meta)
+
+  -- Show tags if present
+  if session.tags and #session.tags > 0 then
+    add_field('Tags', table.concat(session.tags, ', '), UI_CONFIG.colors.accent_secondary)
+  end
+
+  -- Show favorite status
+  if session.is_favorite then
+    add_field('Favorite', '★', UI_CONFIG.colors.accent_primary)
+  end
 
   -- Session Preview
   local preview_rendered = false
@@ -393,7 +410,14 @@ local function build_session_preview(session)
   -- Quick Actions
   add_header('Quick Actions')
   add_line('    Enter  Resume session', UI_CONFIG.colors.action_desc)
+  add_line('    r      Rename session', UI_CONFIG.colors.action_desc)
+  add_line('    R      Regenerate title', UI_CONFIG.colors.action_desc)
   add_line('    d      Delete session', UI_CONFIG.colors.action_desc)
+  add_line('    D      Delete all sessions', UI_CONFIG.colors.action_desc)
+  add_line('    *      Toggle favorite', UI_CONFIG.colors.action_desc)
+  add_line('    f      Search sessions', UI_CONFIG.colors.action_desc)
+  add_line('    c      Summarize session', UI_CONFIG.colors.action_desc)
+  add_line('    t      Regenerate tags', UI_CONFIG.colors.action_desc)
   add_line('    Esc    Cancel', UI_CONFIG.colors.action_desc)
 
   return lines, highlights
@@ -522,9 +546,9 @@ local function apply_highlights(buf, highlights, namespace_suffix)
         local start_col = math.max(0, math.min(hl.col, line_len))
         local end_col = hl.end_col == -1 and line_len or math.min(hl.end_col, line_len)
 
-        if start_col < end_col then
+        if start_col <= end_col then -- Allow equal values for single character highlights
           vim.api.nvim_buf_set_extmark(buf, ns_id, hl.line, start_col, {
-            end_col = end_col,
+            end_col = end_col == start_col and start_col + 1 or end_col, -- Ensure minimum width
             hl_group = hl.group,
             strict = false,
           })
@@ -693,6 +717,81 @@ local function setup_picker_mappings(windows, sessions, selected_index, callback
     end,
   })
 
+  -- Rename key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'r', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 and current_selection >= 1 and current_selection <= #sessions then
+        callback('rename', sessions[current_selection])
+      end
+    end,
+  })
+
+  -- Regenerate title key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'R', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 and current_selection >= 1 and current_selection <= #sessions then
+        callback('regenerate_title', sessions[current_selection])
+      end
+    end,
+  })
+
+  -- Delete all key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'D', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 then
+        callback('delete_all', nil)
+      end
+    end,
+  })
+
+  -- Mark as favorite key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', '*', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 and current_selection >= 1 and current_selection <= #sessions then
+        callback('toggle_favorite', sessions[current_selection])
+      end
+    end,
+  })
+
+  -- Search entries key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'f', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      callback('search', nil)
+    end,
+  })
+
+  -- Summarize entry key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'c', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 and current_selection >= 1 and current_selection <= #sessions then
+        callback('summarize', sessions[current_selection])
+      end
+    end,
+  })
+
+  -- Regenerate tags key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 't', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 and current_selection >= 1 and current_selection <= #sessions then
+        callback('regenerate_tags', sessions[current_selection])
+      end
+    end,
+  })
+
   -- Cancel keys
   local cancel_keys = { { 'n', '<Esc>' }, { 'n', 'q' } }
   for _, key_config in ipairs(cancel_keys) do
@@ -726,11 +825,11 @@ function SessionPicker.show_session_picker(callback)
     end
 
     local function picker_callback(action, session)
-      close_picker()
-
       if action == 'select' and session then
+        close_picker()
         callback('select', session)
       elseif action == 'delete' and session then
+        close_picker()
         -- Modern confirmation dialog
         local confirm_msg = fmt('Delete session from %s?', session.created_at or 'unknown date')
         local choice = vim.fn.confirm(confirm_msg, '&Delete\n&Cancel', 2, 'Question')
@@ -744,7 +843,29 @@ function SessionPicker.show_session_picker(callback)
         end
         -- Re-show picker after deletion attempt
         SessionPicker.show_session_picker(callback)
+      elseif action == 'rename' and session then
+        close_picker()
+        SessionPicker._handle_rename(session, callback)
+      elseif action == 'regenerate_title' and session then
+        close_picker()
+        SessionPicker._handle_regenerate_title(session, callback)
+      elseif action == 'delete_all' then
+        close_picker()
+        SessionPicker._handle_delete_all(callback)
+      elseif action == 'toggle_favorite' and session then
+        close_picker()
+        SessionPicker._handle_toggle_favorite(session, callback)
+      elseif action == 'search' then
+        close_picker()
+        SessionPicker._handle_search(callback)
+      elseif action == 'summarize' and session then
+        close_picker()
+        SessionPicker._handle_summarize(session, callback)
+      elseif action == 'regenerate_tags' and session then
+        close_picker()
+        SessionPicker._handle_regenerate_tags(session, callback)
       else
+        close_picker()
         callback('cancel')
       end
     end
@@ -754,6 +875,484 @@ function SessionPicker.show_session_picker(callback)
     -- Focus the list window
     vim.api.nvim_set_current_win(windows.list.win)
   end)
+end
+
+-- Handler function for renaming sessions
+---@param session table Session to rename
+---@param callback function Main picker callback
+function SessionPicker._handle_rename(session, callback)
+  local current_title = session.title or 'Untitled'
+
+  vim.ui.input({
+    prompt = 'New title: ',
+    default = current_title,
+  }, function(new_title)
+    if new_title and new_title ~= '' and new_title ~= current_title then
+      -- Load the session data
+      local session_data, err = SessionManager.load_session(session.filename)
+      if not session_data then
+        vim.notify(fmt('Failed to load session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+        SessionPicker.show_session_picker(callback)
+        return
+      end
+
+      -- Update the title in the session data
+      session_data.title = new_title
+      session_data.updated_at = os.time()
+
+      -- Save the updated session
+      local success, save_err = SessionManager.save_session_data(session_data, session.filename)
+      if success then
+        vim.notify(fmt('✓ Renamed to "%s"', new_title), vim.log.levels.INFO)
+      else
+        vim.notify(fmt('✗ Failed to rename: %s', save_err or 'unknown error'), vim.log.levels.ERROR)
+      end
+    end
+
+    -- Re-show picker regardless of whether rename was successful
+    SessionPicker.show_session_picker(callback)
+  end)
+end
+
+-- Handler function for regenerating session titles
+---@param session table Session to regenerate title for
+---@param callback function Main picker callback
+function SessionPicker._handle_regenerate_title(session, callback)
+  vim.notify('Regenerating title...', vim.log.levels.INFO)
+
+  -- Load the session data to create a mock chat object
+  local session_data, err = SessionManager.load_session(session.filename)
+  if not session_data then
+    vim.notify(fmt('Failed to load session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+    SessionPicker.show_session_picker(callback)
+    return
+  end
+
+  vim.notify('Session Data: ' .. vim.inspect(session_data))
+
+  -- Create mock chat object for title generation
+  local mock_chat = {
+    messages = session_data.messages or {},
+    adapter = session_data.config and session_data.config.adapter,
+    opts = { title = session_data.title },
+    settings = session_data.config,
+  }
+
+  local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.session_title_generator')
+  local title_gen = TitleGenerator.new()
+
+  title_gen:generate(mock_chat, function(new_title)
+    if new_title and new_title ~= '' and new_title ~= 'Generating title...' and new_title ~= 'Refreshing title...' then
+      session_data.title = new_title
+      session_data.updated_at = os.time()
+
+      local success, save_err = SessionManager.save_session_data(session_data, session.filename)
+      if success then
+        vim.notify(fmt('✓ Title regenerated: "%s"', new_title), vim.log.levels.INFO)
+      else
+        vim.notify(fmt('✗ Failed to save new title: %s', save_err or 'unknown error'), vim.log.levels.ERROR)
+      end
+    else
+      vim.notify('✗ Failed to generate new title', vim.log.levels.ERROR)
+    end
+
+    -- Re-show picker
+    SessionPicker.show_session_picker(callback)
+  end) -- true indicates this is a refresh
+end
+
+-- Handler function for deleting all sessions
+---@param callback function Main picker callback
+function SessionPicker._handle_delete_all(callback)
+  local sessions = SessionManager.list_sessions()
+
+  if #sessions == 0 then
+    vim.notify('No sessions to delete', vim.log.levels.INFO)
+    SessionPicker.show_session_picker(callback)
+    return
+  end
+
+  local confirm_msg = fmt('Delete all %d sessions? This cannot be undone.', #sessions)
+  local choice = vim.fn.confirm(confirm_msg, '&Delete All\n&Cancel', 2, 'Question')
+
+  if choice == 1 then
+    local deleted_count = 0
+    local failed_count = 0
+
+    for _, session in ipairs(sessions) do
+      local success, err = SessionManager.delete_session(session.filename)
+      if success then
+        deleted_count = deleted_count + 1
+      else
+        failed_count = failed_count + 1
+        vim.notify(fmt('Failed to delete %s: %s', session.filename, err), vim.log.levels.ERROR)
+      end
+    end
+
+    if deleted_count > 0 then
+      vim.notify(fmt('✓ Deleted %d sessions', deleted_count), vim.log.levels.INFO)
+    end
+
+    if failed_count > 0 then
+      vim.notify(fmt('✗ Failed to delete %d sessions', failed_count), vim.log.levels.ERROR)
+    end
+  end
+
+  -- Re-show picker
+  SessionPicker.show_session_picker(callback)
+end
+
+-- Handler function for toggling favorite status
+---@param session table Session to toggle favorite
+---@param callback function Main picker callback
+function SessionPicker._handle_toggle_favorite(session, callback)
+  local session_data, err = SessionManager.load_session(session.filename)
+  if not session_data then
+    vim.notify(fmt('Failed to load session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+    SessionPicker.show_session_picker(callback)
+    return
+  end
+
+  -- Initialize metadata if not present
+  session_data.metadata = session_data.metadata or {}
+  local is_favorite = session_data.metadata.favorite or false
+  session_data.metadata.favorite = not is_favorite
+  session_data.updated_at = os.time()
+
+  local success, save_err = SessionManager.save_session_data(session_data, session.filename)
+  if success then
+    local status = session_data.metadata.favorite and 'added to' or 'removed from'
+    vim.notify(fmt('✓ Session %s favorites', status), vim.log.levels.INFO)
+  else
+    vim.notify(fmt('✗ Failed to update favorite: %s', save_err or 'unknown error'), vim.log.levels.ERROR)
+  end
+
+  -- Re-show picker
+  SessionPicker.show_session_picker(callback)
+end
+
+-- Handler function for search functionality
+---@param callback function Main picker callback
+function SessionPicker._handle_search(callback)
+  vim.ui.input({
+    prompt = 'Search sessions: ',
+  }, function(query)
+    if query and query ~= '' then
+      SessionPicker.show_filtered_sessions(query, callback)
+    else
+      SessionPicker.show_session_picker(callback)
+    end
+  end)
+end
+
+-- Handler function for summarizing sessions
+---@param session table Session to summarize
+---@param callback function Main picker callback
+function SessionPicker._handle_summarize(session, callback)
+  vim.notify('Summarizing session...', vim.log.levels.INFO)
+
+  local session_data, err = SessionManager.load_session(session.filename)
+  if not session_data then
+    vim.notify(fmt('Failed to load session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+    SessionPicker.show_session_picker(callback)
+    return
+  end
+
+  local SessionOptimizer = require('codecompanion._extensions.reasoning.helpers.session_optimizer')
+  local optimizer = SessionOptimizer.new()
+
+  optimizer:compact_session(session_data, function(compacted_data, compact_err)
+    if compacted_data and not compact_err then
+      local success, save_err = SessionManager.save_session_data(compacted_data, session.filename)
+      if success then
+        vim.notify('✓ Session summarized', vim.log.levels.INFO)
+      else
+        vim.notify(fmt('✗ Failed to save summary: %s', save_err or 'unknown error'), vim.log.levels.ERROR)
+      end
+    else
+      vim.notify(fmt('✗ Failed to summarize: %s', compact_err or 'unknown error'), vim.log.levels.ERROR)
+    end
+
+    -- Re-show picker
+    SessionPicker.show_session_picker(callback)
+  end)
+end
+
+-- Handler function for regenerating session tags
+---@param session table Session to regenerate tags for
+---@param callback function Main picker callback
+function SessionPicker._handle_regenerate_tags(session, callback)
+  vim.notify('Regenerating tags...', vim.log.levels.INFO)
+
+  local session_data, err = SessionManager.load_session(session.filename)
+  if not session_data then
+    vim.notify(fmt('Failed to load session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+    SessionPicker.show_session_picker(callback)
+    return
+  end
+
+  SessionPicker._generate_session_tags(session_data, function(tags)
+    if tags and #tags > 0 then
+      session_data.metadata = session_data.metadata or {}
+      session_data.metadata.tags = tags
+      session_data.updated_at = os.time()
+
+      local success, save_err = SessionManager.save_session_data(session_data, session.filename)
+      if success then
+        vim.notify(fmt('✓ Tags regenerated: %s', table.concat(tags, ', ')), vim.log.levels.INFO)
+      else
+        vim.notify(fmt('✗ Failed to save tags: %s', save_err or 'unknown error'), vim.log.levels.ERROR)
+      end
+    else
+      vim.notify('✗ Failed to generate tags', vim.log.levels.ERROR)
+    end
+
+    -- Re-show picker
+    SessionPicker.show_session_picker(callback)
+  end)
+end
+
+-- Function to show filtered sessions based on search query
+---@param query string Search query
+---@param callback function Main picker callback
+function SessionPicker.show_filtered_sessions(query, callback)
+  vim.schedule(function()
+    local all_sessions = SessionManager.list_sessions()
+    local filtered_sessions = {}
+
+    -- Normalize query for case-insensitive search
+    local normalized_query = query:lower()
+
+    for _, session in ipairs(all_sessions) do
+      local matches = false
+
+      -- Search in title
+      if session.title and session.title:lower():find(normalized_query, 1, true) then
+        matches = true
+      end
+
+      -- Search in preview/content
+      if not matches and session.preview and session.preview:lower():find(normalized_query, 1, true) then
+        matches = true
+      end
+
+      -- Search in tags if present
+      if not matches then
+        local session_data = SessionManager.load_session(session.filename)
+        if session_data and session_data.metadata and session_data.metadata.tags then
+          for _, tag in ipairs(session_data.metadata.tags) do
+            if tag:lower():find(normalized_query, 1, true) then
+              matches = true
+              break
+            end
+          end
+        end
+      end
+
+      if matches then
+        table.insert(filtered_sessions, session)
+      end
+    end
+
+    local dims = calculate_picker_dimensions(filtered_sessions)
+    local windows = create_session_picker_windows(filtered_sessions, 1, dims)
+
+    -- Set up auto-close function
+    local function close_picker()
+      for _, win_data in pairs(windows) do
+        if vim.api.nvim_win_is_valid(win_data.win) then
+          vim.api.nvim_win_close(win_data.win, true)
+        end
+      end
+    end
+
+    local function picker_callback(action, session)
+      if action == 'select' and session then
+        close_picker()
+        callback('select', session)
+      else
+        close_picker()
+        if action == 'cancel' then
+          -- Return to main picker instead of canceling entirely
+          SessionPicker.show_session_picker(callback)
+        end
+      end
+    end
+
+    -- Show filtered results count
+    if #filtered_sessions == 0 then
+      vim.notify(fmt('No sessions found matching "%s"', query), vim.log.levels.INFO)
+      SessionPicker.show_session_picker(callback)
+      return
+    else
+      vim.notify(fmt('Found %d sessions matching "%s"', #filtered_sessions, query), vim.log.levels.INFO)
+    end
+
+    setup_picker_mappings(windows, filtered_sessions, 1, picker_callback)
+    vim.api.nvim_set_current_win(windows.list.win)
+  end)
+end
+
+-- Function to generate tags for a session using LLM
+---@param session_data table Session data
+---@param callback function Callback to receive tags array
+function SessionPicker._generate_session_tags(session_data, callback)
+  if not session_data.messages or #session_data.messages == 0 then
+    if callback then
+      callback({})
+    end
+    return
+  end
+
+  -- Create a conversation context similar to title generation
+  local relevant_messages = vim.tbl_filter(function(msg)
+    local has_content = msg.content and type(msg.content) == 'string' and vim.trim(msg.content) ~= ''
+    local is_relevant_role = msg.role == 'user' or msg.role == 'assistant'
+    local not_tagged = not (msg.opts and (msg.opts.tag or msg.opts.reference or msg.opts.context_id))
+    return has_content and is_relevant_role and not_tagged
+  end, session_data.messages)
+
+  if #relevant_messages == 0 then
+    if callback then
+      callback({})
+    end
+    return
+  end
+
+  local conversation_lines = {}
+  for i = 1, math.min(10, #relevant_messages) do -- Limit to first 10 messages for tagging
+    local message = relevant_messages[i]
+    local role_prefix = message.role == 'user' and 'User' or 'Assistant'
+    -- Ensure content is a string before trimming
+    local content = type(message.content) == 'string' and vim.trim(message.content) or ''
+
+    if #content > 500 then
+      content = content:sub(1, 500) .. ' [truncated]'
+    end
+
+    table.insert(conversation_lines, role_prefix .. ': ' .. content)
+  end
+
+  local conversation_context = table.concat(conversation_lines, '\n')
+
+  local prompt = fmt(
+    [[Generate 3-5 relevant tags for this chat conversation. Tags should be:
+- Single words or short phrases (2-3 words max)
+- Descriptive of the main topics, technologies, or themes
+- Useful for categorization and search
+- Lowercase with no special characters
+
+Examples of good tags: "python", "debugging", "web development", "code review", "api design"
+
+Conversation:
+%s
+
+Respond with only a comma-separated list of tags, nothing else.
+
+Tags:]],
+    conversation_context
+  )
+
+  SessionPicker._make_llm_request(session_data, prompt, function(response)
+    if response and response ~= '' then
+      -- Parse the response into tags
+      local tags = {}
+      for tag in response:gmatch('[^,]+') do
+        tag = vim.trim(tag):lower()
+        if tag ~= '' and #tag <= 20 then -- Reasonable tag length limit
+          table.insert(tags, tag)
+        end
+      end
+
+      -- Limit to 5 tags maximum
+      if #tags > 5 then
+        tags = vim.list_slice(tags, 1, 5)
+      end
+
+      if callback then
+        callback(tags)
+      end
+    else
+      if callback then
+        callback({})
+      end
+    end
+  end)
+end
+
+-- Function to make LLM requests for tags and other operations
+---@param session_data table Session data for context
+---@param prompt string Prompt to send to LLM
+---@param callback function Callback to receive response
+function SessionPicker._make_llm_request(session_data, prompt, callback)
+  local client_ok, client = pcall(require, 'codecompanion.http')
+  local schema_ok, schema = pcall(require, 'codecompanion.schema')
+  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+
+  if not client_ok or not schema_ok or not adapters_ok then
+    if callback then
+      callback(nil)
+    end
+    return
+  end
+
+  local function resolve_adapter(value)
+    if not value then
+      return nil
+    end
+    if type(value) == 'table' then
+      return value
+    end
+    return adapters.resolve(value)
+  end
+
+  local adapter = resolve_adapter(session_data.config and session_data.config.adapter)
+  if not adapter then
+    if callback then
+      callback(nil)
+    end
+    return
+  end
+
+  local settings = session_data.config and vim.deepcopy(session_data.config) or {}
+  settings = schema.get_default(adapter, settings)
+  settings = vim.deepcopy(adapter:map_schema_to_params(settings))
+  settings.opts = settings.opts or {}
+  settings.opts.stream = false
+
+  local payload = {
+    messages = adapter:map_roles({
+      { role = 'user', content = prompt },
+    }),
+  }
+
+  client.new({ adapter = settings }):request(payload, {
+    callback = function(err, data, _adapter)
+      if err and err.stderr ~= '{}' then
+        if callback then
+          callback(nil)
+        end
+        return
+      end
+
+      if data and _adapter and _adapter.handlers and _adapter.handlers.chat_output then
+        local result = _adapter.handlers.chat_output(_adapter, data)
+        if result and result.status == 'success' then
+          local response = vim.trim(result.output.content or '')
+          if callback then
+            callback(response)
+          end
+          return
+        end
+      end
+
+      if callback then
+        callback(nil)
+      end
+    end,
+  }, {
+    silent = true,
+  })
 end
 
 return SessionPicker

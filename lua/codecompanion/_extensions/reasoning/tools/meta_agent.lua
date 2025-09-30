@@ -92,7 +92,7 @@ SELECTION GUIDELINES
       local agent_config = tools_config[selected_agent]
 
       if agent_config and chat.tool_registry then
-        chat.tool_registry:add(selected_agent, agent_config)
+        chat.tool_registry:add(selected_agent, vim.deepcopy(agent_config))
 
         local companion_tools = { 'ask_user', 'add_tools', 'project_knowledge' }
         local added_companions = {}
@@ -100,7 +100,7 @@ SELECTION GUIDELINES
         for _, tool_name in ipairs(companion_tools) do
           local tool_config = tools_config[tool_name]
           if tool_config then
-            chat.tool_registry:add(tool_name, tool_config)
+            chat.tool_registry:add(tool_name, vim.deepcopy(tool_config))
             table.insert(added_companions, tool_name)
           end
         end

@@ -4,26 +4,14 @@ local SessionStorage = {}
 
 local fmt = string.format
 local uv = vim.loop
+local config = require('codecompanion._extensions.reasoning.config')
 
--- Configuration
-local CONFIG = {
-  sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
-  session_file_pattern = 'session_%Y%m%d_%H%M%S.lua',
-  max_sessions = 100,
-}
-
--- Update configuration
----@param new_config table
-function SessionStorage.setup(new_config)
-  if new_config then
-    CONFIG = vim.tbl_deep_extend('force', CONFIG, new_config)
-  end
-end
+function SessionStorage.setup() end
 
 -- Ensure sessions directory exists
 ---@return boolean success
 function SessionStorage.ensure_sessions_dir()
-  local sessions_dir = CONFIG.sessions_dir
+  local sessions_dir = config.get().session_history.sessions_dir
   local stat = uv.fs_stat(sessions_dir)
 
   if stat then
@@ -47,7 +35,7 @@ end
 -- Generate session filename based on current timestamp
 ---@return string filename
 function SessionStorage.generate_filename()
-  local result = os.date(CONFIG.session_file_pattern)
+  local result = os.date(config.get().session_history.session_file_pattern)
   return type(result) == 'string' and result or 'session_fallback.lua'
 end
 
@@ -55,7 +43,7 @@ end
 ---@param filename string
 ---@return string path
 function SessionStorage.get_session_path(filename)
-  return CONFIG.sessions_dir .. '/' .. filename
+  return config.get().session_history.sessions_dir .. '/' .. filename
 end
 
 -- Write session data to file
@@ -146,7 +134,7 @@ function SessionStorage.list_session_files()
   end
 
   local files = {}
-  local handle = uv.fs_scandir(CONFIG.sessions_dir)
+  local handle = uv.fs_scandir(config.get().session_history.sessions_dir)
   if not handle then
     return files
   end
@@ -190,16 +178,10 @@ function SessionStorage.delete_session(filename)
   return true, nil
 end
 
--- Get sessions directory path
----@return string path
-function SessionStorage.get_sessions_dir()
-  return CONFIG.sessions_dir
-end
-
 -- Get max sessions configuration
 ---@return number max_sessions
 function SessionStorage.get_max_sessions()
-  return CONFIG.max_sessions
+  return config.get().session_history.max_sessions
 end
 
 return SessionStorage

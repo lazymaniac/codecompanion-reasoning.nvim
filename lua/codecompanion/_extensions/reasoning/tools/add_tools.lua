@@ -303,7 +303,7 @@ Scope: add only the tools you plan to use next.]],
         local tool_config = raw_tools_config[tool_name]
 
         if tool_config and chat.tool_registry then
-          chat.tool_registry:add(tool_name, tool_config)
+          chat.tool_registry:add(tool_name, vim.deepcopy(tool_config))
 
           local success_message = fmt('%s ready to use!', tool_name)
 

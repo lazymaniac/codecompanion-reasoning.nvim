@@ -4,38 +4,18 @@ local SessionRestorer = {}
 
 local fmt = string.format
 
--- Normalize content to string format
----@param content any
----@return string normalized
-local function normalize_content(content)
-  if type(content) == 'string' then
-    return content
-  elseif type(content) == 'table' then
-    local function flatten_table_parts(tbl)
-      local parts = {}
-      for _, v in ipairs(tbl) do
-        if type(v) == 'string' then
-          table.insert(parts, v)
-        elseif type(v) == 'table' then
-          if type(v.text) == 'string' then
-            table.insert(parts, v.text)
-          elseif type(v.content) == 'string' then
-            table.insert(parts, v.content)
-          elseif type(v.value) == 'string' then
-            table.insert(parts, v.value)
-          end
-        end
-      end
-      return parts
-    end
-
-    local parts = flatten_table_parts(content)
-    if #parts > 0 then
-      return table.concat(parts, '\n')
-    end
-    return tostring(vim.inspect(content))
+-- Convert any value to string for safe processing
+---@param value any
+---@return string
+local function to_string(value)
+  if type(value) == 'string' then
+    return value
+  elseif type(value) == 'table' then
+    return vim.inspect(value)
+  elseif value ~= nil then
+    return tostring(value)
   else
-    return tostring(content)
+    return ''
   end
 end
 
@@ -43,9 +23,12 @@ end
 ---@param msg table Message object
 ---@return string content
 local function extract_any_content(msg)
-  local c = normalize_content(msg.content)
-  if c and c ~= 'nil' and vim.trim(c) ~= '' then
-    return c
+  local c = msg.content
+  if c and c ~= 'nil' then
+    local c_str = to_string(c)
+    if vim.trim(c_str) ~= '' then
+      return c_str
+    end
   end
 
   local candidates = {
@@ -66,38 +49,15 @@ local function extract_any_content(msg)
   }
 
   for _, cand in ipairs(candidates) do
-    local s = normalize_content(cand)
-    if s and s ~= 'nil' and vim.trim(s) ~= '' then
-      return s
+    if cand and cand ~= 'nil' then
+      local s = to_string(cand)
+      if vim.trim(s) ~= '' then
+        return s
+      end
     end
   end
 
   return ''
-end
-
--- Optimize session messages by removing duplicates
----@param session_data table
----@return table optimized_session
-local function optimize_session_messages(session_data)
-  pcall(function()
-    local ok_opt, SessionOptimizer = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_optimizer')
-    if ok_opt then
-      local optimizer = SessionOptimizer.new({
-        remove_duplicate_messages = true,
-        max_consecutive_duplicates = 1,
-        remove_empty_messages = false,
-        compact_tool_outputs = false,
-        max_message_length = 10000000,
-      })
-      local optimized = optimizer:optimize_session({
-        messages = vim.deepcopy(session_data.messages or {}),
-        metadata = session_data.metadata or {},
-      })
-      session_data.messages = optimized.messages or session_data.messages
-      session_data.metadata = optimized.metadata or session_data.metadata
-    end
-  end)
-  return session_data
 end
 
 -- Create CodeCompanion chat instance
@@ -319,8 +279,9 @@ local function restore_chat_tools(chat, session_tools)
     if not chat.tool_registry.in_use[tool_name] then
       local tool_config = config.strategies.chat.tools[tool_name]
       if tool_config then
+        local prepared = vim.deepcopy(tool_config)
         local success, err = pcall(function()
-          chat.tool_registry:add(tool_name, tool_config, { visible = true })
+          chat.tool_registry:add(tool_name, prepared, { visible = true })
         end)
         if not success then
           vim.notify(
@@ -405,7 +366,7 @@ local function restore_chat_messages(chat, messages)
             and restored_message.reasoning
             and type(restored_message.reasoning) == 'table'
           then
-            local rtext = normalize_content(restored_message.reasoning.content)
+            local rtext = restored_message.reasoning.content
             local key = tostring(restored_message.id or '') .. ':' .. tostring(#rtext)
             if rtext and vim.trim(rtext) ~= '' and not added_reasoning[key] then
               added_reasoning[key] = true
@@ -484,7 +445,7 @@ local function sanitize_chat_messages(chat)
       for _, m in ipairs(chat.messages) do
         if m and m.content ~= nil and type(m.content) ~= 'string' then
           local ok, normalized = pcall(function()
-            return normalize_content(m.content)
+            return m.content
           end)
           if ok and normalized then
             m.content = normalized
@@ -535,8 +496,6 @@ function SessionRestorer.restore_session(session_data, filename, opts)
   if not session_data then
     return false, 'Invalid session data'
   end
-
-  session_data = optimize_session_messages(session_data)
 
   local existing_chat = opts.chat
   local chat, err = create_codecompanion_chat(session_data, existing_chat)
