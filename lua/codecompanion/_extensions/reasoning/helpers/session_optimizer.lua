@@ -129,7 +129,7 @@ function SessionOptimizer:compact_session(session_data, callback)
 
     compacted.messages = {
       {
-        role = 'user',
+        role = 'llm',
         content = fmt('**[Session Summary - %d messages compacted]**\n\n%s', original_count, summary),
         opts = {
           tag = 'session_summary',
