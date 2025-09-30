@@ -16,7 +16,7 @@ local T = new_set({
         local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
         SessionManager.setup({
           sessions_dir = tmp,
-          auto_load_last_session = false,
+          continue_chat = 'no',
         })
       ]])
     end,
@@ -33,7 +33,7 @@ T['session preview shows conversation context'] = function()
 
     SessionManager.setup({
       sessions_dir = tmp,
-      auto_load_last_session = false,
+      continue_chat = 'no',
     })
 
     local now = os.time()

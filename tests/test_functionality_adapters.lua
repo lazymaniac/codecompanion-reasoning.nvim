@@ -4,7 +4,7 @@ local new_set = MiniTest.new_set
 
 local Config = require('codecompanion._extensions.reasoning.config')
 local SessionOptimizer = require('codecompanion._extensions.reasoning.helpers.session_optimizer')
-local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.title_generator')
+local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.session_title_generator')
 
 local function clear_reasoning_modules()
   local modules = {

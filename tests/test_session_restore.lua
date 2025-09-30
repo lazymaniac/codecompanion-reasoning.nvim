@@ -18,31 +18,54 @@ local T = new_set({
           fire = function(_) end,
         }
 
+        _G.__RESTORE_CHAT_NEW_CALLS = 0
+
         local in_use = {}
+
+        local function build_chat()
+          local bufnr = vim.api.nvim_create_buf(true, false)
+          local chat = {
+            bufnr = bufnr,
+            id = 'chat-test',
+            tool_registry = {
+              in_use = in_use,
+              add = function(_, name) in_use[name] = true end,
+              add_group = function() end,
+            },
+            added = { history = 0, buffer = 0, tool = 0 },
+            add_tool_output = function(self, _, _)
+              self.added.tool = self.added.tool + 1
+            end,
+            add_message = function(self, _, _)
+              self.added.history = self.added.history + 1
+            end,
+            add_buf_message = function(self, _)
+              self.added.buffer = self.added.buffer + 1
+            end,
+            apply_settings = function(self, settings)
+              self.settings = vim.tbl_deep_extend('force', self.settings or {}, settings or {})
+            end,
+            apply_model = function(self, model)
+              self.settings = self.settings or {}
+              self.settings.model = model
+            end,
+            settings = {},
+          }
+          return chat
+        end
+
         package.loaded['codecompanion.strategies.chat'] = {
           new = function(opts)
-            local bufnr = vim.api.nvim_create_buf(true, false)
-            local chat = {
-              bufnr = bufnr,
-              id = 'chat-test',
-              tool_registry = {
-                in_use = in_use,
-                add = function(_, name) in_use[name] = true end,
-                add_group = function() end,
-              },
-              added = { history = 0, buffer = 0, tool = 0 },
-              add_tool_output = function(self, _, _)
-                self.added.tool = self.added.tool + 1
-              end,
-              add_message = function(self, _, _)
-                self.added.history = self.added.history + 1
-              end,
-              add_buf_message = function(self, _)
-                self.added.buffer = self.added.buffer + 1
-              end,
-            }
+            _G.__RESTORE_CHAT_NEW_CALLS = (_G.__RESTORE_CHAT_NEW_CALLS or 0) + 1
+            local chat = build_chat()
             _G.__RESTORE_LAST_CHAT = chat
             return chat
+          end,
+          buf_get_chat = function(bufnr)
+            if _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.bufnr == bufnr then
+              return _G.__RESTORE_LAST_CHAT
+            end
+            return nil
           end,
         }
 
@@ -50,6 +73,20 @@ local T = new_set({
           default_adapter = 'test',
           adapters = { test = {} },
           strategies = { chat = { tools = { groups = {} } } },
+        }
+
+        package.loaded['codecompanion.adapters'] = {
+          resolve = function(name)
+            if name == 'test' then
+              return {
+                schema = {},
+              }
+            end
+            return nil
+          end,
+          make_safe = function(adapter)
+            return adapter
+          end,
         }
 
         SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
@@ -85,16 +122,18 @@ T['restores all visible messages'] = function()
     local ok, err = SessionManager.save_session_data(session_data, filename)
     assert(ok, err)
 
-    local restored, restore_err = SessionManager.restore_session(filename)
-    assert(restored, restore_err)
+    local restored, chat_or_err = SessionManager.restore_session(filename)
+    assert(restored, chat_or_err)
+    assert(chat_or_err.added, 'expected chat counters to be present')
+    assert(
+      chat_or_err.added.history == 78,
+      string.format('expected 78 history messages, got %s', vim.inspect(chat_or_err.added))
+    )
+    assert(
+      chat_or_err.added.buffer == 78,
+      string.format('expected 78 buffer messages, got %s', vim.inspect(chat_or_err.added))
+    )
   ]])
-  -- Validate added messages went to buffer
-  child.lua(
-    [[ chat_counts = _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.added or { history = -1, buffer = -1 } ]]
-  )
-  local counts = child.lua_get('chat_counts')
-  h.eq(78, counts.history)
-  h.eq(78, counts.buffer)
 end
 
 T['restores tool call cycles visibly'] = function()
@@ -117,18 +156,54 @@ T['restores tool call cycles visibly'] = function()
     local ok, err = SessionManager.save_session_data(session_data, filename)
     assert(ok, err)
 
-    local restored, restore_err = SessionManager.restore_session(filename)
-    assert(restored, restore_err)
+    local restored, chat_or_err = SessionManager.restore_session(filename)
+    assert(restored, chat_or_err)
+    assert(chat_or_err.added, 'expected chat counters to be present')
+    -- Expect 3 regular messages (user, assistant tool_call, assistant follow-up) and 1 tool output
+    assert(
+      chat_or_err.added.history == 3,
+      string.format('expected 3 history messages, got %s', vim.inspect(chat_or_err.added))
+    )
+    assert(
+      chat_or_err.added.buffer == 3,
+      string.format('expected 3 buffer messages, got %s', vim.inspect(chat_or_err.added))
+    )
+    assert(
+      chat_or_err.added.tool == 1,
+      string.format('expected 1 tool message, got %s', vim.inspect(chat_or_err.added))
+    )
   ]])
+end
 
-  child.lua(
-    [[ chat_counts = _G.__RESTORE_LAST_CHAT and _G.__RESTORE_LAST_CHAT.added or { history = -1, buffer = -1, tool = -1 } ]]
-  )
-  local counts = child.lua_get('chat_counts')
-  -- Expect 3 regular messages (user, assistant tool_call, assistant follow-up) and 1 tool output
-  h.eq(3, counts.history)
-  h.eq(3, counts.buffer)
-  h.eq(1, counts.tool)
+T['reuses existing chat when provided'] = function()
+  child.lua([[
+    _G.__RESTORE_CHAT_NEW_CALLS = 0
+
+    local session_data = {
+      version = '2.0',
+      messages = {
+        { role = 'user', content = 'Hello' },
+        { role = 'assistant', content = 'Hi there' },
+      },
+      metadata = { total_messages = 2 },
+      config = { adapter = 'test', model = 'reuse' },
+      tools = {},
+      timestamp = os.time(),
+    }
+
+    local filename = 'session_reuse_existing.lua'
+    local ok, err = SessionManager.save_session_data(session_data, filename)
+    assert(ok, err)
+
+    local Chat = require('codecompanion.strategies.chat')
+    local existing = Chat.new({})
+    assert(_G.__RESTORE_CHAT_NEW_CALLS == 1, 'expected fixture chat creation to increment counter')
+
+    local restored, restore_err = SessionManager.restore_session(filename, { chat = existing })
+    assert(restored, restore_err)
+    assert(_G.__RESTORE_CHAT_NEW_CALLS == 1, 'expected restore to reuse provided chat without creating a new one')
+    assert(_G.__RESTORE_LAST_CHAT == existing, 'expected provided chat to be used during restore')
+  ]])
 end
 
 return T

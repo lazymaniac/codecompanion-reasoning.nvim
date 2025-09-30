@@ -3,12 +3,12 @@ return {
     adapter = "test",
     model = "mock-8"
   },
-  created_at = "2025-09-27 15:29:02",
+  created_at = "2025-09-29 14:54:16",
   messages = {},
   metadata = {
     total_messages = 8
   },
-  timestamp = 1758979742,
+  timestamp = 1759150456,
   title = "Session 08",
   version = "2.0"
 }

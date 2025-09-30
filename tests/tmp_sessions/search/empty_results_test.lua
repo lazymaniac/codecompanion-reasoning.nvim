@@ -1,14 +1,18 @@
 return {
   config = {
     adapter = "test",
-    model = "mock-1"
+    model = "mock"
   },
   created_at = "2025-09-29 14:54:09",
-  messages = {},
+  messages = { {
+      content = "Simple test message",
+      role = "user"
+    } },
   metadata = {
+    tags = { "test", "simple" },
     total_messages = 1
   },
   timestamp = 1759150449,
-  title = "Session 01",
+  title = "Test Session",
   version = "2.0"
 }
