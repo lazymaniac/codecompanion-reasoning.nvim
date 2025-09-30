@@ -4,188 +4,15 @@ local SessionRestorer = {}
 
 local fmt = string.format
 
--- Convert any value to string for safe processing
----@param value any
----@return string
-local function to_string(value)
-  if type(value) == 'string' then
-    return value
-  elseif type(value) == 'table' then
-    return vim.inspect(value)
-  elseif value ~= nil then
-    return tostring(value)
-  else
-    return ''
-  end
-end
-
--- Extract content from message with fallback options
----@param msg table Message object
----@return string content
-local function extract_any_content(msg)
-  local c = msg.content
-  if c and c ~= 'nil' then
-    local c_str = to_string(c)
-    if vim.trim(c_str) ~= '' then
-      return c_str
-    end
-  end
-
-  local candidates = {
-    msg.output,
-    msg.result,
-    msg.text,
-    msg.message,
-    msg.data,
-    msg.delta,
-    msg.response,
-    msg.stdout,
-    msg.stderr,
-    msg.for_user,
-    msg.for_llm,
-    msg.display,
-    msg.value,
-    msg.user_output,
-  }
-
-  for _, cand in ipairs(candidates) do
-    if cand and cand ~= 'nil' then
-      local s = to_string(cand)
-      if vim.trim(s) ~= '' then
-        return s
-      end
-    end
-  end
-
-  return ''
-end
-
--- Create CodeCompanion chat instance
----@param session_data table
----@return table? chat, string? error_message
-local function resolve_session_adapter(session_data)
-  local config_ok, config = pcall(require, 'codecompanion.config')
-  if not config_ok then
-    return nil, 'CodeCompanion config not available'
-  end
-
-  local adapter_name = nil
-  if session_data.config and session_data.config.adapter and session_data.config.adapter ~= 'unknown' then
-    adapter_name = session_data.config.adapter
-  end
-  if not adapter_name then
-    adapter_name = config.default_adapter
-  end
-
-  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
-  if not adapters_ok or not adapters or not adapters.resolve then
-    return nil, 'CodeCompanion adapters not available'
-  end
-
-  local adapter = adapters.resolve(adapter_name)
-  if not adapter then
-    return nil, fmt('Failed to resolve adapter "%s"', tostring(adapter_name))
-  end
-
-  return adapter, adapter_name
-end
-
-local function apply_adapter_to_chat(chat, adapter, session_data)
-  if not chat or not adapter then
-    return nil, 'Invalid chat or adapter'
-  end
-
-  local helpers_ok, helpers = pcall(require, 'codecompanion.strategies.chat.helpers')
-  local schema_ok, schema = pcall(require, 'codecompanion.schema')
-  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
-  local util_ok, util = pcall(require, 'codecompanion.utils')
-
-  chat.adapter = adapter
-
-  local settings = chat.settings
-  if schema_ok and schema and adapter.schema then
-    local desired = {}
-    local model = session_data.config and session_data.config.model
-    if model and model ~= 'unknown' then
-      desired.model = model
-    end
-    settings = schema.get_default(adapter, desired)
-  end
-
-  if settings then
-    if helpers_ok and helpers and helpers.apply_settings_and_model then
-      helpers.apply_settings_and_model(chat, settings)
-    elseif chat.apply_settings then
-      chat:apply_settings(settings)
-      if settings.model and chat.apply_model then
-        chat:apply_model(settings.model)
-      end
-    end
-  end
-
-  if chat.ui then
-    chat.ui.adapter = adapter
-    chat.ui.settings = chat.settings
-  end
-
-  if util_ok and util and adapters_ok and adapters and adapters.make_safe then
-    pcall(util.fire, 'ChatAdapter', {
-      adapter = adapters.make_safe(adapter),
-      bufnr = chat.bufnr,
-      id = chat.id,
-    })
-    if chat.settings and chat.settings.model then
-      pcall(util.fire, 'ChatModel', {
-        bufnr = chat.bufnr,
-        id = chat.id,
-        model = chat.settings.model,
-      })
-    end
-  end
-
-  return chat, chat.settings
-end
-
+---@param chat table|CodeCompanion.Chat|nil CodeCompanion chat object
 local function prepare_existing_chat(chat, session_data)
-  local adapter, adapter_err = resolve_session_adapter(session_data)
-  if not adapter then
-    return nil, adapter_err
+  if not chat then
+    return chat
   end
 
-  local applied_chat, applied_settings_or_err = apply_adapter_to_chat(chat, adapter, session_data)
-  if not applied_chat then
-    return nil, applied_settings_or_err
-  end
-
+  chat:clear()
   chat.opts = chat.opts or {}
-  if session_data.config then
-    chat.opts.adapter = session_data.config.adapter or chat.opts.adapter
-    chat.opts.model = session_data.config.model or chat.opts.model
-  end
-  if type(applied_settings_or_err) == 'table' then
-    chat.settings = applied_settings_or_err
-  end
-
-  pcall(function()
-    if chat.tool_registry and chat.tool_registry.clear then
-      chat.tool_registry:clear()
-    end
-  end)
-
-  chat.messages = {}
-  chat.context_items = {}
-  chat.cycle = session_data.metadata and session_data.metadata.cycle or 1
-  chat.header_line = 1
-
-  if chat.bufnr and vim.api.nvim_buf_is_valid(chat.bufnr) then
-    pcall(vim.api.nvim_buf_set_lines, chat.bufnr, 0, -1, false, {})
-  end
-
-  if chat.ui and chat.ui.render then
-    pcall(function()
-      chat.ui:render(chat.buffer_context, chat.messages, chat.opts)
-    end)
-  end
+  chat:change_adapter(session_data.config.adapter, session_data.config.model)
 
   pcall(function()
     if chat.add_system_prompt then
@@ -306,132 +133,99 @@ local function restore_chat_tools(chat, session_tools)
   end
 end
 
--- Add messages to chat
----@param chat table CodeCompanion chat object
----@param messages table Array of messages
-local function restore_chat_messages(chat, messages)
-  local config_ok, config = pcall(require, 'codecompanion.config')
-  if not config_ok then
-    return
+-- Message type handlers for clean restoration
+local message_handlers = {}
+
+-- Skip system messages as requested
+message_handlers.system = function(chat, message, registry)
+  -- System messages are omitted from restoration
+end
+
+-- Handle user messages
+---@param chat table|CodeCompanion.Chat CodeCompanion chat object
+message_handlers.user = function(chat, message, registry)
+  chat:add_message(message)
+  chat:add_buf_message(message)
+end
+
+-- Handle LLM messages with optional tool calls and reasoning
+---@param chat table|CodeCompanion.Chat CodeCompanion chat object
+message_handlers.llm = function(chat, message, registry)
+  if message.reasoning then
+    chat:add_buf_message({
+      role = 'llm',
+      content = message.reasoning.content,
+    }, { type = chat.MESSAGE_TYPES.REASONING_MESSAGE })
   end
 
-  local tool_call_map = {}
-  local last_tool_call = nil
-  local added_reasoning = {}
+  -- Handle tool calls and register them
+  if message.tool_calls then
+    -- Register tool calls for later result linking
+    for _, call in ipairs(message.tool_calls) do
+      if call.id and call['function'] and call['function'].name then
+        registry[call.id] = {
+          name = call['function'].name,
+          call = call,
+        }
+      end
+    end
+  end
+
+  chat:add_message(message, { visible = true })
+
+  if not message.reasoning then
+    chat:add_buf_message(message)
+  end
+end
+
+-- Handle tool results with proper linking
+---@param chat table|CodeCompanion.Chat CodeCompanion chat object
+message_handlers.tool = function(chat, message, registry)
+  local tool_use_id = message.content.tool_use_id
+  local content = message.content.content .. '\n'
+
+  if tool_use_id and registry[tool_use_id] then
+    local tool_obj = {}
+    tool_obj.function_call = registry[tool_use_id].call
+
+    pcall(function()
+      chat:add_tool_output(tool_obj, content, content)
+    end)
+  else
+    -- Tool result without proper call ID - fallback
+    chat:add_message({
+      role = 'tool',
+      content = content,
+    }, { visible = true })
+  end
+end
+
+-- Handle assistant role (alias for llm)
+message_handlers.assistant = function(chat, message, registry)
+  message_handlers.llm(chat, message, registry)
+end
+
+-- Handle model role (alias for llm)
+message_handlers.model = function(chat, message, registry)
+  message_handlers.llm(chat, message, registry)
+end
+
+-- Add messages to chat using clean type-based handlers
+---@param chat table|CodeCompanion.Chat|nil CodeCompanion chat object
+---@param messages table Array of messages
+local function restore_chat_messages(chat, messages)
+  local tool_call_registry = {} -- Track tool calls for linking with results
 
   for _, message in ipairs(messages) do
     if message.role then
-      local is_system_prompt = message.role == 'system'
-
-      if not is_system_prompt then
-        local role = message.role
-        if role == 'function' then
-          role = 'tool'
-          if not message.tool_call_id and message.id then
-            message.tool_call_id = message.id
-          end
-          if not message.tool_name and message.name then
-            message.tool_name = message.name
-          end
-        elseif role == 'assistant' or role == 'llm' or role == 'model' then
-          role = 'llm'
-        end
-
-        local restored_message = vim.tbl_extend('keep', {
-          role = role,
-          content = extract_any_content(message),
-        }, message)
-
-        if message.tool_calls then
-          restored_message.tool_calls = message.tool_calls
-          for _, call in ipairs(message.tool_calls) do
-            local call_id = (call and (call.id or (call['function'] and call['function'].id)))
-            local call_name = (call and call['function'] and call['function'].name) or message.tool_name or message.name
-            if call_id and call_name then
-              tool_call_map[call_id] = { name = call_name }
-              last_tool_call = { id = call_id, name = call_name }
-            end
-          end
-        end
-
-        if role == 'user' or role == 'llm' or role == 'tool' then
-          restored_message.visible = true
-          restored_message.opts = restored_message.opts or {}
-          restored_message.opts.visible = true
-        end
-
+      local handler = message_handlers[message.role]
+      if handler then
         pcall(function()
-          if
-            restored_message.role == 'llm'
-            and restored_message.reasoning
-            and type(restored_message.reasoning) == 'table'
-          then
-            local rtext = restored_message.reasoning.content
-            local key = tostring(restored_message.id or '') .. ':' .. tostring(#rtext)
-            if rtext and vim.trim(rtext) ~= '' and not added_reasoning[key] then
-              added_reasoning[key] = true
-              local mt = chat and chat.MESSAGE_TYPES or nil
-              local opts = {}
-              if mt and mt.REASONING_MESSAGE then
-                opts.type = mt.REASONING_MESSAGE
-              end
-              chat:add_buf_message({ role = config.constants.LLM_ROLE, content = rtext }, opts)
-            end
-          end
+          handler(chat, message, tool_call_registry)
         end)
-
-        if restored_message.role == 'tool' and (not restored_message.content or restored_message.content == '') then
-          local name = restored_message.tool_name or restored_message.name or 'tool'
-          restored_message.content = fmt('[%s output]', name)
-        end
-
-        if restored_message.role == 'tool' and not restored_message.tool_call_id and last_tool_call then
-          restored_message.tool_call_id = last_tool_call.id
-          restored_message.tool_name = restored_message.tool_name or last_tool_call.name
-        end
-
-        pcall(function()
-          if restored_message.role == 'tool' then
-            local out_text = extract_any_content(restored_message)
-            local to_add = vim.tbl_extend('force', restored_message, { content = out_text })
-            if restored_message.tool_call_id and chat.add_tool_output then
-              local mapping = tool_call_map[restored_message.tool_call_id]
-              local tool_name = (restored_message.tool_name or restored_message.name or (mapping and mapping.name))
-              local tool_obj =
-                { function_call = { id = restored_message.tool_call_id, name = tool_name or 'unknown_tool' } }
-              pcall(function()
-                chat:add_tool_output(tool_obj, out_text, out_text)
-              end)
-              local mt = chat and chat.MESSAGE_TYPES or nil
-              if mt and mt.TOOL_MESSAGE then
-                chat:add_buf_message(
-                  { role = config.constants.LLM_ROLE, content = out_text },
-                  { type = mt.TOOL_MESSAGE }
-                )
-              end
-            else
-              chat:add_message(to_add, { visible = true })
-              local mt = chat and chat.MESSAGE_TYPES or nil
-              local opts = {}
-              if mt and mt.TOOL_MESSAGE then
-                opts.type = mt.TOOL_MESSAGE
-              end
-              chat:add_buf_message({ role = config.constants.LLM_ROLE, content = out_text }, opts)
-            end
-          else
-            chat:add_message(restored_message, { visible = true })
-            local mt = chat and chat.MESSAGE_TYPES or nil
-            local ui_type = nil
-            if mt then
-              if restored_message.role == 'llm' then
-                ui_type = mt.LLM_MESSAGE
-              elseif restored_message.role == 'tool' then
-                ui_type = mt.TOOL_MESSAGE
-              end
-            end
-            chat:add_buf_message(restored_message, ui_type and { type = ui_type } or {})
-          end
-        end)
+      else
+        -- Unknown message type - log warning and skip
+        vim.notify(fmt('[SessionRestore] Unknown message role: %s', tostring(message.role)), vim.log.levels.WARN)
       end
     end
   end
@@ -459,7 +253,7 @@ local function sanitize_chat_messages(chat)
 end
 
 -- Finalize chat for user interaction
----@param chat table CodeCompanion chat object
+---@param chat table|CodeCompanion.Chat|nil CodeCompanion chat object
 local function finalize_chat_for_interaction(chat)
   local config_ok, config = pcall(require, 'codecompanion.config')
   if not config_ok then
@@ -498,6 +292,7 @@ function SessionRestorer.restore_session(session_data, filename, opts)
   end
 
   local existing_chat = opts.chat
+  vim.notify('Existing chat: ' .. vim.inspect(existing_chat))
   local chat, err = create_codecompanion_chat(session_data, existing_chat)
   if not chat then
     return false, err
