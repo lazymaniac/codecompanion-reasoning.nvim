@@ -57,29 +57,62 @@ function SessionOptimizer:compact_session(session_data, callback)
   local conversation_context = table.concat(conversation_lines, '\n\n')
 
   local prompt_parts = {
-    'Summarize this chat conversation into a concise overview that captures:',
-    '- Main topics and themes discussed',
-    '- Key decisions, conclusions, or agreements reached',
-    '- Important facts, findings, or insights established',
+    'You are an AI conversation summarizer specializing in preserving context for seamless conversation continuation.',
+    '',
+    'TASK: Create a comprehensive yet concise summary that allows another AI to continue this conversation as if no interruption occurred.',
+    '',
+    'REQUIRED OUTPUT STRUCTURE:',
+    '## Context Overview',
+    '- Domain/technology being discussed',
+    '- Current project or task scope',
+    "- User's apparent skill level and preferences",
+    '',
+    '## Technical State',
+    '- Active files, functions, or components mentioned',
+    '- Current implementation approach or architecture',
+    '- Tools, libraries, or frameworks in use',
+    '- Code patterns or standards established',
+    '',
+    '## Workflow Progress',
+    '- Completed tasks or resolved issues',
+    '- Current objective or goal',
+    '- Next planned steps or pending actions',
+    '- Open questions or unresolved items',
+    '',
+    '## Key Decisions & Insights',
+    '- Important choices made and rationale',
+    '- Established constraints or requirements',
+    '- Lessons learned or gotchas discovered',
+    '- Performance or design considerations',
+    '',
+    '## Conversation Dynamics',
+    "- User's communication style and preferences",
+    '- Specific terminology or conventions used',
+    '- Level of explanation typically provided',
+    '- Any recurring themes or concerns',
+    '',
+    'INSTRUCTIONS:',
+    '- Write in a clear, structured format using the sections above',
+    '- Focus on information needed to continue the conversation productively',
+    '- Include specific technical details, file names, and code concepts',
+    "- Preserve the user's mental model and current understanding",
+    '- Keep technical context precise but avoid excessive code reproduction',
   }
 
-  table.insert(prompt_parts, '')
-
-  -- Get word limit from config
   local max_words = config.get().session_optimizer.summary_max_words
   table.insert(
     prompt_parts,
     fmt(
-      'Keep the summary under %d words and focus on information needed to continue this conversation productively. %d words is not a hard limit, if you need more space to include all necessary context please do so.',
-      max_words,
+      '- Target %d words, but prioritize completeness over strict limits - use more words if necessary for continuity',
       max_words
     )
   )
+
   table.insert(prompt_parts, '')
-  table.insert(prompt_parts, 'Conversation:')
+  table.insert(prompt_parts, 'CONVERSATION TO SUMMARIZE:')
   table.insert(prompt_parts, conversation_context)
   table.insert(prompt_parts, '')
-  table.insert(prompt_parts, 'Summary:')
+  table.insert(prompt_parts, 'STRUCTURED SUMMARY:')
 
   local prompt = table.concat(prompt_parts, '\n')
 
