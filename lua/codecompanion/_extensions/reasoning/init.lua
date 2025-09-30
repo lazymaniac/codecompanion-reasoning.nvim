@@ -38,27 +38,20 @@ function ReasoningExtension.setup(opts)
   -- Initialize chat hooks for auto-save functionality
   local chat_hooks_ok, chat_hooks = pcall(require, 'codecompanion._extensions.reasoning.helpers.chat_hooks')
   if chat_hooks_ok then
-    chat_hooks.setup(merged_opts.chat_history or { auto_save = true })
+    chat_hooks.setup()
   end
 
   -- Initialize session manager with configuration
   local session_manager_ok, session_manager =
     pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
   if session_manager_ok and merged_opts.chat_history then
-    session_manager.setup({
-      sessions_dir = merged_opts.chat_history.sessions_dir,
-      max_sessions = merged_opts.chat_history.max_sessions,
-      auto_save = merged_opts.chat_history.auto_save,
-      auto_load_last_session = merged_opts.chat_history.auto_load_last_session,
-    })
+    session_manager.setup()
   end
 
   -- Setup user commands if enabled
-  if merged_opts.chat_history and merged_opts.chat_history.enable_commands ~= false then
-    local commands_ok, commands = pcall(require, 'codecompanion._extensions.reasoning.commands')
-    if commands_ok then
-      commands.setup()
-    end
+  local commands_ok, commands = pcall(require, 'codecompanion._extensions.reasoning.commands')
+  if commands_ok then
+    commands.setup()
   end
 
   local config_ok, config = pcall(require, 'codecompanion.config')
@@ -103,16 +96,6 @@ function ReasoningExtension.setup(opts)
       description = tool.schema['function'].description,
       callback = tool,
     }
-
-    local adapter_config = Config.get_tool_adapter(name)
-    if adapter_config then
-      if adapter_config.adapter then
-        tool_entry.adapter = adapter_config.adapter
-      end
-      if adapter_config.model then
-        tool_entry.model = adapter_config.model
-      end
-    end
 
     config.strategies.chat.tools[name] = tool_entry
   end
