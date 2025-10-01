@@ -39,6 +39,7 @@ local T = new_set({
 
 T['session preview shows conversation context'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local Config = require('codecompanion._extensions.reasoning.config')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
     local tmp = vim.fn.getcwd() .. '/tests/tmp_sessions/picker_preview'
@@ -54,7 +55,6 @@ T['session preview shows conversation context'] = function()
     })
     SessionManager.setup()
 
-    local now = os.time()
     local session_data = {
       version = '2.0',
       messages = {
@@ -71,8 +71,8 @@ T['session preview shows conversation context'] = function()
       },
       metadata = { total_messages = 3 },
       config = { adapter = 'test', model = 'mock-preview' },
-      timestamp = now,
-      created_at = os.date('%Y-%m-%d %H:%M:%S', now),
+      timestamp = helpers.timestamp(),
+      created_at = helpers.datetime(),
     }
 
     local ok, err = SessionManager.save_session_data(session_data, 'session_preview_extended.lua')
@@ -127,6 +127,7 @@ end
 
 T['keeps list cursor aligned with selection'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local Config = require('codecompanion._extensions.reasoning.config')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
     local sessions_dir = Config.get().session_history.sessions_dir
@@ -135,15 +136,14 @@ T['keeps list cursor aligned with selection'] = function()
     vim.fn.delete(sessions_dir, 'rf')
     vim.fn.mkdir(sessions_dir, 'p')
 
-    local now = os.time()
     for i = 1, 16 do
       local session_data = {
         version = '2.0',
         messages = {},
         metadata = { total_messages = i },
         config = { adapter = 'test', model = 'mock-' .. i },
-        timestamp = now + i,
-        created_at = os.date('%Y-%m-%d %H:%M:%S', now + i),
+        timestamp = helpers.timestamp(i),
+        created_at = helpers.datetime(i),
         title = ('Session %02d'):format(i),
       }
 

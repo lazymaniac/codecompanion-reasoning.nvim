@@ -3,7 +3,7 @@ return {
     adapter = "test",
     model = "mock"
   },
-  created_at = "2025-10-01 10:42:16",
+  created_at = "2023-11-14 22:12:30",
   messages = { {
       content = "Test message 4",
       role = "user"
@@ -12,7 +12,7 @@ return {
     favorite = true,
     total_messages = 1
   },
-  timestamp = 1759308136,
+  timestamp = 1699999950,
   title = "Recent Favorite",
   version = "2.0"
 }

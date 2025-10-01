@@ -277,8 +277,8 @@ T['session list includes tags and favorites metadata'] = function()
         },
         metadata = session_info.metadata,
         config = { adapter = 'test', model = 'mock' },
-        timestamp = os.time(),
-        created_at = os.date('%Y-%m-%d %H:%M:%S'),
+        timestamp = h.timestamp(),
+        created_at = h.datetime(),
         title = session_info.title,
       }
 
@@ -340,15 +340,13 @@ T['favorite sessions sorting priority'] = function()
       SessionManager.delete_session(session.filename)
     end
 
-    local base_time = os.time()
-
     -- Create sessions with mixed favorite status and timestamps
     local test_sessions = {
-      { title = 'Oldest Non-Favorite', timestamp = base_time - 300, favorite = false },
-      { title = 'Old Favorite', timestamp = base_time - 200, favorite = true },
-      { title = 'Recent Non-Favorite', timestamp = base_time - 100, favorite = false },
-      { title = 'Recent Favorite', timestamp = base_time - 50, favorite = true },
-      { title = 'Newest Non-Favorite', timestamp = base_time, favorite = false },
+      { title = 'Oldest Non-Favorite', offset = -300, favorite = false },
+      { title = 'Old Favorite', offset = -200, favorite = true },
+      { title = 'Recent Non-Favorite', offset = -100, favorite = false },
+      { title = 'Recent Favorite', offset = -50, favorite = true },
+      { title = 'Newest Non-Favorite', offset = 0, favorite = false },
     }
 
     for i, session_info in ipairs(test_sessions) do
@@ -360,8 +358,8 @@ T['favorite sessions sorting priority'] = function()
           favorite = session_info.favorite
         },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = session_info.timestamp,
-        created_at = os.date('%Y-%m-%d %H:%M:%S', session_info.timestamp),
+        timestamp = h.timestamp(session_info.offset),
+        created_at = h.datetime(session_info.offset),
         title = session_info.title,
       }
 

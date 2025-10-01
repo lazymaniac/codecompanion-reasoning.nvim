@@ -39,6 +39,7 @@ local T = new_set({
 
 T['search sessions by title'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
     -- Clean any existing sessions first
@@ -64,8 +65,8 @@ T['search sessions by title'] = function()
         },
         metadata = { total_messages = 1 },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = os.time() + i,
-        created_at = os.date('%Y-%m-%d %H:%M:%S'),
+        timestamp = helpers.timestamp(i),
+        created_at = helpers.datetime(i),
         title = session_info.title,
       }
 
@@ -137,6 +138,7 @@ end
 
 T['search sessions by content'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
     -- Clean any existing sessions first
@@ -176,8 +178,8 @@ T['search sessions by content'] = function()
         messages = session_info.messages,
         metadata = { total_messages = #session_info.messages },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = os.time() + i,
-        created_at = os.date('%Y-%m-%d %H:%M:%S'),
+        timestamp = helpers.timestamp(i),
+        created_at = helpers.datetime(i),
         title = session_info.title,
       }
 
@@ -238,6 +240,7 @@ end
 
 T['search sessions by tags'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
     -- Clean any existing sessions first
@@ -277,8 +280,8 @@ T['search sessions by tags'] = function()
           tags = session_info.tags
         },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = os.time() + i,
-        created_at = os.date('%Y-%m-%d %H:%M:%S'),
+        timestamp = helpers.timestamp(i),
+        created_at = helpers.datetime(i),
         title = session_info.title,
       }
 
@@ -350,6 +353,7 @@ end
 
 T['case insensitive search'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
     -- Clean any existing sessions first
@@ -369,8 +373,8 @@ T['case insensitive search'] = function()
         tags = {'JavaScript', 'React', 'Frontend'}
       },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = helpers.timestamp(),
+      created_at = helpers.datetime(),
       title = 'JavaScript React Tutorial',
     }
 
@@ -437,6 +441,7 @@ end
 
 T['search with empty results'] = function()
   child.lua([[
+    local helpers = require('tests.helpers')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
     -- Clean any existing sessions first
@@ -456,8 +461,8 @@ T['search with empty results'] = function()
         tags = {'test', 'simple'}
       },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = helpers.timestamp(),
+      created_at = helpers.datetime(),
       title = 'Test Session',
     }
 

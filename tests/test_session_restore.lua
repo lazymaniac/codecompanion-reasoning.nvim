@@ -141,7 +141,7 @@ T['restores all visible messages'] = function()
       metadata = { total_messages = #messages },
       config = { adapter = 'test', model = 'mock' },
       tools = {},
-      timestamp = os.time(),
+      timestamp = h.timestamp(),
     }
 
     local filename = 'session_restore_test.lua'
@@ -175,7 +175,7 @@ T['restores tool call cycles visibly'] = function()
       metadata = { total_messages = 4 },
       config = { adapter = 'test', model = 'mock' },
       tools = { 'ask_user' },
-      timestamp = os.time(),
+      timestamp = h.timestamp(),
     }
 
     local filename = 'session_tool_cycle_test.lua'
@@ -214,7 +214,7 @@ T['reuses existing chat when provided'] = function()
       metadata = { total_messages = 2 },
       config = { adapter = 'test', model = 'reuse' },
       tools = {},
-      timestamp = os.time(),
+      timestamp = h.timestamp(),
     }
 
     local filename = 'session_reuse_existing.lua'

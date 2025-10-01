@@ -47,7 +47,7 @@ function SessionTitleGenerator:should_generate(chat)
   local applied = (chat.opts and chat.opts._title_generated_counts) or {}
 
   local refresh_opts = config.get().session_title_generator or {}
-  local n = refresh_opts.refresh_every_n_prompts or 3
+  local n = refresh_opts.refresh_every_n_prompts or refresh_opts.refresh_every_n_user_prompts or 3
   if type(n) ~= 'number' or n <= 0 then
     n = 3
   end

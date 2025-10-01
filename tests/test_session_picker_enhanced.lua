@@ -63,6 +63,7 @@ local T = new_set({
 
 -- Helper function to create test session
 local function create_test_session(session_id, title, messages, metadata)
+  local offset = tonumber(session_id) or 0
   return {
     version = '2.0',
     messages = messages or {
@@ -73,8 +74,8 @@ local function create_test_session(session_id, title, messages, metadata)
       total_messages = #(messages or {}),
     }, metadata or {}),
     config = { adapter = 'test', model = 'mock-' .. session_id },
-    timestamp = os.time() + session_id,
-    created_at = os.date('%Y-%m-%d %H:%M:%S', os.time() + session_id),
+    timestamp = h.timestamp(offset),
+    created_at = h.datetime(offset),
     title = title or ('Test Session ' .. session_id),
   }
 end
@@ -96,8 +97,8 @@ T['rename session functionality'] = function()
       messages = { { role = 'user', content = 'Test message' } },
       metadata = { total_messages = 1 },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'Original Title',
     }
 
@@ -154,8 +155,8 @@ T['regenerate title functionality'] = function()
       },
       metadata = { total_messages = 2 },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'Original Title',
     }
 
@@ -275,8 +276,8 @@ T['delete all sessions functionality'] = function()
         messages = { { role = 'user', content = 'Test message ' .. i } },
         metadata = { total_messages = 1 },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = os.time() + i,
-        created_at = os.date('%Y-%m-%d %H:%M:%S'),
+        timestamp = h.timestamp(i),
+        created_at = h.datetime(i),
         title = 'Test Session ' .. i,
       }
 
@@ -330,8 +331,8 @@ T['toggle favorite functionality'] = function()
       messages = { { role = 'user', content = 'Test message' } },
       metadata = { total_messages = 1, favorite = false },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'Test Session',
     }
 
@@ -400,8 +401,8 @@ T['search sessions functionality'] = function()
           tags = data.tags
         },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = os.time() + i,
-        created_at = os.date('%Y-%m-%d %H:%M:%S'),
+        timestamp = h.timestamp(i),
+        created_at = h.datetime(i),
         title = data.title,
       }
 
@@ -489,8 +490,8 @@ T['session tags generation'] = function()
       },
       metadata = { total_messages = 4 },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'Flask Web Development',
     }
 
@@ -548,8 +549,8 @@ T['regenerate tags functionality'] = function()
         tags = {'old', 'tags', 'to', 'replace'}
       },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'React Hooks Tutorial',
     }
 
@@ -601,22 +602,22 @@ T['favorite sessions sorting'] = function()
     local sessions_data = {
       {
         title = 'Oldest Session',
-        timestamp = os.time() - 100,
+        offset = -100,
         is_favorite = false
       },
       {
         title = 'Newest Non-Favorite',
-        timestamp = os.time(),
+        offset = 0,
         is_favorite = false
       },
       {
         title = 'Middle Favorite',
-        timestamp = os.time() - 50,
+        offset = -50,
         is_favorite = true
       },
       {
         title = 'Older Favorite',
-        timestamp = os.time() - 75,
+        offset = -75,
         is_favorite = true
       },
     }
@@ -630,8 +631,8 @@ T['favorite sessions sorting'] = function()
           favorite = data.is_favorite
         },
         config = { adapter = 'test', model = 'mock' },
-        timestamp = data.timestamp,
-        created_at = os.date('%Y-%m-%d %H:%M:%S', data.timestamp),
+        timestamp = h.timestamp(data.offset),
+        created_at = h.datetime(data.offset),
         title = data.title,
       }
 
@@ -678,8 +679,8 @@ T['token estimation in sessions'] = function()
       },
       metadata = { total_messages = 2 },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'Token Estimation Test',
     }
 
@@ -727,8 +728,8 @@ T['summarize session functionality'] = function()
       },
       metadata = { total_messages = 6 },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'React Components Tutorial',
     }
 
@@ -747,7 +748,7 @@ T['summarize session functionality'] = function()
               content = '**[Session Summary - 6 messages compacted]**\n\nDiscussion about React components, including functional vs class components and state management with hooks.',
               opts = {
                 tag = 'session_summary',
-                compacted_at = os.time(),
+                compacted_at = h.timestamp(),
                 original_message_count = 6,
               },
             },
@@ -811,8 +812,8 @@ T['session list display with favorites and tags'] = function()
         tags = {'python', 'testing', 'automation'}
       },
       config = { adapter = 'test', model = 'mock' },
-      timestamp = os.time(),
-      created_at = os.date('%Y-%m-%d %H:%M:%S'),
+      timestamp = h.timestamp(),
+      created_at = h.datetime(),
       title = 'Favorite Test Session',
     }
 

@@ -4,6 +4,7 @@ local MiniTest = require('mini.test')
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 local ReasoningPlugin = require('codecompanion-reasoning')
 local Config = require('codecompanion._extensions.reasoning.config')
+local helpers = require('tests.helpers')
 
 -- Test suite for chat history
 local T = MiniTest.new_set({
@@ -38,17 +39,17 @@ local function create_mock_chat()
       {
         role = 'user',
         content = 'Hello, can you help me with some code?',
-        timestamp = os.time() - 100,
+        timestamp = helpers.timestamp(-100),
       },
       {
         role = 'assistant',
         content = "Of course! I'd be happy to help you with your code. What do you need assistance with?",
-        timestamp = os.time() - 50,
+        timestamp = helpers.timestamp(-50),
       },
       {
         role = 'user',
         content = 'I need to implement a binary search function.',
-        timestamp = os.time(),
+        timestamp = helpers.timestamp(),
       },
     },
     tools = { 'add_tools', 'project_context' },

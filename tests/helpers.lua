@@ -1,6 +1,77 @@
 -- Test helpers for MiniTest framework
 local helpers = {}
 
+helpers.FIXED_TIMESTAMP = 1700000000
+
+local base_components = {
+  year = 2023,
+  month = 11,
+  day = 14,
+  hour = 22,
+  min = 13,
+  sec = 20,
+}
+
+local function days_in_month(year, month)
+  local month_lengths = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 }
+  if month == 2 then
+    local is_leap = (year % 4 == 0 and year % 100 ~= 0) or (year % 400 == 0)
+    if is_leap then
+      return 29
+    end
+  end
+  return month_lengths[month]
+end
+
+local function normalize_datetime(offset)
+  offset = offset or 0
+
+  local total_seconds = base_components.sec + offset
+  local sec = ((total_seconds % 60) + 60) % 60
+  local minute_carry = math.floor((total_seconds - sec) / 60)
+
+  local total_minutes = base_components.min + minute_carry
+  local min = ((total_minutes % 60) + 60) % 60
+  local hour_carry = math.floor((total_minutes - min) / 60)
+
+  local total_hours = base_components.hour + hour_carry
+  local hour = ((total_hours % 24) + 24) % 24
+  local day_carry = math.floor((total_hours - hour) / 24)
+
+  local day = base_components.day + day_carry
+  local month = base_components.month
+  local year = base_components.year
+
+  while day > days_in_month(year, month) do
+    day = day - days_in_month(year, month)
+    month = month + 1
+    if month > 12 then
+      month = 1
+      year = year + 1
+    end
+  end
+
+  while day <= 0 do
+    month = month - 1
+    if month < 1 then
+      month = 12
+      year = year - 1
+    end
+    day = day + days_in_month(year, month)
+  end
+
+  return year, month, day, hour, min, sec
+end
+
+function helpers.timestamp(offset)
+  return helpers.FIXED_TIMESTAMP + (offset or 0)
+end
+
+function helpers.datetime(offset)
+  local year, month, day, hour, min, sec = normalize_datetime(offset)
+  return string.format('%04d-%02d-%02d %02d:%02d:%02d', year, month, day, hour, min, sec)
+end
+
 --- Assert that `actual` equals `expected`.
 --- Works both in parent process (MiniTest available) and child processes.
 --- @param expected any Expected value
