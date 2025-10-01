@@ -79,7 +79,7 @@ local function ensure_key_facts_section(lines)
     table.insert(lines, '')
   end
   table.insert(lines, '## Key Facts')
-  table.insert(lines, "*Use `project_knowledge` to capture durable insights (e.g., auth lives in `apps/auth`).*")
+  table.insert(lines, '*Use `project_knowledge` to capture durable insights (e.g., auth lives in `apps/auth`).*')
 
   return #lines - 1
 end

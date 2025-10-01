@@ -128,7 +128,10 @@ function ProjectKnowledgeInitializer.queue_initialization_instructions(chat)
   table.insert(lines, '- Draft the full content using the following structure:')
   table.insert(lines, '  - Project Overview: what the project does, tech stack, how to run/test')
   table.insert(lines, '  - Directory Structure: key directories and their purposes')
-  table.insert(lines, '  - Key Facts: starter guidance for the durable insights section (actual facts captured later via `project_knowledge`)')
+  table.insert(
+    lines,
+    '  - Key Facts: starter guidance for the durable insights section (actual facts captured later via `project_knowledge`)'
+  )
   table.insert(lines, '')
   table.insert(
     lines,
