@@ -92,7 +92,7 @@ SELECTION GUIDELINES
       local agent_config = tools_config[selected_agent]
 
       if agent_config and chat.tool_registry then
-        chat.tool_registry:add(selected_agent, agent_config)
+        chat.tool_registry:add(selected_agent, vim.deepcopy(agent_config))
 
         local companion_tools = { 'ask_user', 'add_tools', 'project_knowledge' }
         local added_companions = {}
@@ -100,7 +100,7 @@ SELECTION GUIDELINES
         for _, tool_name in ipairs(companion_tools) do
           local tool_config = tools_config[tool_name]
           if tool_config then
-            chat.tool_registry:add(tool_name, tool_config)
+            chat.tool_registry:add(tool_name, vim.deepcopy(tool_config))
             table.insert(added_companions, tool_name)
           end
         end
@@ -125,7 +125,8 @@ SELECTION GUIDELINES
 
         local success_message = fmt('✅ %s agent is ready.', human_agent)
         local tools_message = fmt('Attached companion tools: %s', table.concat(human_tools, ', '))
-        local next_message = 'Next: Use Add Tools to list optional tools, then add what you need before proceeding.'
+        local next_message =
+          'Next: Review the AVAILABLE TOOLS section in the system prompt, then add what you need with add_tools before proceeding.'
 
         local combined = table.concat({ success_message, tools_message, next_message }, '\n')
         chat:add_tool_output(self, combined, combined)

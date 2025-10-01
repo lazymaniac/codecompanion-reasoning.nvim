@@ -4,7 +4,7 @@
 
 local M = {}
 
-M.version = '0.1.0'
+M.version = '0.2.0'
 
 ---@type table|nil
 local _extension
@@ -32,16 +32,7 @@ end
 
 --- Setup the CodeCompanion Reasoning extension.
 --- This forwards the configuration to the internal extension.
---- @param opts? table Optional configuration table with the following options:
----   - chat_history.auto_save: boolean (default: true) - Enable auto-saving of chat sessions
----   - chat_history.auto_load_last_session: boolean (default: true) - Automatically load the last session on startup
----   - chat_history.auto_generate_title: boolean (default: true) - Automatically generate titles for sessions
----   - chat_history.sessions_dir: string - Directory to store sessions (default: stdpath('data')/codecompanion-reasoning/sessions)
----   - chat_history.max_sessions: number (default: 100) - Maximum number of sessions to keep
----   - chat_history.enable_commands: boolean (default: true) - Enable user commands
----   - chat_history.picker: string (default: 'default') - Picker backend: only 'default' is supported ('auto' alias)
----   - chat_history.continue_last_chat: boolean (default: true) - Show startup dialog for continuing last chat
----   - chat_history.title_generation_opts: table - Title generation configuration
+--- @param opts? table Optional configuration table.
 --- @return table|nil config The extension configuration, or nil if loading failed.
 function M.setup(opts)
   local ext = load_extension()
@@ -148,11 +139,12 @@ end
 
 --- Restore a session by creating a new CodeCompanion chat with the session messages.
 --- @param filename string Session filename to restore
+--- @param opts? table Optional restore options forwarded to the session manager
 --- @return boolean success Whether restoration was successful
-function M.restore_session(filename)
+function M.restore_session(filename, opts)
   local ok, session_manager = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
   if ok then
-    local success, error_msg = session_manager.restore_session(filename)
+    local success, error_msg = session_manager.restore_session(filename, opts)
     if not success then
       vim.notify(string.format('Failed to restore session: %s', error_msg), vim.log.levels.ERROR)
       return false
@@ -164,11 +156,11 @@ function M.restore_session(filename)
   end
 end
 
---- Automatically load the last session if enabled.
-function M.auto_load_last_session()
+--- Continue the last session if `chat_history.continue_chat` is set to `"last"`.
+function M.continue_last_session()
   local ok, session_manager = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
   if ok then
-    session_manager.auto_load_last_session()
+    session_manager.continue_last_session()
   else
     vim.notify('[codecompanion-reasoning.nvim] Failed to load session manager for auto-load', vim.log.levels.WARN)
   end
@@ -180,17 +172,6 @@ function M.show_project_history()
   if ok then
     local session_ui = ui.new()
     session_ui:browse_project_sessions()
-  else
-    vim.notify('[codecompanion-reasoning.nvim] Failed to load session UI', vim.log.levels.ERROR)
-  end
-end
-
---- Show startup continuation dialog if configured.
-function M.show_startup_dialog()
-  local ok, ui = pcall(require, 'codecompanion._extensions.reasoning.ui.session_manager_ui')
-  if ok then
-    local session_ui = ui.new({ continue_last_chat = true })
-    session_ui:show_startup_dialog()
   else
     vim.notify('[codecompanion-reasoning.nvim] Failed to load session UI', vim.log.levels.ERROR)
   end

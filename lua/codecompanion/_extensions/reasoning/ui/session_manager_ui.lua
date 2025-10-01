@@ -3,7 +3,7 @@
 local SessionManagerUI = {}
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
-local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.title_generator')
+local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.session_title_generator')
 local pickers = require('codecompanion._extensions.reasoning.ui.pickers')
 
 ---Create new session manager UI instance
@@ -16,7 +16,7 @@ function SessionManagerUI.new(opts)
     picker = 'default', -- only 'default' is supported ('auto' falls back for compatibility)
     auto_save = true,
     auto_generate_title = true,
-    continue_last_chat = false,
+    continue_chat = false,
     keymaps = {
       rename = { n = 'r', i = '<M-r>' },
       delete = { n = 'd', i = '<M-d>' },
@@ -25,10 +25,7 @@ function SessionManagerUI.new(opts)
   }, opts or {})
 
   -- Initialize title generator
-  self.title_generator = TitleGenerator.new({
-    auto_generate_title = self.opts.auto_generate_title,
-    title_generation_opts = self.opts.title_generation_opts or {},
-  })
+  self.title_generator = TitleGenerator.new()
 
   return self
 end
@@ -78,11 +75,10 @@ end
 
 ---Restore a chat session
 ---@param session table Session metadata
-function SessionManagerUI:restore_session(session)
-  local success, result = SessionManager.restore_session(session.filename)
-  if success then
-    vim.notify(string.format('Restored session: %s', session.title or session.filename), vim.log.levels.INFO)
-  else
+---@param opts? table Optional restore options forwarded to the session manager
+function SessionManagerUI:restore_session(session, opts)
+  local success, result = SessionManager.restore_session(session.filename, opts)
+  if not success then
     vim.notify(string.format('Failed to restore session: %s', result or 'unknown error'), vim.log.levels.ERROR)
   end
 end
@@ -219,41 +215,6 @@ end
 function SessionManagerUI:browse_project_sessions()
   local project_root = require('codecompanion._extensions.reasoning.helpers.session_manager').find_project_root()
   self:browse_sessions({ project_root = project_root })
-end
-
----Show startup continuation dialog if enabled
-function SessionManagerUI:show_startup_dialog()
-  if not self.opts.continue_last_chat then
-    return
-  end
-
-  local sessions = SessionManager.list_sessions()
-  if #sessions == 0 then
-    return
-  end
-
-  -- Get the most recent session
-  local last_session = sessions[1]
-  if not last_session then
-    return
-  end
-
-  -- Show simple confirmation dialog
-  local title = last_session.title or 'Previous session'
-  local msg =
-    string.format('Continue with last session: "%s" from %s?', title, last_session.created_at or 'unknown date')
-
-  vim.schedule(function()
-    local choice = vim.fn.confirm(msg, '&Continue\n&Browse All\n&New Session', 3, 'Question')
-    if choice == 1 then
-      -- Continue with last session
-      self:restore_session(last_session)
-    elseif choice == 2 then
-      -- Browse all sessions
-      self:browse_sessions()
-    end
-    -- Choice 3 (New Session) does nothing - user continues normally
-  end)
 end
 
 ---Generate a title for a chat session

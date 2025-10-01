@@ -3,19 +3,14 @@
 local SessionManager = {}
 
 local fmt = string.format
-local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.title_generator')
+local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.session_title_generator')
 local SessionStorage = require('codecompanion._extensions.reasoning.helpers.session_storage')
 local SessionDataTransformer = require('codecompanion._extensions.reasoning.helpers.session_data_transformer')
 local SessionRestorer = require('codecompanion._extensions.reasoning.helpers.session_restorer')
+local config = require('codecompanion._extensions.reasoning.config')
 
 local immediate_auto_load_scheduled = false
 local pending_auto_load = nil
-
-local CONFIG = {
-  auto_save = true,
-  auto_load_last_session = true,
-  auto_generate_title = true,
-}
 
 local function perform_auto_load(chat)
   if not pending_auto_load or pending_auto_load.executing then
@@ -112,7 +107,7 @@ function SessionManager.save_session(chat)
 
   if existing_title and existing_title ~= '' then
     session_data.title = existing_title
-  elseif CONFIG.auto_generate_title and session_data.messages and #session_data.messages > 0 then
+  elseif config.get().session_history.auto_generate_title and session_data.messages and #session_data.messages > 0 then
     session_data.title = SessionDataTransformer.generate_simple_title(session_data.messages)
   end
 
@@ -125,11 +120,10 @@ function SessionManager.save_session(chat)
   chat.opts = chat.opts or {}
   chat.opts.session_filename = filename
 
-  if CONFIG.auto_generate_title then
+  -- Auto-generate title if enabled
+  if config.get().session_history.auto_generate_title then
     pcall(function()
-      local tg = TitleGenerator.new({
-        auto_generate_title = true,
-      })
+      local tg = TitleGenerator.new()
       tg:generate(chat, function(new_title)
         if not new_title or new_title == '' then
           return
@@ -137,6 +131,20 @@ function SessionManager.save_session(chat)
         local updated = vim.deepcopy(session_data)
         updated.title = new_title
         SessionStorage.write_session(updated, filename)
+      end)
+    end)
+  end
+
+  -- Auto-generate tags for new sessions if we have enough content
+  if session_data.messages and #session_data.messages >= 2 then
+    pcall(function()
+      SessionManager._generate_session_tags(session_data, function(tags)
+        if tags and #tags > 0 then
+          local updated = vim.deepcopy(session_data)
+          updated.metadata = updated.metadata or {}
+          updated.metadata.tags = tags
+          SessionStorage.write_session(updated, filename)
+        end
       end)
     end)
   end
@@ -179,6 +187,15 @@ function SessionManager.list_sessions(filter_opts)
   for _, file_info in ipairs(session_files) do
     local raw_session_data, err = SessionStorage.read_session(file_info.filename)
     if raw_session_data then
+      -- Calculate token estimation
+      local token_estimate = nil
+      if raw_session_data.metadata and raw_session_data.metadata.token_estimate then
+        token_estimate = raw_session_data.metadata.token_estimate
+      else
+        -- Rough estimation: 4 characters per token
+        token_estimate = math.floor(file_info.stat.size / 4)
+      end
+
       table.insert(sessions, {
         filename = file_info.filename,
         created_at = raw_session_data.created_at or 'Unknown',
@@ -189,80 +206,24 @@ function SessionManager.list_sessions(filter_opts)
         file_size = file_info.stat.size,
         title = raw_session_data.title,
         preview = SessionDataTransformer.get_session_preview(raw_session_data),
+        tags = raw_session_data.metadata and raw_session_data.metadata.tags or {},
+        is_favorite = raw_session_data.metadata and raw_session_data.metadata.favorite or false,
+        token_estimate = token_estimate,
       })
     else
       vim.notify(fmt('Failed to read session %s: %s', file_info.filename, tostring(err)), vim.log.levels.WARN)
     end
   end
 
+  -- Sort sessions: favorites first, then by timestamp
   table.sort(sessions, function(a, b)
-    return a.timestamp > b.timestamp
+    if a.is_favorite ~= b.is_favorite then
+      return a.is_favorite -- favorites come first
+    end
+    return a.timestamp > b.timestamp -- then by timestamp (newest first)
   end)
 
   return sessions
-end
-
--- Asynchronously (re)generate titles for existing sessions
----@param filter_opts? table Optional filter for list_sessions
-function SessionManager.refresh_session_titles(filter_opts)
-  local sessions = SessionManager.list_sessions(filter_opts)
-  if #sessions == 0 then
-    return
-  end
-
-  local tg = TitleGenerator.new({ auto_generate_title = true })
-
-  for _, meta in ipairs(sessions) do
-    local session_data = SessionManager.load_session(meta.filename)
-    if
-      session_data
-      and (
-        not session_data.title
-        or session_data.title == ''
-        or session_data.title == SessionDataTransformer.get_session_preview(session_data)
-      )
-    then
-      local chat = {
-        messages = session_data.messages or {},
-        adapter = (function()
-          local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
-          if adapters_ok and adapters.resolve and session_data.config and session_data.config.adapter then
-            return adapters.resolve(session_data.config.adapter)
-          end
-          return nil
-        end)(),
-        settings = (function()
-          local schema_ok, schema = pcall(require, 'codecompanion.schema')
-          if schema_ok and session_data.config and session_data.config.model then
-            local adapters_ok2, adapters2 = pcall(require, 'codecompanion.adapters')
-            if adapters_ok2 and adapters2.resolve and session_data.config.adapter then
-              local adapter = adapters2.resolve(session_data.config.adapter)
-              if adapter then
-                return schema.get_default(adapter, { model = session_data.config.model })
-              end
-            end
-          end
-          return nil
-        end)(),
-      }
-
-      pcall(function()
-        tg:generate(chat, function(new_title)
-          if not new_title or new_title == '' then
-            return
-          end
-
-          local raw_session_data, read_err = SessionStorage.read_session(meta.filename)
-          if not raw_session_data then
-            return
-          end
-
-          raw_session_data.title = new_title
-          SessionStorage.write_session(raw_session_data, meta.filename)
-        end)
-      end)
-    end
-  end
 end
 
 -- Get a brief preview of session content
@@ -296,7 +257,7 @@ end
 -- Auto-save session after each new message
 ---@param chat table CodeCompanion chat object
 function SessionManager.auto_save_session(chat)
-  if not CONFIG.auto_save then
+  if not config.get().session_history.auto_save then
     return
   end
 
@@ -336,20 +297,20 @@ function SessionManager.get_last_session()
   return last_session.filename, nil
 end
 
--- Restore session by creating a new CodeCompanion chat with history
 ---@param filename string Session filename
+---@param opts? table Optional restore options (e.g. existing chat instance)
 ---@return boolean success, string? error_message
-function SessionManager.restore_session(filename)
+function SessionManager.restore_session(filename, opts)
   local session_data, err = SessionManager.load_session(filename)
   if not session_data then
     return false, err
   end
-  return SessionRestorer.restore_session(session_data, filename)
+  return SessionRestorer.restore_session(session_data, filename, opts)
 end
 
 -- Auto-load last session if enabled
-function SessionManager.auto_load_last_session()
-  if not CONFIG.auto_load_last_session then
+function SessionManager.continue_last_session()
+  if not config.get().session_history.continue_last_chat then
     return
   end
 
@@ -365,26 +326,20 @@ function SessionManager.auto_load_last_session()
   attempt_pending_auto_load()
 end
 
--- Get sessions directory path
-function SessionManager.get_sessions_dir()
-  return SessionStorage.get_sessions_dir()
-end
-
 -- Update configuration
----@param new_config table
-function SessionManager.setup(new_config)
-  if new_config then
-    CONFIG = vim.tbl_deep_extend('force', CONFIG, new_config)
-    SessionStorage.setup(new_config)
-  end
+function SessionManager.setup()
+  SessionStorage.setup()
 
-  if CONFIG.auto_load_last_session then
+  pending_auto_load = nil
+  immediate_auto_load_scheduled = false
+
+  if config.get().session_history.continue_last_chat then
     local group = vim.api.nvim_create_augroup('CodeCompanionSessionAutoLoad', { clear = true })
     vim.api.nvim_create_autocmd('VimEnter', {
       group = group,
       callback = function()
         vim.defer_fn(function()
-          SessionManager.auto_load_last_session()
+          SessionManager.continue_last_session()
         end, 100)
       end,
     })
@@ -392,7 +347,7 @@ function SessionManager.setup(new_config)
     if vim.v.vim_did_enter == 1 and not immediate_auto_load_scheduled then
       immediate_auto_load_scheduled = true
       vim.defer_fn(function()
-        SessionManager.auto_load_last_session()
+        SessionManager.continue_last_session()
       end, 100)
     end
 
@@ -421,8 +376,12 @@ function SessionManager.setup(new_config)
         perform_auto_load(chat)
       end,
     })
+  else
+    pcall(vim.api.nvim_del_augroup_by_name, 'CodeCompanionSessionAutoLoad')
   end
 end
+
+SessionManager.auto_load_last_session = SessionManager.continue_last_session
 
 -- Save session data directly (utility for UI operations)
 ---@param session_data table Session data to save
@@ -452,6 +411,168 @@ end
 ---@return string filename
 function SessionManager.generate_session_filename()
   return SessionStorage.generate_filename()
+end
+
+-- Generate tags for a session using LLM (internal function)
+---@param session_data table Session data
+---@param callback function Callback to receive tags array
+function SessionManager._generate_session_tags(session_data, callback)
+  if not session_data.messages or #session_data.messages == 0 then
+    if callback then
+      callback({})
+    end
+    return
+  end
+
+  -- Create a conversation context similar to title generation
+  local relevant_messages = vim.tbl_filter(function(msg)
+    local normalized_content = msg.content and normalize_content(msg.content) or ''
+    local has_content = vim.trim(normalized_content) ~= ''
+    local is_relevant_role = msg.role == 'user' or msg.role == 'assistant'
+    local not_tagged = not (msg.opts and (msg.opts.tag or msg.opts.reference or msg.opts.context_id))
+    return has_content and is_relevant_role and not_tagged
+  end, session_data.messages)
+
+  if #relevant_messages == 0 then
+    if callback then
+      callback({})
+    end
+    return
+  end
+
+  local conversation_lines = {}
+  for i = 1, math.min(10, #relevant_messages) do -- Limit to first 10 messages for tagging
+    local message = relevant_messages[i]
+    local role_prefix = message.role == 'user' and 'User' or 'Assistant'
+    local content = vim.trim(message.content)
+
+    if #content > 500 then
+      content = content:sub(1, 500) .. ' [truncated]'
+    end
+
+    table.insert(conversation_lines, role_prefix .. ': ' .. content)
+  end
+
+  local conversation_context = table.concat(conversation_lines, '\n')
+
+  local prompt = fmt(
+    [[Generate 3-5 relevant tags for this chat conversation. Tags should be:
+- Single words or short phrases (2-3 words max)
+- Descriptive of the main topics, technologies, or themes
+- Useful for categorization and search
+- Lowercase with no special characters
+
+Examples of good tags: "python", "debugging", "web development", "code review", "api design"
+
+Conversation:
+%s
+
+Respond with only a comma-separated list of tags, nothing else.
+
+Tags:]],
+    conversation_context
+  )
+
+  SessionManager._make_llm_request(session_data, prompt, function(response)
+    if response and response ~= '' then
+      -- Parse the response into tags
+      local tags = {}
+      for tag in response:gmatch('[^,]+') do
+        tag = vim.trim(tag):lower()
+        if tag ~= '' and #tag <= 20 then -- Reasonable tag length limit
+          table.insert(tags, tag)
+        end
+      end
+
+      -- Limit to 5 tags maximum
+      if #tags > 5 then
+        tags = vim.list_slice(tags, 1, 5)
+      end
+
+      if callback then
+        callback(tags)
+      end
+    else
+      if callback then
+        callback({})
+      end
+    end
+  end)
+end
+
+-- Make LLM requests for tags and other operations (internal function)
+---@param session_data table Session data for context
+---@param prompt string Prompt to send to LLM
+---@param callback function Callback to receive response
+function SessionManager._make_llm_request(session_data, prompt, callback)
+  local client_ok, client = pcall(require, 'codecompanion.http')
+  local schema_ok, schema = pcall(require, 'codecompanion.schema')
+  local adapters_ok, adapters = pcall(require, 'codecompanion.adapters')
+
+  if not client_ok or not schema_ok or not adapters_ok then
+    if callback then
+      callback(nil)
+    end
+    return
+  end
+
+  local function resolve_adapter(value)
+    if not value then
+      return nil
+    end
+    if type(value) == 'table' then
+      return value
+    end
+    return adapters.resolve(value)
+  end
+
+  local adapter = resolve_adapter(session_data.config and session_data.config.adapter)
+  if not adapter then
+    if callback then
+      callback(nil)
+    end
+    return
+  end
+
+  local settings = session_data.config and vim.deepcopy(session_data.config) or {}
+  settings = schema.get_default(adapter, settings)
+  settings = vim.deepcopy(adapter:map_schema_to_params(settings))
+  settings.opts = settings.opts or {}
+  settings.opts.stream = false
+
+  local payload = {
+    messages = adapter:map_roles({
+      { role = 'user', content = prompt },
+    }),
+  }
+
+  client.new({ adapter = settings }):request(payload, {
+    callback = function(err, data, _adapter)
+      if err and err.stderr ~= '{}' then
+        if callback then
+          callback(nil)
+        end
+        return
+      end
+
+      if data and _adapter and _adapter.handlers and _adapter.handlers.chat_output then
+        local result = _adapter.handlers.chat_output(_adapter, data)
+        if result and result.status == 'success' then
+          local response = vim.trim(result.output.content or '')
+          if callback then
+            callback(response)
+          end
+          return
+        end
+      end
+
+      if callback then
+        callback(nil)
+      end
+    end,
+  }, {
+    silent = true,
+  })
 end
 
 return SessionManager

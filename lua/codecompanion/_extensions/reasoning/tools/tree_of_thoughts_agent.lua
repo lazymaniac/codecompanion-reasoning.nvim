@@ -396,8 +396,8 @@ DEPTH & BREADTH REQUIREMENTS
 - Comparative analysis required before path selection
 
 EXAMPLE (use as reference)
-- `add_tools(action="list_tools")`
-- `add_tools(action="add_tool", tool_name="list_files")` — prepare to scope the change
+- Review AVAILABLE TOOLS section to identify optional helpers
+- `add_tools(tool_name="list_files")` — prepare to scope the change
 - `list_files(dir="lua", glob="**/*validation*.*")` — surface likely touchpoints
 - `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Problem angle 1: input validation edge cases")`
 - `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Problem angle 2: API consistency across validation functions")`

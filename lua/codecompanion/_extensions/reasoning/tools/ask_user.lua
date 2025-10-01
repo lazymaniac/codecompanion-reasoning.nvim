@@ -3,9 +3,7 @@ local fmt = string.format
 ---@class CodeCompanion.Tool.AskUser: CodeCompanion.Tools.Tool
 return {
   name = 'ask_user',
-
   opts = {},
-
   cmds = {
     function(self, args, input, callback)
       self.args = args
@@ -32,7 +30,6 @@ return {
       end)
     end,
   },
-
   schema = {
     type = 'function',
     ['function'] = {

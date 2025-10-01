@@ -2,138 +2,9 @@
 local ChatHooks = {}
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
-local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.title_generator')
-
-local auto_save_enabled = true
-
--- Utilities for project knowledge initialization
-local function find_project_root()
-  return vim.fn.getcwd()
-end
-
-local function knowledge_file_exists()
-  local root = find_project_root()
-  return vim.fn.filereadable(root .. '/.codecompanion/project-knowledge.md') == 1
-end
-
-local function ensure_codecompanion_dir()
-  local root = find_project_root()
-  local dir = root .. '/.codecompanion'
-  if vim.fn.isdirectory(dir) == 0 then
-    vim.fn.mkdir(dir, 'p')
-  end
-  return dir
-end
-
-local function project_prompt_sentinel()
-  local dir = ensure_codecompanion_dir()
-  return dir .. '/.project-knowledge-prompted'
-end
-
-local function has_prompted_project_once()
-  _G.__CC_REASONING_PROMPTED = _G.__CC_REASONING_PROMPTED or {}
-  local root = find_project_root()
-  if _G.__CC_REASONING_PROMPTED[root] then
-    return true
-  end
-  local sentinel = project_prompt_sentinel()
-  if vim.fn.filereadable(sentinel) == 1 then
-    _G.__CC_REASONING_PROMPTED[root] = true
-    return true
-  end
-  return false
-end
-
-local function mark_project_prompted()
-  _G.__CC_REASONING_PROMPTED = _G.__CC_REASONING_PROMPTED or {}
-  local root = find_project_root()
-  _G.__CC_REASONING_PROMPTED[root] = true
-  local sentinel = project_prompt_sentinel()
-  local f = io.open(sentinel, 'w')
-  if f then
-    f:write('prompted=true\n')
-    f:close()
-  end
-end
-
-local function add_tool_if_available(chat, tool_name)
-  local ok_cfg, config = pcall(require, 'codecompanion.config')
-  if not ok_cfg or not config or not config.strategies or not config.strategies.chat then
-    return false
-  end
-  local tool_cfg = config.strategies.chat.tools[tool_name]
-  if not tool_cfg or not chat or not chat.tool_registry or not chat.tool_registry.add then
-    return false
-  end
-  local ok = pcall(function()
-    chat.tool_registry:add(tool_name, tool_cfg, { visible = true })
-  end)
-  return ok and true or false
-end
-
-local function queue_initialization_instructions(chat)
-  local root = find_project_root()
-  local knowledge_path = root .. '/.codecompanion/project-knowledge.md'
-  local ai_files = {
-    'CLAUDE.md',
-    '.claude.md',
-    'AGENTS.md',
-    'agents.md',
-    '.agents.md',
-    '.cursorrules',
-    'cursor.md',
-    '.github/copilot-instructions.md',
-    'copilot-instructions.md',
-    'AI_CONTEXT.md',
-    'ai-context.md',
-    'INSTRUCTIONS.md',
-  }
-  local present = {}
-  for _, f in ipairs(ai_files) do
-    if vim.fn.filereadable(root .. '/' .. f) == 1 then
-      table.insert(present, f)
-    end
-  end
-
-  local lines = {
-    'Initialize Project Knowledge',
-    '',
-    ('Goal: Create a CONCISE project knowledge file at `%s` under 1,500 tokens.'):format(knowledge_path),
-    '',
-    'Instructions:',
-    '- Use `add_tools` to list available tools and add any read/write file tools needed to gather context.',
-  }
-  if #present > 0 then
-    table.insert(
-      lines,
-      '- Read these existing AI context files and extract relevant information: ' .. table.concat(present, ', ')
-    )
-  else
-    table.insert(lines, '- Infer details from README, package manifests, config files, and directory structure.')
-  end
-  table.insert(lines, '- Draft the full content using the following structure:')
-  table.insert(lines, '  - Project Overview: what the project does, tech stack, how to run/test')
-  table.insert(lines, '  - Directory Structure: key directories and their purposes')
-  table.insert(lines, '  - Changelog: start empty')
-  table.insert(lines, '')
-  table.insert(
-    lines,
-    'When ready, CALL the tool `initialize_project_knowledge` with parameter `content` set to the full markdown text.'
-  )
-
-  if chat and chat.add_message then
-    pcall(function()
-      chat:add_message({ role = 'user', content = table.concat(lines, '\n') }, { visible = true })
-    end)
-    if chat and type(chat.submit) == 'function' then
-      vim.schedule(function()
-        pcall(function()
-          chat:submit()
-        end)
-      end)
-    end
-  end
-end
+local TitleGenerator = require('codecompanion._extensions.reasoning.helpers.session_title_generator')
+local ProjectKnowledgeInitializer = require('codecompanion._extensions.reasoning.helpers.project_knowledge_initializer')
+local config = require('codecompanion._extensions.reasoning.config')
 
 local function setup_codecompanion_hooks()
   local group = vim.api.nvim_create_augroup('CodeCompanionReasoningHooks', { clear = true })
@@ -146,29 +17,8 @@ local function setup_codecompanion_hooks()
         return
       end
       local buf = event.data.bufnr
-      if (not knowledge_file_exists()) and (not has_prompted_project_once()) then
-        vim.schedule(function()
-          vim.ui.select({ '✓ Yes', '✗ No' }, {
-            prompt = 'No project knowledge file found. Initialize now by letting the AI create it? ',
-          }, function(choice)
-            mark_project_prompted()
-            if choice ~= '✓ Yes' then
-              return
-            end
-            ensure_codecompanion_dir()
-            local chat_obj = nil
-            local ok, Chat = pcall(require, 'codecompanion.strategies.chat')
-            if ok and Chat.buf_get_chat then
-              local chat_ok, result = pcall(Chat.buf_get_chat, buf)
-              if chat_ok then
-                chat_obj = result
-                add_tool_if_available(chat_obj, 'initialize_project_knowledge')
-                add_tool_if_available(chat_obj, 'add_tools')
-              end
-            end
-            queue_initialization_instructions(chat_obj)
-          end)
-        end)
+      if ProjectKnowledgeInitializer.needs_initialization() then
+        ProjectKnowledgeInitializer.prompt_for_initialization(buf)
       end
     end,
   })
@@ -193,8 +43,8 @@ local function setup_codecompanion_hooks()
         return
       end
 
-      local tg = TitleGenerator.new({ auto_generate_title = true })
-      local should, is_refresh = tg:should_generate(chat_obj)
+      local tg = TitleGenerator.new()
+      local should = tg:should_generate(chat_obj)
       if not should then
         return
       end
@@ -215,7 +65,7 @@ local function setup_codecompanion_hooks()
             SessionManager.auto_save_session(chat_obj)
           end)
         end
-      end, is_refresh)
+      end)
     end,
   })
 
@@ -223,10 +73,6 @@ local function setup_codecompanion_hooks()
     pattern = { 'CodeCompanionChatDone', 'CodeCompanionRequestStreaming' },
     group = group,
     callback = function(event)
-      if not auto_save_enabled then
-        return
-      end
-
       if not event.data then
         return
       end
@@ -260,10 +106,8 @@ local function setup_codecompanion_hooks()
 end
 
 -- Setup hooks
-function ChatHooks.setup(opts)
-  opts = opts or {}
-  auto_save_enabled = opts.auto_save ~= false
-  if auto_save_enabled then
+function ChatHooks.setup()
+  if config.get().session_history.auto_save then
     setup_codecompanion_hooks()
   end
 end

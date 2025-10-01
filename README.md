@@ -5,6 +5,7 @@ An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.
 It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
 
 ## Goals
+
 - Human id the loop - make work with LLMs more interactive
 - Fully automatic - no need to manually add tools when needed
 - Automatic Project Context initialization (conventions, how to run, test, directory structure...)
@@ -17,87 +18,572 @@ It helps LLM work in small, safe, and verifiable steps: pick an agent that fits 
 
 ### Reasoning Agents
 
-This extension provides three powerful reasoning agents, each specialized for different types of programming tasks:
+This extension provides three reasoning agents that structure AI problem-solving through disciplined, evidence-based workflows. Each agent is designed around specific cognitive patterns that match different programming scenarios, ensuring that complex tasks are approached systematically with verifiable steps.
 
-- **Chain of Thoughts Agent**
-  - Best for: Simple, linear tasks with a clear path forward
-  - Examples: Small bug fixes, single-file changes, config updates
-  - Features: Sequential reasoning with evidence and reflection
-  - Workflow: Analysis → Action → Validation → Next Step
+- **Chain of Thoughts Agent** excels at linear problem-solving where there's a clear, sequential path from problem to solution. This agent works best for straightforward tasks like fixing a specific bug, implementing a well-defined feature, or making targeted configuration changes. It follows a disciplined workflow of analysis, evidence gathering, decision-making, and validation. The agent should ensure each step builds logically on the previous one, making it ideal for tasks like methodical progression without exploring alternative approaches.
 
-- **Tree of Thoughts Agent**
-  - Best for: Tasks with multiple viable approaches
-  - Examples: API design, refactoring strategies, debugging complex issues
-  - Features: Explores multiple solution paths in parallel
-  - Workflow: Generate alternatives → Compare outcomes → Choose best path
+- **Tree of Thoughts Agent** for scenarios requiring exploration of multiple viable solutions before converging on the optimal approach. This agent implements a mandatory multi-path exploration pattern that forces consideration of genuine alternatives rather than rushing to the first plausible solution. When tackling problems with multiple potential causes, the Tree agent creates structured branching paths that explore different problem decomposition angles. The agent's workflow mandates evidence investigation through task branches before proposing solutions, comparative evaluation of alternatives, and synthesis of insights from the best approaches.
 
-- **Graph of Thoughts Agent**
-  - Best for: Cross-cutting concerns and multi-module changes
-  - Examples: Features spanning services, repository-wide updates
-  - Features: Maps relationships, merges insights across branches
-  - Workflow: Map dependencies → Analyze impacts → Synthesize solution
+- **Graph of Thoughts Agent** for most complex scenarios. This agent maps dependencies across the codebase, analyzes ripple effects of changes, and synthesizes solutions that account for complex interactions. It's particularly valuable for features spanning multiple services, repository-wide refactors, or architectural changes that affect logging, authentication, or data flow patterns. The Graph agent excels at tasks requiring synthesis of new knowledge from multiple information sources, ensuring that solutions account for all affected subsystems.
 
-- **Meta Agent**
-  - Automatically selects the best reasoning agent for your task
-  - Attaches essential companion tools (Ask User, Project Knowledge, Add Tools)
-  - Guides the workflow: Analysis → Decision → Change → Validate
+- **Meta Agent** serves as an intelligent dispatcher that automatically selects the most appropriate reasoning agent for your specific task. It analyzes the complexity, scope, and characteristics of your request to determine whether linear Chain reasoning, exploratory Tree reasoning, or interconnected Graph reasoning best fits the problem. The Meta Agent also automatically attaches essential companion tools including user consultation capabilities, project knowledge management, and dynamic tool discovery, ensuring right capabilities available from the start.
+
+#### Node Types and Evidence-Based Workflow
+
+The reasoning agents structure their work through four distinct node types that enforce evidence-based decision making:
+
+**Analysis Nodes** perform multi-dimensional problem decomposition, breaking complex issues into distinct facets or angles. These nodes are mandatory starting points that prevent rushing to solutions without proper understanding. The Tree and Graph agents require multiple analysis nodes to ensure comprehensive problem exploration.
+
+**Task Nodes** conduct evidence investigation and implementation actions. These nodes are the foundation of evidence-based reasoning, requiring agents to gather contextual information, research existing patterns, and understand constraints before proposing solutions. Task nodes might investigate current codebase patterns, analyze similar implementations, examine error logs, or conduct focused research. Crucially, evidence-gathering task nodes must precede solution reasoning, ensuring decisions are grounded in observed facts rather than assumptions.
+
+**Reasoning Nodes** propose specific solution hypotheses based on gathered evidence. These nodes present concrete approaches with explicit trade-offs, always building on insights discovered through task node investigation. The Tree agent mandates multiple reasoning alternatives per analysis branch, forcing consideration of different approaches.
+
+**Validation Nodes** perform comparative verification of reasoning alternatives, testing feasibility, complexity, maintainability, and risk factors. These nodes ensure that multiple approaches are systematically evaluated before path selection. The Tree agent requires validation of multiple alternatives before convergence, preventing selection of suboptimal solutions.
+
+#### Mandatory Patterns and Workflows
+
+The reasoning agents implement strict workflow patterns that prevent common AI pitfalls like premature convergence, insufficient evidence gathering, and single-path thinking:
+
+**Root Decomposition** requires creating 2-4 analysis children that explore different problem facets before any solution work begins. This ensures comprehensive problem understanding and prevents narrow thinking.
+
+**Evidence Investigation** mandates task nodes that gather contextual information, research existing patterns, and understand constraints before proposing any solutions. Evidence gathering must precede reasoning in all workflows.
+
+**Solution Alternatives** require generating 2-3 reasoning branches per major decision point, with different approaches and explicit trade-offs. This prevents anchoring on the first plausible solution.
+
+**Comparative Evaluation** demands validation branches that systematically compare alternatives on criteria like complexity, maintainability, risk, and alignment with project goals before path selection.
+
+**Synthesis Convergence** combines insights from the best alternative approaches into integrated implementations, ensuring final solutions benefit from multi-path exploration.
+
+These patterns should ensure that AI assistants work through problems systematically, gather sufficient evidence, explore genuine alternatives, and make well-informed decisions rather than rushing to implementation. The structured approach is particularly valuable for complex software engineering tasks where hasty decisions can create technical debt, introduce bugs, or miss better architectural solutions.
 
 ### Interactive Tools
 
-- **Ask User**
-  - Interactive decision-making for ambiguous choices
-  - Required before destructive changes (deletions, rewrites)
-  - Presents numbered options with explanations
-  - Example: "Found failing tests. Should I: 1) Implement missing function, 2) Update tests?"
+The extension provides powerful interactive tools that transform AI-assisted development from passive Q&A into dynamic collaboration. These tools address real development challenges: making decisions when multiple approaches are valid, maintaining project context across sessions, discovering capabilities dynamically, and keeping systematic records of your work.
 
-- **Project Knowledge**
-  - Maintains `.codecompanion/project-knowledge.md` as source of truth
-  - Auto-loads into new chats for consistent context
-  - Records changes with `project_knowledge` tool
-  - Example changelog: "Added user authentication to API endpoints (auth.js, routes.js)"
+#### Example diagram of helper tools
 
-- **Tool Discovery**
-  - Dynamic tool management via `add_tools`
-  - Lists available capabilities
-  - Adds specific tools to current chat
-  - Example: `add_tools(action="list_tools")` then `add_tools(action="add_tool", tool_name="<tool_from_list>")`
+```
+  Development Problem
+         |
+         v
+    Need Decision?  ----yes----> ask_user
+         |                         |
+         no                       User Choice
+         |                         |
+         v                         v
+    Need Context?  ----yes----> project_knowledge
+         |                         |
+         no                   Update Records
+         |                         |
+         v                         v
+    Need Tools?    ----yes----> add_tools
+         |                         |
+         no                    Tool Ready
+         |                         |
+         v                         v
+    Need Files?    ----yes----> list_files
+         |                         |
+         no                    Files Listed
+         |                         |
+         v                         v
+    Continue Work  <---------  Problem Solved
+```
 
-- **List Files**
-  - Fast file listing (respects `.gitignore` when in a Git repo)
-  - Filter by directory and glob (e.g., `dir="lua"`, `glob="**/*.lua"`)
-  - Great for quick repo orientation inside the chat
+#### Ask User Tool
 
-- **Project Knowledge (Initializer)**
-  - `initialize_project_knowledge` bootstraps a `.codecompanion/project-knowledge.md` guide for your repo
-  - Captures conventions, how to run/test, and key directories so the model has reliable context
+**Purpose**: Interactive consultation for coding decisions when multiple valid approaches exist, preventing AI from making arbitrary choices on ambiguous problems.
+
+**Core Functionality**:
+
+- Presents clear questions with numbered options for complex decisions
+- Blocks destructive operations until user approval
+- Handles architecture choices that affect long-term maintainability
+- Manages performance vs. maintainability trade-offs
+
+**Schema Parameters**:
+
+- `question` (required): Clear, specific question explaining the decision context and why it matters
+- `options` (optional): Array of 2-3 numbered choices, allowing custom responses
+
+**Use Cases**:
+
+```
+User ────> AI: "Refactor this legacy code"
+           │
+           v
+          AI: Discovers multiple approaches
+           │
+           v
+        Ask User Tool: Present options with context
+           │
+           v
+        User: "Found legacy authentication code.
+               Options:
+               1) Gradual refactor (safer, slower)
+               2) Complete rewrite (faster, riskier)
+               3) Extract to new module"
+           │
+           v
+        User: Select option 1
+           │
+           v
+          AI: User chose gradual refactor
+           │
+           v
+        User: ◄──── Implement chosen approach
+```
+
+#### Project Knowledge Tool
+
+**Purpose**: Maintains project context in `.codecompanion/project-knowledge.md`, providing persistent memory across chat sessions and team members.
+
+**Core Functionality**:
+
+- Auto-loads existing project knowledge into every new chat
+- Records significant changes with approval workflow
+- Maintains chronological changelog of development decisions
+- Serves as single source of truth for project conventions
+
+**Schema Parameters**:
+
+- `description` (required): Brief description of accomplished work or learned insights
+- `files` (optional): Array of involved files (auto-detects from git if not provided)
+
+**Knowledge Structure**:
+
+```
+  .codecompanion/project-knowledge.md
+              │
+              v
+     ┌────────────────────┐
+     │ Project Overview   │  ◄─ High-level description, tech stack, how to run or test
+     └────────────────────┘
+              │
+              v
+     ┌────────────────────┐
+     │ Directory Structure│ ◄─ Key directories and purposes
+     └────────────────────┘
+              │
+              v
+     ┌────────────────────┐
+     │ Changelog          │ ◄─ Chronological development log
+     └────────────────────┘
+              │
+              v
+     ┌────────────────────┐
+     │ Auto-loaded into   │ ◄─ Every new chat gets this context
+     │ New Chat Sessions  │
+     └────────────────────┘
+```
+
+**Workflow Integration**:
+
+```
+User ──────────────> AI: Start new chat
+                     │
+                     v
+Project Knowledge: Auto-load context
+                     │
+                     v
+                    AI: Load .codecompanion/project-knowledge.md
+                     │
+                     v
+User: ◄─────────────AI: "I see this is a React app with custom auth..."
+
+User ──────────────> AI: Implement feature
+                     │
+                     v
+User: ◄─────────────AI: Complete feature implementation
+                     │
+                     v
+Project Knowledge: Record changes
+                     │
+                     v
+User: ◄──── Show approval dialog
+                     │
+                     v
+User ──────────────> Approve knowledge update
+                     │
+                     v
+                   File: Update changelog
+```
+
+#### Add Tools (Dynamic Capability Discovery)
+
+**Purpose**: Dynamically attaches optional tools (core tools, MCP tools, local tools) to current chat based on emerging needs, enabling just-in-time capability addition without cluttering the initial tool set.
+
+**Core Functionality**:
+
+- Reviews AVAILABLE TOOLS catalog in system prompt
+- Validates tool availability and enablement status
+- Adds tools to current chat's tool registry
+- Prevents addition of excluded tools (reasoning agents, auto-added tools)
+
+**Schema Parameters**:
+
+- `tool_name` (required): Exact tool name matching AVAILABLE TOOLS section
+
+**Tool Discovery Workflow**:
+
+```
+    [Start] AI needs new capability
+        │
+        v
+    Review Tools: Read AVAILABLE TOOLS section
+        │
+        v
+    Check Catalog: Find exact tool name
+        │
+        v
+    Validate Tool ──────────────────────┐
+        │                               │
+        v                               v
+    Add Tool: add_tools(tool_name="...")  Error: Tool not found/disabled
+        │                               │
+        v                               v
+    Tool Ready: "tool_name ready!"    [End]
+        │
+        v
+    Use Feature: AI can now call the tool
+        │
+        v
+     [End]
+```
+
+#### List Files Tool
+
+**Purpose**: Provides fast, intelligent file system navigation that respects project structure and ignore patterns, enabling AI to understand codebase organization and locate relevant files.
+
+**Core Functionality**:
+
+- Leverages git for smart file listing (respects `.gitignore`)
+- Falls back to filesystem scan with sensible ignore patterns
+- Supports directory scoping and glob pattern filtering
+- Optimized for large repositories with result limits
+
+**Schema Parameters**:
+
+- `dir` (optional): Base directory (absolute or relative to project root)
+- `glob` (optional): Pattern filter (e.g., `**/*.lua`, `*test*`, `api/**/*.js`)
+
+**Intelligent Behavior**:
+
+```
+    list_files() call
+          │
+          v
+    ┌─────────────┐
+    │ Git repo?   │────no────► Filesystem scan
+    └─────────────┘              with ignore patterns
+          │                     (node_modules, .git, etc.)
+         yes
+          │
+          v
+    ┌─────────────┐
+    │ Use git     │
+    │ ls-files    │
+    │ (respects   │
+    │ .gitignore) │
+    └─────────────┘
+          │
+          v
+    Format results with project root context
+```
+
+#### Initialize Project Knowledge Tool
+
+**Purpose**: Bootstraps comprehensive project documentation by analyzing repository structure, extracting conventions, and creating the foundational `.codecompanion/project-knowledge.md` file.
+
+**Core Functionality**:
+
+- Analyzes project structure and identifies technology stack
+- Discovers build/test/run commands from common files (`package.json`, `Makefile`, etc.)
+- Documents directory organization and key architectural patterns
+- Creates template that AI can reference in future sessions
+
+**Use Cases**:
+
+• **New Project Setup**: First-time documentation of project conventions and structure
+
+• **Team Onboarding**: Systematic capture of tribal knowledge for new team members
+
+• **Legacy Projects**: Documentation of existing codebases lacking formal documentation
+
+• **Context Recovery**: Re-establishing project understanding after long breaks
+
+**Generated Knowledge Structure**:
+
+- **Project Overview**: Technology stack, purpose, key dependencies
+- **Directory Structure**: Explanation of module organization
+- **Development Workflow**: How to run, test, build, and deploy
+- **Conventions**: Coding standards, naming patterns, architectural decisions
+- **Recent Changes**: Foundation for ongoing changelog tracking
+
+#### Tool Interaction Patterns
+
+**Sequential Tool Usage**:
+
+```
+User ─────────────> AI: "Add user authentication"
+                    │
+                    v
+               Add Tools: add_tools(tool_name="list_files")
+                    │
+                    v
+                   AI: ◄─── "list_files ready to use!"
+                    │
+                    v
+              List Files: list_files(glob="**/*auth*")
+                    │
+                    v
+                   AI: ◄─── Show existing auth files
+                    │
+                    v
+                Ask User: "Found partial auth. Complete or rewrite?"
+                    │
+                    v
+User: ◄──────── Present options
+                    │
+                    v
+User ─────────────> "Complete existing"
+                    │
+                    v
+                   AI: ◄─── User decision
+                    │
+                    v
+               Add Tools: add_tools(tool_name="neovim__edit_file")
+                    │
+                    v
+User: ◄─────────   AI: Implement completion
+                    │
+                    v
+        Project Knowledge: Record changes
+```
+
+These interactive tools transform AI assistance from reactive responses into proactive collaboration, ensuring decisions are user-guided, context is preserved, capabilities grow with needs, and knowledge accumulates systematically across development sessions.
 
 ### Session Management
 
-- **Functionality-Specific Adapters**
-  - Configure different adapters/models per functionality
-  - Session optimization with fast local models (e.g., Ollama)
-  - Title generation with creative models (e.g., GPT-4)
-  - Cost and quality optimization per use case
+Session Management provides comprehensive development workspace persistence with intelligent session handling, automatic metadata generation, and advanced organization features. This system transforms CodeCompanion from a single-use chat into a persistent knowledge base that grows with your projects.
 
-- **History and Restoration**
-  - Auto-saves chat sessions
-  - Browse history with UI picker
-  - Restore previous sessions
-  - Project-scoped session views
+#### Functionality-Specific Adapters
 
-- **Smart Titles**
-  - Auto-generates descriptive titles
-  - Updates based on conversation progress
-  - Configurable refresh intervals
-  - Example: "Debugging authentication middleware timeout"
-  - Command: `:CodeCompanionRefreshSessionTitles` regenerates titles for saved sessions
+**Purpose**: Optimize performance and cost by using different AI models for different background tasks, allowing you to reserve premium models for actual development work while using efficient models for maintenance tasks.
+
+**Smart Resource Allocation**:
+
+```
+   Development Session
+         │
+         ├── Main Chat ──────────► Premium Model (GPT-4/Claude)
+         │   (Your actual work)
+         │
+         ├── Title Generation ───► Creative Model (GPT-4)
+         │   (Descriptive names)
+         │
+         ├── Session Optimization ► Fast Model (Ollama/gpt-oss)
+         │   (Compress long chats)
+         │
+         ├── Tag Generation ─────► Standard Model (GPT-3.5)
+         │   (Auto-categorization)
+         │
+         └── Meta Agent ─────────► Configured Model
+             (Agent selection)
+```
+
+**Benefits**:
+
+• **Cost Control**: Use expensive models only where quality matters most
+• **Performance**: Fast local models for background tasks like compression
+• **Quality Focus**: Creative models for user-facing features like titles
+• **Flexibility**: Fine-tune model selection per functionality
+
+#### Advanced Session Features
+
+**Auto-Generated Session Tags**:
+
+Sessions automatically receive intelligent tags based on conversation content. The system analyzes your chat to generate relevant categorization tags.
+
+```
+Session Content Analysis
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ Extract topics from conversation    │ ◄─ "authentication", "debugging"
+    └─────────────────────────────────────┘
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ Generate relevant tags via LLM      │ ◄─ ["python", "auth", "middleware"]
+    └─────────────────────────────────────┘
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ Store with session metadata         │
+    └─────────────────────────────────────┘
+```
+
+**Session Favorites System**:
+
+Mark important sessions as favorites for priority access and protection from cleanup.
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│ Session Browser                                             │
+│ ─────────────────────────────────────────────────────────── │
+│ ★ Fix authentication middleware timeout + retry logic       │ ◄─ Favorite
+│ ★ Debug database connection pool                            │ ◄─ Favorite
+╰─────────────────────────────────────────────────────────────╯
+```
+
+**Token Estimation and Size Tracking**:
+
+Every session tracks estimated token usage and file size for resource management.
+
+#### Session Optimization and Compaction
+
+**Purpose**: Compress long conversations into concise summaries while preserving essential context, enabling continued development without token limit issues.
+
+**Optimization Workflow**:
+
+```
+    Long Session (50+ messages)
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Preserve system prompt              │ ◄─ Keep original configuration
+    └─────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Analyze conversation content        │ ◄─ Extract key developments
+    └─────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Generate comprehensive summary      │ ◄─ Use session_optimizer model
+    └─────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Replace messages with summary       │ ◄─ System + Summary + Continue
+    └─────────────────────────────────────┘
+```
+
+**Benefits**:
+
+• **Token Efficiency**: Reduce 50+ messages to 2-3 essential messages
+• **Context Preservation**: Maintain development history and decisions
+• **Continued Development**: Resume work without starting from scratch
+• **Performance**: Faster loading and processing of optimized sessions
+
+#### History and Restoration
+
+**Auto-Save System**:
+
+Every message is automatically saved with rich metadata, creating a comprehensive development audit trail.
+
+**Session Metadata Tracking**:
+
+```
+Session File Contents:
+├── messages[]           ◄─ Full conversation history
+├── metadata
+│   ├── total_messages   ◄─ Message count
+│   ├── token_estimate   ◄─ Estimated token usage
+│   ├── tags[]           ◄─ Auto-generated topic tags
+│   ├── favorite         ◄─ Favorite status
+│   └── project_root     ◄─ Associated project
+├── config
+│   ├── adapter          ◄─ AI model used
+│   ├── model            ◄─ Specific model version
+│   └── settings         ◄─ Model parameters
+├── title               ◄─ Auto-generated descriptive title
+├── created_at          ◄─ Session start timestamp
+├── updated_at          ◄─ Last modification time
+└── session_id          ◄─ Unique identifier
+```
+
+**Project-Scoped Organization**:
+
+Sessions are automatically associated with project directories, enabling focused browsing and team collaboration.
+
+```
+    Project A Sessions          Project B Sessions
+    ├── auth-middleware-fix     ├── react-dashboard-ui
+    ├── database-optimization   ├── api-error-handling
+    └── ci-cd-pipeline         └── payment-refactor
+```
+
+#### Smart Title Generation
+
+**Purpose**: Automatically creates searchable, descriptive titles that evolve with conversation content, eliminating generic session names.
 
 ### UI Features
 
-- **Session Navigation**
-  - Built-in picker for browsing sessions
-  - Fast session switching
-  - Search and filter capabilities
+UI Features provide intuitive interfaces for managing your development history with advanced filtering, preview capabilities, and efficient navigation. The interface transforms session management from background functionality into an active part of your development workflow.
+
+#### Session Browser Interface
+
+**Purpose**: Fast, searchable access to your entire development history with rich metadata display and instant previews.
+
+**Session Information Display**:
+
+• Stars for favorites, icons for status
+• Date, model, message count at a glance
+• Favorites first, then by recency
+• See resource usage per session
+
+#### Integration with Development Workflow
+
+**Seamless Project Integration**:
+
+```
+    Development Context
+           │
+           v
+    ┌─────────────────────────────────────┐
+    │ Auto-detect current project         │ ◄─ Use vim.fn.getcwd()
+    └─────────────────────────────────────┘
+           │
+           v
+    ┌─────────────────────────────────────┐
+    │ Filter sessions by project          │ ◄─ :CodeCompanionProjectHistory
+    └─────────────────────────────────────┘
+           │
+           v
+    ┌─────────────────────────────────────┐
+    │ Show relevant session history       │
+    └─────────────────────────────────────┘
+```
+
+**Auto-Continue Workflow**:
+
+```
+    Neovim Startup
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ continue_chat enabled?             │
+    └─────────────────────────────────────┘
+         │ yes                    │ no
+         v                        v
+    ┌─────────────────────┐   [Start clean]
+    │ Find last session   │
+    └─────────────────────┘
+         │
+         v
+    ┌─────────────────────┐
+    │ Auto-restore chat   │ ◄─ Resume exactly where you left off
+    └─────────────────────┘
+         │
+         v
+    ┌─────────────────────┐
+    │ Continue working    │
+    └─────────────────────┘
+```
+
+These UI features create a comprehensive development workspace where your AI-assisted conversations become organized, searchable knowledge that builds systematically over time, supporting both individual development and team collaboration patterns.
 
 ## Requirements
 
@@ -110,182 +596,61 @@ This extension provides three powerful reasoning agents, each specialized for di
 
 ```lua
 {
-  "lazymaniac/codecompanion-reasoning.nvim",
+  "olimorris/codecompanion.nvim",
   dependencies = {
-    "olimorris/codecompanion.nvim",
+    "lazymaniac/codecompanion-reasoning.nvim",
   },
   config = function()
-    require("codecompanion-reasoning").setup({
-      functionality_adapters = {
-        session_optimizer = {
-          adapter = nil, -- e.g., "ollama", defaults to session adapter
-          model = nil,   -- e.g., "gpt-oss", defaults to session model
-        },
-        title_generator = {
-          adapter = nil, -- e.g., "openai" 
-          model = nil,   -- e.g., "gpt-4"
-        },
-        -- meta_agent and reasoning_agents also available
-      },
-      chat_history = {
-        auto_save = true,
-        auto_load_last_session = true,
-        auto_generate_title = true,
-        sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
-        max_sessions = 100,
-        enable_commands = true,
-        picker = 'default', -- only 'default' is supported ('auto' remains an alias)
-        continue_last_chat = true,
-        title_generation_opts = {
-          adapter = nil,   -- override to force a specific adapter for title generation
-          model = nil,     -- override to force a specific model for title generation
-          refresh_every_n_prompts = 3,
-          format_title = nil, -- optional function to post-process the generated title
-        },
-        keymaps = {
-          rename = { n = 'r', i = '<M-r>' },
-          delete = { n = 'd', i = '<M-d>' },
-          duplicate = { n = '<C-y>', i = '<C-y>' },
-        },
-      },
-    })
-  end,
-}
-```
-
-### Using [packer.nvim](https://github.com/wbthomason/packer.nvim)
-
-```lua
-use {
-  "lazymaniac/codecompanion-reasoning.nvim",
-  requires = { "olimorris/codecompanion.nvim" },
-  config = function()
-    require("codecompanion-reasoning").setup()
-  end,
-}
-```
-
-## Configuration
-
-### Basic Setup
-
-```lua
-require("codecompanion-reasoning").setup({
-  enabled = true,
-})
-```
-
-### Functionality-Specific Adapters
-
-You can configure different adapters and models for each functionality, allowing you to optimize for different use cases:
-
-```lua
-require("codecompanion-reasoning").setup({
-  functionality_adapters = {
-    session_optimizer = {
-      adapter = "ollama",        -- Use Ollama for session optimization
-      model = "gpt-oss",         -- With a lightweight model
-    },
-    meta_agent = {
-      adapter = "ollama",        -- Meta agent selection
-      model = "llama3",          -- Can use a different model
-    },
-    reasoning_agents = {
-      adapter = "anthropic",     -- Reasoning agents don't make LLM calls
-      model = "claude-3-sonnet", -- But config here for future features
-    },
-    title_generator = {
-      adapter = "openai",        -- Use OpenAI for title generation
-      model = "gpt-4",           -- With GPT-4 for better titles
-    },
-  },
-  -- ... other configuration
-})
-```
-
-#### Available Functionalities
-
-- **`session_optimizer`**: Used when compacting chat sessions (`:CodeCompanionOptimizeSession`)
-  - Summarizes long conversations into concise overviews
-  - Good candidate for lightweight, fast models like `ollama/gpt-oss`
-
-- **`title_generator`**: Generates descriptive titles for chat sessions
-  - Creates meaningful names for session history
-  - Benefits from creative models like `gpt-4` or `claude-3-sonnet`
-
-- **`meta_agent`**: Selects appropriate reasoning agents (future feature)
-  - Currently just structures conversations
-  - Reserved for future LLM-based agent selection
-
-- **`reasoning_agents`**: Chain/Tree/Graph of Thoughts agents
-  - Currently only structure conversations without separate LLM calls
-  - Configuration reserved for future reasoning enhancements
-
-#### Adapter Priority
-
-The adapter resolver uses this precedence order:
-1. **Override config** (passed at runtime)
-2. **Functionality config** (your setup configuration)  
-3. **Session defaults** (current chat's adapter/model)
-
-#### Example Use Cases
-
-**Cost-Optimized Setup**: Use local models for background tasks:
-```lua
-functionality_adapters = {
-  session_optimizer = { adapter = "ollama", model = "gpt-oss" },
-  title_generator = { adapter = "ollama", model = "llama3" },
-}
-```
-
-**Quality-Focused Setup**: Use premium models for important tasks:
-```lua
-functionality_adapters = {
-  title_generator = { adapter = "openai", model = "gpt-4" },
-  session_optimizer = { adapter = "anthropic", model = "claude-3-sonnet" },
-}
-```
-
-**Mixed Setup**: Optimize per functionality:
-```lua
-functionality_adapters = {
-  session_optimizer = { adapter = "ollama", model = "gpt-oss" },      -- Fast local
-  title_generator = { adapter = "openai", model = "gpt-4" },          -- High quality
-}
-```
-
-**Legacy/Fallback**: Leave empty to use session adapter for all functionalities:
-```lua
-functionality_adapters = {
-  -- All functionalities will use the current chat's adapter/model
-}
-```
-
-### Integration with CodeCompanion
-
-The extension automatically registers with CodeCompanion when installed. To manually register:
-
-```lua
-require("codecompanion").setup({
-  extensions = {
-    reasoning = { callback = 'codecompanion._extensions.reasoning', opts = { enabled = true } },
-  },
-})
-```
-
-Add meta-agent as a default tool:
-
-```lua
-  strategies = {
-    chat = {
-      tools = {
-        opts = {
-          default_tools = {
-            'meta_agent',
+    require("codecompanion").setup({
+      ...
+      extensions = {
+        reasoning = {
+          callback = 'codecompanion._extensions.reasoning',
+          opts = {
+            project_knowledge_initialization = {
+              adapter = nil, -- e.g. 'ollama', defaults to chat adapter
+              model = nil, -- e.g. 'gpt-oss' defaults to chat model
+            },
+            session_optimizer = {
+              adapter = nil, -- e.g. 'ollama', defaults to chat adapter
+              model = nil, -- e.g. 'gpt-oss' defaults to chat model
+              summary_max_words = 300, -- target number of words in generated summary
+            },
+            session_title_generator = {
+              adapter = nil, -- e.g. 'ollama', defaults to chat adapter
+              model = nil, -- e.g. 'gpt-oss' defaults to chat model
+              refresh_every_n_user_prompts = 3,
+              max_words_per_title = 6,
+              format_title = nil, -- function
+            },
+            session_history = {
+              auto_save = true, -- auto save each session
+              auto_generate_title = true, -- auto generate title for each session
+              continue_last_session = false, -- load last session on chat open
+              picker = 'default', -- currently only default is available
+              max_sessions = 100, -- how many sessions to store on disk
+              sessions_dir = vim.fn.stdpath 'data' .. '/codecompanion-reasoning/sessions',
+              session_file_pattern = 'session_%Y%m%d_%H%M%S.lua',
+            },
+            enabled = true,
           },
         },
       },
-...
+      strategies = {
+        chat = {
+          tools = {
+            opts = {
+              default_tools = {
+                'meta_agent',
+              },
+            },
+          },
+        }
+      }
+      ...
+    })
+  end,
+}
 ```
 
 ## Usage
@@ -297,16 +662,6 @@ User: "Use chain of thought to analyze this function"
 User: "Try tree of thought to compare refactoring options"
 ```
 
-### Tools & Agents at a Glance
-
-- Agents: `chain_of_thoughts_agent`, `tree_of_thoughts_agent`, `graph_of_thoughts_agent`, `meta_agent` (auto‑picks an agent and adds companion tools).
-- Companion tools: `ask_user` (decisions), `project_knowledge` (write to project knowledge), `add_tools` (discover/attach tools).
-- Utility tools: `list_files` (fast repo listing), `initialize_project_knowledge` (bootstrap the knowledge file).
-
-Attach optional tools before using them:
-- `add_tools(action="list_tools")`
-- `add_tools(action="add_tool", tool_name="<exact_name_from_list>")`
-
 ### Commands
 
 - `:CodeCompanionChatHistory`: Browse all sessions.
@@ -314,7 +669,6 @@ Attach optional tools before using them:
 - `:CodeCompanionProjectHistory`: Browse sessions scoped to current cwd.
 - `:CodeCompanionProjectKnowledge`: Open `.codecompanion/project-knowledge.md` (if present) to view or edit.
 - `:CodeCompanionInitProjectKnowledge`: Queue instructions to initialize project knowledge in the current chat.
-- `:CodeCompanionRefreshSessionTitles`: Regenerate and persist titles for saved sessions.
 - `:CodeCompanionOptimizeSession`: Compact the current chat into a one‑message summary (keeps the system prompt and inserts a concise user summary).
 
 ## Development
@@ -338,15 +692,17 @@ make format  # Format code with stylua
 2. Create a feature branch
 3. Make your changes
 4. Add tests for new functionality
-5. Run `make format` and `make test`
+5. Run `make all`
 6. Submit a pull request
 
+## TODO
+
+- [ ] Make better use of ask_user tool. Maybe instruct LLM to use it at the start of the task to ask clarification questions.
+- [ ] Refine project_knowledge updates. Maybe instead of storing recent changes it would be better to store key insights gathered during regular usage (like: auth logic is in AuthController.java and is using JWT)
+- [ ] Add optimization algorithm. Implement a filter running before request to LLM is made. Currently whole chat is acting as context or short term memory. It may be possible to use open or cheap models for context filtering to sent only relevant messages from chat history.
+- [ ] Refactor used tool restoration in historical session to use tags like @{ask_user} instead of manually adding it to tool_registry.
+- [ ] Use sessions history as context in current chat. Select it from session picker and use as context.
+- [ ] Maybe allow LLM to look through sessions via tags, or full text search?
 ## License
 
 MIT License - see LICENSE file for details.
-
-## Credits
-
-@olimorris for such a great plugin
-
----

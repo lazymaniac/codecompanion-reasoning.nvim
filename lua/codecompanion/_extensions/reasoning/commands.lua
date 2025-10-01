@@ -46,19 +46,32 @@ function Commands.view_project_knowledge()
   end
 end
 
----Initialize project knowledge via the tool and notify
+---Initialize project knowledge using custom adapter/model from config
 function Commands.init_project_knowledge()
-  local ok, tool = pcall(require, 'codecompanion._extensions.reasoning.tools.initialize_project_knowledge')
-  if not ok or not tool or not tool.cmds or not tool.cmds[1] then
-    vim.notify('Failed to load initialize_project_knowledge tool', vim.log.levels.ERROR)
+  local ProjectKnowledgeInitializer =
+    require('codecompanion._extensions.reasoning.helpers.project_knowledge_initializer')
+
+  -- Check if initialization is needed
+  if not ProjectKnowledgeInitializer.needs_initialization() then
+    if ProjectKnowledgeInitializer.has_knowledge_file() then
+      vim.notify('Project knowledge file already exists', vim.log.levels.INFO)
+    else
+      vim.notify('Project knowledge initialization already prompted', vim.log.levels.INFO)
+    end
     return
   end
 
-  tool.cmds[1](tool, {}, nil, function(res)
-    local msg = (res and res.data) or 'Initialization attempted'
-    vim.schedule(function()
-      vim.notify(msg, vim.log.levels.INFO)
-    end)
+  -- Start custom initialization with config-based adapter/model
+  ProjectKnowledgeInitializer.start_custom_initialization({}, function(accepted, chat)
+    if accepted then
+      if chat then
+        vim.notify('Project knowledge initialization started with custom configuration', vim.log.levels.INFO)
+      else
+        vim.notify('Project knowledge initialization started', vim.log.levels.INFO)
+      end
+    else
+      vim.notify('Project knowledge initialization cancelled', vim.log.levels.INFO)
+    end
   end)
 end
 
@@ -93,6 +106,9 @@ function Commands.optimize_current_session()
   end
 
   vim.notify('Optimizing session, please wait...', vim.log.levels.INFO)
+
+  -- Preserve existing session filename to update current session instead of creating new one
+  local current_session_filename = chat_obj._session_filename or chat_obj.opts and chat_obj.opts.session_filename
 
   -- Create session optimizer and compact session
   local optimizer = SessionOptimizer.new()
@@ -144,10 +160,25 @@ function Commands.optimize_current_session()
       -- Replace current chat messages
       chat_obj.messages = new_messages
 
-      -- Save the optimized session
-      pcall(function()
-        SessionManager.auto_save_session(chat_obj)
-      end)
+      -- Update session file directly instead of relying on auto_save_session
+      -- which might create a new session entry
+      if current_session_filename then
+        -- Preserve session filename to update existing session
+        chat_obj._session_filename = current_session_filename
+        chat_obj.opts = chat_obj.opts or {}
+        chat_obj.opts.session_filename = current_session_filename
+
+        -- Save directly to the existing session file
+        local save_success, save_err = SessionManager.save_session(chat_obj)
+        if not save_success then
+          vim.notify('Failed to save optimized session: ' .. (save_err or 'unknown error'), vim.log.levels.WARN)
+        end
+      else
+        -- No existing session filename, create new session
+        pcall(function()
+          SessionManager.auto_save_session(chat_obj)
+        end)
+      end
 
       -- Refresh the chat buffer display
       if chat_obj.render then
@@ -189,23 +220,12 @@ function Commands.setup()
     desc = 'Initialize project knowledge: prompt, add tools, and queue LLM instructions',
   })
 
-  vim.api.nvim_create_user_command('CodeCompanionRefreshSessionTitles', function()
-    local ok, SM = pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
-    if not ok then
-      return vim.notify('Failed to load session manager', vim.log.levels.ERROR)
-    end
-    SM.refresh_session_titles()
-    vim.notify('Refreshing session titles in background…', vim.log.levels.INFO)
-  end, {
-    desc = 'Regenerate and persist session titles using the LLM',
-  })
-
   vim.api.nvim_create_user_command('CodeCompanionOptimizeSession', Commands.optimize_current_session, {
-    desc = 'Optimize current chat session by summarizing messages into a single summary',
+    desc = 'Optimize current chat session by summarizing messages into a message single summary',
   })
 
   -- Enable auto-save by default
-  ChatHooks.setup({ auto_save = true })
+  ChatHooks.setup()
 end
 
 return Commands
