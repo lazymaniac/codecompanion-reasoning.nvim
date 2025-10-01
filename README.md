@@ -5,6 +5,7 @@ An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.
 It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
 
 ## Goals
+
 - Human id the loop - make work with LLMs more interactive
 - Fully automatic - no need to manually add tools when needed
 - Automatic Project Context initialization (conventions, how to run, test, directory structure...)
@@ -17,15 +18,15 @@ It helps LLM work in small, safe, and verifiable steps: pick an agent that fits 
 
 ### Reasoning Agents
 
-This extension provides three sophisticated reasoning agents that structure AI problem-solving through disciplined, evidence-based workflows. Each agent is designed around specific cognitive patterns that match different programming scenarios, ensuring that complex tasks are approached systematically with verifiable steps.
+This extension provides three reasoning agents that structure AI problem-solving through disciplined, evidence-based workflows. Each agent is designed around specific cognitive patterns that match different programming scenarios, ensuring that complex tasks are approached systematically with verifiable steps.
 
-**Chain of Thoughts Agent** excels at linear problem-solving where there's a clear, sequential path from problem to solution. This agent works best for straightforward tasks like fixing a specific bug, implementing a well-defined feature, or making targeted configuration changes. It follows a disciplined workflow of analysis, evidence gathering, decision-making, and validation. For example, when debugging a failing test, the Chain agent would first analyze the error message, investigate the failing code path, propose a specific fix, implement the change, and then validate the solution through testing. The agent ensures each step builds logically on the previous one, making it ideal for tasks where you need methodical progression without exploring alternative approaches.
+**Chain of Thoughts Agent** excels at linear problem-solving where there's a clear, sequential path from problem to solution. This agent works best for straightforward tasks like fixing a specific bug, implementing a well-defined feature, or making targeted configuration changes. It follows a disciplined workflow of analysis, evidence gathering, decision-making, and validation. For example, when debugging a failing test, the Chain agent would first analyze the error message, investigate the failing code path, propose a specific fix, implement the change, and then validate the solution through testing. The agent ensures each step builds logically on the previous one, making it ideal for tasks like methodical progression without exploring alternative approaches.
 
 **Tree of Thoughts Agent** is engineered for scenarios requiring exploration of multiple viable solutions before converging on the optimal approach. This agent implements a mandatory multi-path exploration pattern that forces consideration of genuine alternatives rather than rushing to the first plausible solution. When tackling ambiguous problems like API design decisions, refactoring strategies, or debugging complex issues with multiple potential causes, the Tree agent creates structured branching paths that explore different problem decomposition angles. The agent's workflow mandates evidence investigation through task branches before proposing solutions, comparative evaluation of alternatives, and synthesis of insights from the best approaches. For instance, when designing a new authentication system, the Tree agent might simultaneously explore OAuth integration, custom JWT implementation, and session-based approaches, gathering evidence about security requirements, performance implications, and maintenance overhead before converging on the optimal solution.
 
 **Graph of Thoughts Agent** handles the most complex scenarios involving interconnected systems, cross-cutting concerns, and multi-module changes where relationships between components are crucial. This agent maps dependencies across the codebase, analyzes ripple effects of changes, and synthesizes solutions that account for complex interactions. It's particularly valuable for features spanning multiple services, repository-wide refactors, or architectural changes that affect logging, authentication, or data flow patterns. The Graph agent excels at tasks requiring synthesis of new knowledge from multiple information sources, ensuring that solutions account for all affected subsystems.
 
-**Meta Agent** serves as an intelligent dispatcher that automatically selects the most appropriate reasoning agent for your specific task. It analyzes the complexity, scope, and characteristics of your request to determine whether linear Chain reasoning, exploratory Tree reasoning, or interconnected Graph reasoning best fits the problem. The Meta Agent also automatically attaches essential companion tools including user consultation capabilities, project knowledge management, and dynamic tool discovery, ensuring you have the right capabilities available from the start.
+**Meta Agent** serves as an intelligent dispatcher that automatically selects the most appropriate reasoning agent for your specific task. It analyzes the complexity, scope, and characteristics of your request to determine whether linear Chain reasoning, exploratory Tree reasoning, or interconnected Graph reasoning best fits the problem. The Meta Agent also automatically attaches essential companion tools including user consultation capabilities, project knowledge management, and dynamic tool discovery, ensuring right capabilities available from the start.
 
 #### Node Types and Evidence-Based Workflow
 
@@ -59,15 +60,7 @@ These patterns ensure that AI assistants work through problems systematically, g
 
 The extension provides powerful interactive tools that transform AI-assisted development from passive Q&A into dynamic collaboration. These tools address real development challenges: making decisions when multiple approaches are valid, maintaining project context across sessions, discovering capabilities dynamically, and keeping systematic records of your work.
 
-#### When to Use Each Tool
-
-```
-Decision Making        → ask_user
-Project Documentation  → project_knowledge  
-Capability Discovery   → add_tools
-File System Navigation → list_files
-Context Bootstrapping  → initialize_project_knowledge
-```
+#### Example diagram of helper tools
 
 ```
   Development Problem
@@ -78,35 +71,37 @@ Context Bootstrapping  → initialize_project_knowledge
          no                       User Choice
          |                         |
          v                         v
-   Need Context?  ----yes----> project_knowledge
+    Need Context?  ----yes----> project_knowledge
          |                         |
          no                   Update Records
          |                         |
          v                         v
-   Need Tools?    ----yes----> add_tools
+    Need Tools?    ----yes----> add_tools
          |                         |
          no                    Tool Ready
          |                         |
          v                         v
-   Need Files?    ----yes----> list_files
+    Need Files?    ----yes----> list_files
          |                         |
          no                    Files Listed
          |                         |
          v                         v
-     Continue Work  <---------  Problem Solved
+    Continue Work  <---------  Problem Solved
 ```
 
 #### Ask User Tool
 
 **Purpose**: Interactive consultation for coding decisions when multiple valid approaches exist, preventing AI from making arbitrary choices on ambiguous problems.
 
-**Core Functionality**: 
+**Core Functionality**:
+
 - Presents clear questions with numbered options for complex decisions
 - Blocks destructive operations until user approval
 - Handles architecture choices that affect long-term maintainability
 - Manages performance vs. maintainability trade-offs
 
 **Schema Parameters**:
+
 - `question` (required): Clear, specific question explaining the decision context and why it matters
 - `options` (optional): Array of 2-3 numbered choices, allowing custom responses
 
@@ -125,7 +120,7 @@ User ────> AI: "Refactor this legacy code"
         User: "Found legacy authentication code.
                Options:
                1) Gradual refactor (safer, slower)
-               2) Complete rewrite (faster, riskier)  
+               2) Complete rewrite (faster, riskier)
                3) Extract to new module"
            │
            v
@@ -138,32 +133,19 @@ User ────> AI: "Refactor this legacy code"
         User: ◄──── Implement chosen approach
 ```
 
-**Real-World Examples**:
-
-• **Bug Investigation**: "Found failing tests for `validateInput()` function. Should I: 1) Implement the missing function, 2) Remove the failing tests, 3) Investigate why function was removed?"
-
-• **Architecture Decisions**: "Discovered tight coupling between auth and user modules. Should I: 1) Extract shared logic to utils, 2) Create dependency injection pattern, 3) Keep current structure and document coupling?"
-
-• **Performance Trade-offs**: "Current search uses O(n) linear scan. Should I: 1) Add index for O(log n) search, 2) Cache results for repeat queries, 3) Keep simple approach until performance becomes issue?"
-
-• **Destructive Changes**: "Found 5 unused utility functions. Should I: 1) Delete them completely, 2) Mark as deprecated first, 3) Move to archive module?"
-
-**Anti-Patterns (Don't Use For)**:
-- Established coding standards (follow project conventions)
-- Obvious technical choices (use appropriate data structures)
-- Already decided matters (implement requested features)
-
 #### Project Knowledge Tool
 
-**Purpose**: Maintains authoritative project context in `.codecompanion/project-knowledge.md`, providing persistent memory across chat sessions and team members.
+**Purpose**: Maintains project context in `.codecompanion/project-knowledge.md`, providing persistent memory across chat sessions and team members.
 
 **Core Functionality**:
+
 - Auto-loads existing project knowledge into every new chat
 - Records significant changes with approval workflow
 - Maintains chronological changelog of development decisions
 - Serves as single source of truth for project conventions
 
 **Schema Parameters**:
+
 - `description` (required): Brief description of accomplished work or learned insights
 - `files` (optional): Array of involved files (auto-detects from git if not provided)
 
@@ -173,25 +155,25 @@ User ────> AI: "Refactor this legacy code"
   .codecompanion/project-knowledge.md
               │
               v
-     ┌───────────────────┐
-     │ Project Overview  │  ◄─ High-level description, tech stack
-     └───────────────────┘
+     ┌────────────────────┐
+     │ Project Overview   │  ◄─ High-level description, tech stack, how to run or test
+     └────────────────────┘
               │
               v
-     ┌───────────────────┐
-     │ Directory Structure│ ◄─ Key directories and purposes  
-     └───────────────────┘
+     ┌────────────────────┐
+     │ Directory Structure│ ◄─ Key directories and purposes
+     └────────────────────┘
               │
               v
-     ┌───────────────────┐
-     │ Changelog         │ ◄─ Chronological development log
-     └───────────────────┘
+     ┌────────────────────┐
+     │ Changelog          │ ◄─ Chronological development log
+     └────────────────────┘
               │
               v
-     ┌───────────────────┐
-     │ Auto-loaded into  │ ◄─ Every new chat gets this context
-     │ New Chat Sessions │
-     └───────────────────┘
+     ┌────────────────────┐
+     │ Auto-loaded into   │ ◄─ Every new chat gets this context
+     │ New Chat Sessions  │
+     └────────────────────┘
 ```
 
 **Workflow Integration**:
@@ -226,27 +208,19 @@ User ──────────────> Approve knowledge update
                    File: Update changelog
 ```
 
-**Real-World Examples**:
-
-• **Feature Completion**: `project_knowledge(description="Added OAuth2 integration with Google provider", files=["auth/oauth.js", "config/auth.yaml", "tests/auth_test.js"])`
-
-• **Bug Fixes**: `project_knowledge(description="Fixed memory leak in websocket connection cleanup", files=["websocket/connection.js"])`
-
-• **Architecture Decisions**: `project_knowledge(description="Moved from REST to GraphQL for better client flexibility", files=["api/schema.graphql", "resolvers/", "client/queries/"])`
-
-• **Learning Insights**: `project_knowledge(description="Discovered that worker threads improve CPU-intensive task performance by 3x", files=["workers/processor.js", "benchmarks/performance.md"])`
-
 #### Add Tools (Dynamic Capability Discovery)
 
 **Purpose**: Dynamically attaches optional tools to current chat based on emerging needs, enabling just-in-time capability addition without cluttering the initial tool set.
 
 **Core Functionality**:
+
 - Reviews AVAILABLE TOOLS catalog in system prompt
 - Validates tool availability and enablement status
 - Adds tools to current chat's tool registry
 - Prevents addition of excluded tools (reasoning agents, auto-added tools)
 
 **Schema Parameters**:
+
 - `tool_name` (required): Exact tool name matching AVAILABLE TOOLS section
 
 **Tool Discovery Workflow**:
@@ -276,32 +250,19 @@ User ──────────────> Approve knowledge update
      [End]
 ```
 
-**Real-World Examples**:
-
-• **File System Operations**: `add_tools(tool_name="neovim__edit_file")` when AI needs to modify files
-
-• **Command Execution**: `add_tools(tool_name="cmd_runner")` for running tests or builds
-
-• **Code Analysis**: `add_tools(tool_name="grep_search")` for finding patterns across codebase
-
-• **Web Research**: `add_tools(tool_name="search_web")` when investigating error messages or libraries
-
-**Error Handling**:
-- **Reasoning Agent Request**: "tree_of_thoughts_agent is a reasoning agent, not an addable tool. Reasoning agents are selected directly when starting a chat."
-- **Auto-Added Tool**: "ask_user is automatically added to every chat, so you never need to request it manually."
-- **Unknown Tool**: "Tool 'nonexistent_tool' not found in catalog."
-
 #### List Files Tool
 
 **Purpose**: Provides fast, intelligent file system navigation that respects project structure and ignore patterns, enabling AI to understand codebase organization and locate relevant files.
 
 **Core Functionality**:
+
 - Leverages git for smart file listing (respects `.gitignore`)
 - Falls back to filesystem scan with sensible ignore patterns
 - Supports directory scoping and glob pattern filtering
 - Optimized for large repositories with result limits
 
 **Schema Parameters**:
+
 - `dir` (optional): Base directory (absolute or relative to project root)
 - `glob` (optional): Pattern filter (e.g., `**/*.lua`, `*test*`, `api/**/*.js`)
 
@@ -315,43 +276,18 @@ User ──────────────> Approve knowledge update
     │ Git repo?   │────no────► Filesystem scan
     └─────────────┘              with ignore patterns
           │                     (node_modules, .git, etc.)
-         yes                    
-          │                    
-          v                    
-    ┌─────────────┐             
-    │ Use git     │             
-    │ ls-files    │             
-    │ (respects   │             
-    │ .gitignore) │             
-    └─────────────┘             
-          │                    
-          v                    
+         yes
+          │
+          v
+    ┌─────────────┐
+    │ Use git     │
+    │ ls-files    │
+    │ (respects   │
+    │ .gitignore) │
+    └─────────────┘
+          │
+          v
     Format results with project root context
-```
-
-**Real-World Examples**:
-
-• **Repository Overview**: `list_files()` → Shows all tracked files in project
-
-• **Focus on Language**: `list_files(glob="**/*.lua")` → All Lua files recursively  
-
-• **Test Discovery**: `list_files(dir="tests", glob="test_*.lua")` → Test files in tests directory
-
-• **API Exploration**: `list_files(dir="api", glob="**/*.js")` → JavaScript files in API module
-
-• **Configuration Files**: `list_files(glob="*.{yaml,json,toml}")` → All config files in root
-
-**Output Format**:
-```
-Project root: /Users/dev/my-project
-Base: /Users/dev/my-project/src
-Results: 23
-
-src/auth/middleware.js
-src/auth/oauth.js  
-src/utils/validation.js
-src/routes/api.js
-...
 ```
 
 #### Initialize Project Knowledge Tool
@@ -359,6 +295,7 @@ src/routes/api.js
 **Purpose**: Bootstraps comprehensive project documentation by analyzing repository structure, extracting conventions, and creating the foundational `.codecompanion/project-knowledge.md` file.
 
 **Core Functionality**:
+
 - Analyzes project structure and identifies technology stack
 - Discovers build/test/run commands from common files (`package.json`, `Makefile`, etc.)
 - Documents directory organization and key architectural patterns
@@ -375,8 +312,9 @@ src/routes/api.js
 • **Context Recovery**: Re-establishing project understanding after long breaks
 
 **Generated Knowledge Structure**:
+
 - **Project Overview**: Technology stack, purpose, key dependencies
-- **Directory Structure**: Explanation of module organization  
+- **Directory Structure**: Explanation of module organization
 - **Development Workflow**: How to run, test, build, and deploy
 - **Conventions**: Coding standards, naming patterns, architectural decisions
 - **Recent Changes**: Foundation for ongoing changelog tracking
@@ -384,6 +322,7 @@ src/routes/api.js
 #### Tool Interaction Patterns
 
 **Sequential Tool Usage**:
+
 ```
 User ─────────────> AI: "Add user authentication"
                     │
@@ -419,25 +358,6 @@ User: ◄─────────   AI: Implement completion
                     │
                     v
         Project Knowledge: Record changes
-```
-
-**Parallel Context Building**:
-```
-         AI Assistant
-              │
-    ┌─────────┼─────────┐
-    │         │         │
-    v         v         v
-list_files  ask_user  project_knowledge
-    │         │         │
-    v         v         v
-Find code   Get       Record
-structure   decision  changes
-    │         │         │
-    └─────────┼─────────┘
-              │
-              v
-         Informed Action
 ```
 
 These interactive tools transform AI assistance from reactive responses into proactive collaboration, ensuring decisions are user-guided, context is preserved, capabilities grow with needs, and knowledge accumulates systematically across development sessions.
@@ -575,7 +495,7 @@ require("codecompanion-reasoning").setup({
 
 Control startup behaviour with `chat_history.continue_chat`:
 
-- `true` *(default)* — automatically reopen the latest saved chat when CodeCompanion starts.
+- `true` _(default)_ — automatically reopen the latest saved chat when CodeCompanion starts.
 - `false` — skip the automatic restore.
 
 Legacy `auto_load_last_session` and `continue_last_chat` booleans still work; they emit a deprecation warning and map to the new boolean internally.
@@ -601,13 +521,15 @@ Legacy `auto_load_last_session` and `continue_last_chat` booleans still work; th
 #### Adapter Priority
 
 The adapter resolver uses this precedence order:
+
 1. **Override config** (passed at runtime)
-2. **Functionality config** (your setup configuration)  
+2. **Functionality config** (your setup configuration)
 3. **Session defaults** (current chat's adapter/model)
 
 #### Example Use Cases
 
 **Cost-Optimized Setup**: Use local models for background tasks:
+
 ```lua
 functionality_adapters = {
   session_optimizer = { adapter = "ollama", model = "gpt-oss" },
@@ -616,6 +538,7 @@ functionality_adapters = {
 ```
 
 **Quality-Focused Setup**: Use premium models for important tasks:
+
 ```lua
 functionality_adapters = {
   title_generator = { adapter = "openai", model = "gpt-4" },
@@ -624,6 +547,7 @@ functionality_adapters = {
 ```
 
 **Mixed Setup**: Optimize per functionality:
+
 ```lua
 functionality_adapters = {
   session_optimizer = { adapter = "ollama", model = "gpt-oss" },      -- Fast local
@@ -632,6 +556,7 @@ functionality_adapters = {
 ```
 
 **Legacy/Fallback**: Leave empty to use session adapter for all functionalities:
+
 ```lua
 functionality_adapters = {
   -- All functionalities will use the current chat's adapter/model
@@ -681,6 +606,7 @@ User: "Try tree of thought to compare refactoring options"
 - Utility tools: `list_files` (fast repo listing), `initialize_project_knowledge` (bootstrap the knowledge file).
 
 Attach optional tools before using them:
+
 - Review AVAILABLE TOOLS section in the system prompt
 - `add_tools(tool_name="<exact_name_from_catalog>")`
 
