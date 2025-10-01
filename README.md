@@ -4,6 +4,8 @@ An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.
 
 It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
 
+<img width="1294" height="829" alt="Screenshot 2025-10-01 at 14 56 18" src="https://github.com/user-attachments/assets/e280e267-ae0e-4c2b-ae0b-7dbf8cd378ef" />
+
 ## Goals
 
 - Human id the loop - make work with LLMs more interactive
@@ -696,7 +698,8 @@ make format  # Format code with stylua
 6. Submit a pull request
 
 ## TODO
-
+- [ ] Fix current session compaction.
+- [ ] Improve prompts for session compaction to extract more useful information.
 - [ ] Make better use of ask_user tool. Maybe instruct LLM to use it at the start of the task to ask clarification questions.
 - [ ] Refine project_knowledge updates. Maybe instead of storing recent changes it would be better to store key insights gathered during regular usage (like: auth logic is in AuthController.java and is using JWT)
 - [ ] Add optimization algorithm. Implement a filter running before request to LLM is made. Currently whole chat is acting as context or short term memory. It may be possible to use open or cheap models for context filtering to sent only relevant messages from chat history.
