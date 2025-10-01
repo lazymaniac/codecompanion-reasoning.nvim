@@ -18,7 +18,7 @@ Ask User tool:
 
 ## Goals
 
-- Human id the loop - make work with LLMs more interactive
+- Human id the loop - make work with LLMs more interactive, more like code companion...
 - Fully automatic - no need to manually add tools when needed
 - Automatic Project Context initialization (conventions, how to run, test, directory structure...)
 - Integrated session history browser with automatic naming
@@ -708,7 +708,7 @@ make format  # Format code with stylua
 6. Submit a pull request
 
 ## TODO
-- [ ] Fix current session compaction.
+- [ ] Fix active session compaction. It should reload active session with compacted version so user can contniue conversation.
 - [ ] Improve prompts for session compaction to extract more useful information.
 - [ ] Make better use of ask_user tool. Maybe instruct LLM to use it at the start of the task to ask clarification questions.
 - [ ] Refine project_knowledge updates. Maybe instead of storing recent changes it would be better to store key insights gathered during regular usage (like: auth logic is in AuthController.java and is using JWT)
