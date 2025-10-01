@@ -701,6 +701,8 @@ make format  # Format code with stylua
 - [ ] Refine project_knowledge updates. Maybe instead of storing recent changes it would be better to store key insights gathered during regular usage (like: auth logic is in AuthController.java and is using JWT)
 - [ ] Add optimization algorithm. Implement a filter running before request to LLM is made. Currently whole chat is acting as context or short term memory. It may be possible to use open or cheap models for context filtering to sent only relevant messages from chat history.
 - [ ] Refactor used tool restoration in historical session to use tags like @{ask_user} instead of manually adding it to tool_registry.
+- [ ] Use sessions history as context in current chat. Select it from session picker and use as context.
+- [ ] Maybe allow LLM to look through sessions via tags, or full text search?
 ## License
 
 MIT License - see LICENSE file for details.
