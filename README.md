@@ -5,9 +5,11 @@ An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.
 It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
 
 Example session run (poor quality)
+
 https://github.com/user-attachments/assets/00f93891-4712-4197-95a5-35ed97fc819c
 
 Session browser
+
 https://github.com/user-attachments/assets/f947509b-05bf-410e-af7b-877f0282d63d
 
 ## Goals
