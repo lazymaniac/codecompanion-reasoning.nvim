@@ -18,7 +18,7 @@ Ask User tool:
 
 ## Goals
 
-- Human id the loop - make work with LLMs more interactive, more like code companion...
+- Human id the loop - make work with LLMs more interactive, more like code companion
 - Fully automatic - no need to manually add tools when needed
 - Automatic Project Context initialization (conventions, how to run, test, directory structure...)
 - Integrated session history browser with automatic naming
