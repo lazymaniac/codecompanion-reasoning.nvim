@@ -217,8 +217,6 @@ function SessionManagerUI:browse_project_sessions()
   self:browse_sessions({ project_root = project_root })
 end
 
-
-
 ---Generate a title for a chat session
 ---@param chat table CodeCompanion chat object
 ---@param callback? function Optional callback for async title generation

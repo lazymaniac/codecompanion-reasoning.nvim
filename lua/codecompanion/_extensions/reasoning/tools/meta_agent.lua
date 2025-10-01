@@ -125,7 +125,8 @@ SELECTION GUIDELINES
 
         local success_message = fmt('✅ %s agent is ready.', human_agent)
         local tools_message = fmt('Attached companion tools: %s', table.concat(human_tools, ', '))
-        local next_message = 'Next: Use Add Tools to list optional tools, then add what you need before proceeding.'
+        local next_message =
+          'Next: Review the AVAILABLE TOOLS section in the system prompt, then add what you need with add_tools before proceeding.'
 
         local combined = table.concat({ success_message, tools_message, next_message }, '\n')
         chat:add_tool_output(self, combined, combined)

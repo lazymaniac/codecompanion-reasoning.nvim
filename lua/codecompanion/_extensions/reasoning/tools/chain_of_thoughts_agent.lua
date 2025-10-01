@@ -272,8 +272,8 @@ STEP TYPE REDEFINITIONS
 - `validation`: MANDATORY verification after reasoning; must include specific testing/checking steps
 
 EXAMPLE (use as reference)
-- `add_tools(action="list_tools")`
-- `add_tools(action="add_tool", tool_name="list_files")`  — discover code locations fast
+- Review AVAILABLE TOOLS section to identify optional helpers
+- `add_tools(tool_name="list_files")`  — discover code locations fast
 - `list_files(dir="lua", glob="**/*validate*.*")`  — find relevant files
 - `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Problem angle 1: failing tests reference utils/validation.lua edge‑case")`
 - `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Problem angle 2: empty string handling inconsistency across codebase")`

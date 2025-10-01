@@ -348,8 +348,8 @@ CROSS-CONNECTION REQUIREMENTS
 - Evidence task nodes should cross-reference related findings
 
 EXAMPLE (use as reference)
-- `add_tools(action="list_tools")`
-- `add_tools(action="add_tool", tool_name="list_files")` — inventory affected modules
+- Review AVAILABLE TOOLS section to identify optional helpers
+- `add_tools(tool_name="list_files")` — inventory affected modules
 - `list_files(dir="lua", glob="**/*auth*|**/*api*|**/*logging*" )` — scope cross‑cutting areas
 - `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Technical dimension: audit logging integration points across auth/API")`
 - `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Security dimension: PII handling and data sensitivity in audit logs")`

@@ -2,6 +2,7 @@
 local ReasoningExtension = {}
 
 local Config = require('codecompanion._extensions.reasoning.config')
+local ToolCatalog = require('codecompanion._extensions.reasoning.helpers.tool_catalog')
 
 local function register_tools()
   local tools = {
@@ -63,11 +64,17 @@ function ReasoningExtension.setup(opts)
 
   -- System prompt: provide a function value for CodeCompanion to call.
   -- This keeps the prompt source in one place (helpers/system_prompt.lua)
-  -- and appends Project Knowledge if present.
+  -- and appends dynamic context (tools catalog, project knowledge) if present.
   local sp_ok, SystemPrompt = pcall(require, 'codecompanion._extensions.reasoning.helpers.system_prompt')
   if sp_ok and SystemPrompt and type(SystemPrompt.get) == 'function' then
     local prompt_fn = function()
-      local prompt = SystemPrompt.get()
+      local sections = { SystemPrompt.get() }
+
+      local ok_tools, catalog = pcall(ToolCatalog.build_available_tools_markdown)
+      if ok_tools and catalog and catalog ~= '' then
+        table.insert(sections, '---\n AVAILABLE TOOLS\n' .. catalog)
+      end
+
       local root = vim.fn.getcwd()
       local knowledge_path = root .. '/.codecompanion/project-knowledge.md'
       if vim.fn.filereadable(knowledge_path) == 1 then
@@ -81,13 +88,15 @@ function ReasoningExtension.setup(opts)
           return c
         end)
         if ok and content and content ~= '' then
-          return prompt .. '\n\n---\n PROJECT CONTEXT\n' .. content
+          table.insert(sections, '---\n PROJECT CONTEXT\n' .. content)
         end
       end
-      return prompt
+
+      return table.concat(sections, '\n\n')
     end
     config.opts = config.opts or {}
-    config.opts.system_prompt = prompt_fn
+    config.strategies.chat.opts.system_prompt = prompt_fn
+    config.strategies.chat.tools.opts.system_prompt.enabled = false
   end
 
   for name, tool in pairs(reasoning_tools) do

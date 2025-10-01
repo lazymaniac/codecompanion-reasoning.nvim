@@ -115,7 +115,7 @@ function ProjectKnowledgeInitializer.queue_initialization_instructions(chat)
     ('Goal: Create a CONCISE project knowledge file at `%s` under 1,500 tokens.'):format(knowledge_path),
     '',
     'Instructions:',
-    '- Use `add_tools` to list available tools and add any read/write file tools needed to gather context.',
+    '- Review AVAILABLE TOOLS in the system prompt and add any read/write helpers you need via `add_tools(tool_name="<name>")` before gathering context.',
   }
   if #present > 0 then
     table.insert(
