@@ -4,6 +4,8 @@ An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.
 
 It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
 
+[Screen Recording 2025-10-01 at 15.20.00.webm](https://github.com/user-attachments/assets/04673635-ae10-436c-89c3-594836804b1f)
+
 <img width="1294" height="829" alt="Screenshot 2025-10-01 at 14 56 18" src="https://github.com/user-attachments/assets/e280e267-ae0e-4c2b-ae0b-7dbf8cd378ef" />
 
 ## Goals
