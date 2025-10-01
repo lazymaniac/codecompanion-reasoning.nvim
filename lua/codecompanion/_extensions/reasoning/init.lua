@@ -95,8 +95,15 @@ function ReasoningExtension.setup(opts)
       return table.concat(sections, '\n\n')
     end
     config.opts = config.opts or {}
+    config.strategies.chat.opts = config.strategies.chat.opts or {}
     config.strategies.chat.opts.system_prompt = prompt_fn
-    config.strategies.chat.tools.opts.system_prompt.enabled = false
+    if
+      config.strategies.chat.tools
+      and config.strategies.chat.tools.opts
+      and config.strategies.chat.tools.opts.system_prompt
+    then
+      config.strategies.chat.tools.opts.system_prompt.enabled = false
+    end
   end
 
   for name, tool in pairs(reasoning_tools) do

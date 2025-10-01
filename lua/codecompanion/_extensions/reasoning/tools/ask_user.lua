@@ -34,26 +34,35 @@ return {
     type = 'function',
     ['function'] = {
       name = 'ask_user',
-      description = [[Interactive consultation for coding decisions when multiple valid approaches exist
+      description = [[
+Interactive consultation for coding decisions when multiple valid approaches exist.
 
-USE WHEN:
-- Multiple valid solutions exist (refactor vs rewrite, implement code vs remove test...)
-- Destructive operations planned (delete code, major changes...)
-- Architecture decisions affect maintainability
-- User intent unclear from request
-- Performance/maintainability trade-offs exist and similar
+PROACTIVE USE (at task start):
+- Request is vague or lacks specifics ("make this better", "fix issues", "improve performance")
+- Multiple valid solutions exist with different trade-offs (refactor vs rewrite, library choices, implement code vs remove test)
+- Missing key details (target files, scope, constraints, success criteria)
+- User intent unclear or assumptions need validation
+- Destructive operations planned (delete code, breaking changes, major refactors)
+- You want to create new file instead of editing exisiting one
+
+ONGOING USE (during work):
+- Architecture decisions affecting maintainability
+- Performance/maintainability trade-offs
+- Before irreversible changes
+- When encountering unexpected issues requiring direction
+- You need consultation with user
 
 DON'T use for:
-- established coding standards
-- obvious technical choices
-- already decided matters
+- Established coding standards or obvious technical choices
+- Already decided matters or clear requirements
+- Simple implementation details with one obvious approach
 ]],
       parameters = {
         type = 'object',
         properties = {
           question = {
             type = 'string',
-            description = 'Clear, concise and specific question about any ambiguity that needs user input. State what you found/need to decide, explain why decision matters. GOOD: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented." BAD: "What should I do?" (too vague)',
+            description = 'Clear, concise and specific question about any ambiguity that needs user input. State what you found/need to decide, explain why decision matters. STRUCTURE: Context + Options + Reasoning. EXAMPLES:\n\nPROACTIVE: "Your request to \'improve the validation code\' could mean several things. Should I: 1) Fix specific bugs in existing validators, 2) Add missing validation cases, 3) Refactor for better performance? Knowing the focus helps me provide the right solution."\n\nONGOING: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented."\n\nBAD: "What should I do?" (too vague)',
           },
           options = {
             type = 'array',
