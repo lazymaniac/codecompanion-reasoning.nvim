@@ -265,19 +265,6 @@ local function build_session_preview(session)
     local field_line = fmt('    %s: %s', label, display_value)
     table.insert(lines, field_line)
     -- Label highlight
-    table.insert(highlights, {
-      line = line_num,
-      col = 4,
-      end_col = 4 + #label,
-      group = UI_CONFIG.colors.preview_label,
-    })
-    -- Value highlight
-    table.insert(highlights, {
-      line = line_num,
-      col = 4 + #label + 2,
-      end_col = -1,
-      group = value_hl or UI_CONFIG.colors.preview_value,
-    })
     line_num = line_num + 1
   end
 
@@ -305,20 +292,20 @@ local function build_session_preview(session)
     token_estimate = tostring(math.floor(session.file_size / 4))
   end
 
-  add_field('Title', overview_title, UI_CONFIG.colors.list_header)
-  add_field('Created', created_display, UI_CONFIG.colors.list_date)
-  add_field('Model', model_display, UI_CONFIG.colors.list_model)
-  add_field('Messages', message_count, UI_CONFIG.colors.accent_secondary)
-  add_field('Est. Tokens', token_estimate, UI_CONFIG.colors.list_meta)
+  add_field('Title', overview_title)
+  add_field('Created', created_display)
+  add_field('Model', model_display)
+  add_field('Messages', message_count)
+  add_field('Est. Tokens', token_estimate)
 
   -- Show tags if present
   if session.tags and #session.tags > 0 then
-    add_field('Tags', table.concat(session.tags, ', '), UI_CONFIG.colors.accent_secondary)
+    add_field('Tags', table.concat(session.tags, ', '))
   end
 
   -- Show favorite status
   if session.is_favorite then
-    add_field('Favorite', '★', UI_CONFIG.colors.accent_primary)
+    add_field('Favorite', '★')
   end
 
   -- Session Preview
@@ -409,16 +396,16 @@ local function build_session_preview(session)
 
   -- Quick Actions
   add_header('Quick Actions')
-  add_line('    Enter  Resume session', UI_CONFIG.colors.action_desc)
-  add_line('    r      Rename session', UI_CONFIG.colors.action_desc)
-  add_line('    R      Regenerate title', UI_CONFIG.colors.action_desc)
-  add_line('    d      Delete session', UI_CONFIG.colors.action_desc)
-  add_line('    D      Delete all sessions', UI_CONFIG.colors.action_desc)
-  add_line('    *      Toggle favorite', UI_CONFIG.colors.action_desc)
-  add_line('    f      Search sessions', UI_CONFIG.colors.action_desc)
-  add_line('    c      Summarize session', UI_CONFIG.colors.action_desc)
-  add_line('    t      Regenerate tags', UI_CONFIG.colors.action_desc)
-  add_line('    Esc    Cancel', UI_CONFIG.colors.action_desc)
+  add_line('    Enter  Resume session')
+  add_line('    r      Rename session')
+  add_line('    R      Regenerate title')
+  add_line('    d      Delete session')
+  add_line('    D      Delete all sessions')
+  add_line('    *      Toggle favorite')
+  add_line('    f      Search sessions')
+  add_line('    c      Summarize session')
+  add_line('    t      Regenerate tags')
+  add_line('    Esc    Cancel')
 
   return lines, highlights
 end
