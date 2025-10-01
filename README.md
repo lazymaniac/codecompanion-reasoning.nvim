@@ -69,9 +69,7 @@ File System Navigation → list_files
 Context Bootstrapping  → initialize_project_knowledge
 ```
 
-```asciidoc
-[ditaa]
-....
+```
   Development Problem
          |
          v
@@ -96,7 +94,6 @@ Context Bootstrapping  → initialize_project_knowledge
          |                         |
          v                         v
      Continue Work  <---------  Problem Solved
-....
 ```
 
 #### Ask User Tool
@@ -115,23 +112,30 @@ Context Bootstrapping  → initialize_project_knowledge
 
 **Use Cases**:
 
-```asciidoc
-[plantuml]
-....
-@startuml
-actor User
-participant AI
-participant AskUser as "Ask User Tool"
-
-User -> AI: "Refactor this legacy code"
-AI -> AI: Discovers multiple approaches
-AI -> AskUser: Present options with context
-AskUser -> User: "Found legacy authentication code.\nOptions:\n1) Gradual refactor (safer, slower)\n2) Complete rewrite (faster, riskier)\n3) Extract to new module"
-User -> AskUser: Select option 1
-AskUser -> AI: User chose gradual refactor
-AI -> User: Implement chosen approach
-@enduml
-....
+```
+User ────> AI: "Refactor this legacy code"
+           │
+           v
+          AI: Discovers multiple approaches
+           │
+           v
+        Ask User Tool: Present options with context
+           │
+           v
+        User: "Found legacy authentication code.
+               Options:
+               1) Gradual refactor (safer, slower)
+               2) Complete rewrite (faster, riskier)  
+               3) Extract to new module"
+           │
+           v
+        User: Select option 1
+           │
+           v
+          AI: User chose gradual refactor
+           │
+           v
+        User: ◄──── Implement chosen approach
 ```
 
 **Real-World Examples**:
@@ -165,51 +169,61 @@ AI -> User: Implement chosen approach
 
 **Knowledge Structure**:
 
-```asciidoc
-[ditaa]
-....
+```
   .codecompanion/project-knowledge.md
-              |
+              │
               v
-     +-------------------+
-     | Project Overview  |  <- High-level description, tech stack
-     +-------------------+
-              |
+     ┌───────────────────┐
+     │ Project Overview  │  ◄─ High-level description, tech stack
+     └───────────────────┘
+              │
               v
-     +-------------------+
-     | Directory Structure| <- Key directories and purposes  
-     +-------------------+
-              |
+     ┌───────────────────┐
+     │ Directory Structure│ ◄─ Key directories and purposes  
+     └───────────────────┘
+              │
               v
-     +-------------------+
-     | Changelog         | <- Chronological development log
-     +-------------------+
-              |
+     ┌───────────────────┐
+     │ Changelog         │ ◄─ Chronological development log
+     └───────────────────┘
+              │
               v
-     +-------------------+
-     | Auto-loaded into  | <- Every new chat gets this context
-     | New Chat Sessions |
-     +-------------------+
-....
+     ┌───────────────────┐
+     │ Auto-loaded into  │ ◄─ Every new chat gets this context
+     │ New Chat Sessions │
+     └───────────────────┘
 ```
 
 **Workflow Integration**:
 
-```asciidoc
-[sequence]
-....
-User -> AI: Start new chat
-AI -> ProjectKnowledge: Auto-load context
-ProjectKnowledge -> AI: Load .codecompanion/project-knowledge.md
-AI -> User: "I see this is a React app with custom authentication..."
+```
+User ──────────────> AI: Start new chat
+                     │
+                     v
+Project Knowledge: Auto-load context
+                     │
+                     v
+                    AI: Load .codecompanion/project-knowledge.md
+                     │
+                     v
+User: ◄─────────────AI: "I see this is a React app with custom auth..."
 
-User -> AI: Implement feature
-AI -> User: Complete feature implementation
-AI -> ProjectKnowledge: Record changes
-ProjectKnowledge -> User: Show approval dialog
-User -> ProjectKnowledge: Approve knowledge update
-ProjectKnowledge -> File: Update changelog
-....
+User ──────────────> AI: Implement feature
+                     │
+                     v
+User: ◄─────────────AI: Complete feature implementation
+                     │
+                     v
+Project Knowledge: Record changes
+                     │
+                     v
+User: ◄──── Show approval dialog
+                     │
+                     v
+User ──────────────> Approve knowledge update
+                     │
+                     v
+                   File: Update changelog
 ```
 
 **Real-World Examples**:
@@ -237,20 +251,29 @@ ProjectKnowledge -> File: Update changelog
 
 **Tool Discovery Workflow**:
 
-```asciidoc
-[flowchart]
-....
-  [*] --> ReviewTools: AI needs new capability
-  ReviewTools --> CheckCatalog: Read AVAILABLE TOOLS section
-  CheckCatalog --> ValidateTool: Find exact tool name
-  ValidateTool --> AddTool: Call add_tools(tool_name="exact_name")
-  AddTool --> ToolReady: "tool_name ready to use!"
-  ToolReady --> UseFeature: AI can now call the tool
-  UseFeature --> [*]
-  
-  ValidateTool --> Error: Tool not found/disabled
-  Error --> [*]
-....
+```
+    [Start] AI needs new capability
+        │
+        v
+    Review Tools: Read AVAILABLE TOOLS section
+        │
+        v
+    Check Catalog: Find exact tool name
+        │
+        v
+    Validate Tool ──────────────────────┐
+        │                               │
+        v                               v
+    Add Tool: add_tools(tool_name="...")  Error: Tool not found/disabled
+        │                               │
+        v                               v
+    Tool Ready: "tool_name ready!"    [End]
+        │
+        v
+    Use Feature: AI can now call the tool
+        │
+        v
+     [End]
 ```
 
 **Real-World Examples**:
@@ -284,29 +307,26 @@ ProjectKnowledge -> File: Update changelog
 
 **Intelligent Behavior**:
 
-```asciidoc
-[ditaa]
-....
+```
     list_files() call
-          |
+          │
           v
-    +-------------+
-    | Git repo?   |----no-----> Filesystem scan
-    +-------------+               with ignore patterns
-          |                       (node_modules, .git, etc.)
-         yes
-          |
-          v
-    +-------------+
-    | Use git     |
-    | ls-files    |
-    | (respects   |
-    | .gitignore) |
-    +-------------+
-          |
-          v
+    ┌─────────────┐
+    │ Git repo?   │────no────► Filesystem scan
+    └─────────────┘              with ignore patterns
+          │                     (node_modules, .git, etc.)
+         yes                    
+          │                    
+          v                    
+    ┌─────────────┐             
+    │ Use git     │             
+    │ ls-files    │             
+    │ (respects   │             
+    │ .gitignore) │             
+    └─────────────┘             
+          │                    
+          v                    
     Format results with project root context
-....
 ```
 
 **Real-World Examples**:
@@ -364,44 +384,60 @@ src/routes/api.js
 #### Tool Interaction Patterns
 
 **Sequential Tool Usage**:
-```asciidoc
-[sequence]
-....
-User -> AI: "Add user authentication"
-AI -> AddTools: add_tools(tool_name="list_files")
-AddTools -> AI: "list_files ready to use!"
-AI -> ListFiles: list_files(glob="**/*auth*")
-ListFiles -> AI: Show existing auth files
-AI -> AskUser: "Found partial auth. Complete or rewrite?"
-AskUser -> User: Present options
-User -> AskUser: "Complete existing"
-AskUser -> AI: User decision
-AI -> AddTools: add_tools(tool_name="neovim__edit_file")
-AI -> User: Implement completion
-AI -> ProjectKnowledge: Record changes
-....
+```
+User ─────────────> AI: "Add user authentication"
+                    │
+                    v
+               Add Tools: add_tools(tool_name="list_files")
+                    │
+                    v
+                   AI: ◄─── "list_files ready to use!"
+                    │
+                    v
+              List Files: list_files(glob="**/*auth*")
+                    │
+                    v
+                   AI: ◄─── Show existing auth files
+                    │
+                    v
+                Ask User: "Found partial auth. Complete or rewrite?"
+                    │
+                    v
+User: ◄──────── Present options
+                    │
+                    v
+User ─────────────> "Complete existing"
+                    │
+                    v
+                   AI: ◄─── User decision
+                    │
+                    v
+               Add Tools: add_tools(tool_name="neovim__edit_file")
+                    │
+                    v
+User: ◄─────────   AI: Implement completion
+                    │
+                    v
+        Project Knowledge: Record changes
 ```
 
 **Parallel Context Building**:
-```asciidoc
-[ditaa]
-....
+```
          AI Assistant
-              |
-    +---------+---------+
-    |         |         |
+              │
+    ┌─────────┼─────────┐
+    │         │         │
     v         v         v
 list_files  ask_user  project_knowledge
-    |         |         |
+    │         │         │
     v         v         v
 Find code   Get       Record
 structure   decision  changes
-    |         |         |
-    +---------+---------+
-              |
+    │         │         │
+    └─────────┼─────────┘
+              │
               v
          Informed Action
-....
 ```
 
 These interactive tools transform AI assistance from reactive responses into proactive collaboration, ensuring decisions are user-guided, context is preserved, capabilities grow with needs, and knowledge accumulates systematically across development sessions.
