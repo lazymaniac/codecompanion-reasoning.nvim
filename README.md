@@ -2,7 +2,7 @@
 
 An add‑on for [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim) that gives your chats structured “reasoning agents”, interactive tools, and practical session history.
 
-It helps LLM work in small, safe, and verifiable steps: pick an agent that fits the job, attach only the tools you need, and keep a searchable record of your sessions with useful titles.
+It helps LLM work in small, safe, and verifiable steps: picks an agent that fits the job, attaches only the tools LLM needs, and keeps a searchable record of your sessions with useful titles.
 
 Example session run (poor quality)
 
