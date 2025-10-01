@@ -210,7 +210,7 @@ User ──────────────> Approve knowledge update
 
 #### Add Tools (Dynamic Capability Discovery)
 
-**Purpose**: Dynamically attaches optional tools to current chat based on emerging needs, enabling just-in-time capability addition without cluttering the initial tool set.
+**Purpose**: Dynamically attaches optional tools (core tools, MCP tools, local tools) to current chat based on emerging needs, enabling just-in-time capability addition without cluttering the initial tool set.
 
 **Core Functionality**:
 
