@@ -9,15 +9,28 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
+        normalize_content = function(content)
+          if type(content) == 'table' then
+            return normalize_content(vim.inspect(content))
+          end
+          return vim.trim(tostring(content or ''))
+        end
+
+        local Config = require('codecompanion._extensions.reasoning.config')
         local tmp = vim.fn.getcwd() .. '/tests/tmp_sessions/picker'
         vim.fn.delete(tmp, 'rf')
         vim.fn.mkdir(tmp, 'p')
 
-        local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
-        SessionManager.setup({
-          sessions_dir = tmp,
-          continue_chat = 'no',
+        Config.setup({
+          session_history = {
+            sessions_dir = tmp,
+            continue_last_session = false,
+            auto_generate_title = true,
+          },
         })
+
+        local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
+        SessionManager.setup()
       ]])
     end,
     post_once = child.stop,
@@ -26,15 +39,20 @@ local T = new_set({
 
 T['session preview shows conversation context'] = function()
   child.lua([[
+    local Config = require('codecompanion._extensions.reasoning.config')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
     local tmp = vim.fn.getcwd() .. '/tests/tmp_sessions/picker_preview'
     vim.fn.delete(tmp, 'rf')
     vim.fn.mkdir(tmp, 'p')
 
-    SessionManager.setup({
-      sessions_dir = tmp,
-      continue_chat = 'no',
+    Config.setup({
+      session_history = {
+        sessions_dir = tmp,
+        continue_last_session = false,
+        auto_generate_title = true,
+      },
     })
+    SessionManager.setup()
 
     local now = os.time()
     local session_data = {
@@ -109,8 +127,9 @@ end
 
 T['keeps list cursor aligned with selection'] = function()
   child.lua([[
+    local Config = require('codecompanion._extensions.reasoning.config')
     local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
-    local sessions_dir = SessionManager.get_sessions_dir()
+    local sessions_dir = Config.get().session_history.sessions_dir
 
     -- Reset sessions directory for deterministic ordering
     vim.fn.delete(sessions_dir, 'rf')

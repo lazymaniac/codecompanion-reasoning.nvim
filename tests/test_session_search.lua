@@ -9,15 +9,28 @@ local T = new_set({
       h.child_start(child)
       child.lua([[
         h = require('tests.helpers')
+        normalize_content = function(content)
+          if type(content) == 'table' then
+            return normalize_content(vim.inspect(content))
+          end
+          return vim.trim(tostring(content or ''))
+        end
+
+        local Config = require('codecompanion._extensions.reasoning.config')
         local tmp = vim.fn.getcwd() .. '/tests/tmp_sessions/search'
         vim.fn.delete(tmp, 'rf')
         vim.fn.mkdir(tmp, 'p')
 
-        local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
-        SessionManager.setup({
-          sessions_dir = tmp,
-          continue_chat = 'no',
+        Config.setup({
+          session_history = {
+            sessions_dir = tmp,
+            continue_last_session = false,
+            auto_generate_title = true,
+          },
         })
+
+        local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
+        SessionManager.setup()
       ]])
     end,
     post_once = child.stop,

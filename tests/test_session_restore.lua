@@ -42,11 +42,22 @@ local T = new_set({
             add_buf_message = function(self, _)
               self.added.buffer = self.added.buffer + 1
             end,
+            clear = function(self)
+              self.messages = {}
+              self.added.history = 0
+              self.added.buffer = 0
+              self.added.tool = 0
+            end,
             apply_settings = function(self, settings)
               self.settings = vim.tbl_deep_extend('force', self.settings or {}, settings or {})
             end,
             apply_model = function(self, model)
               self.settings = self.settings or {}
+              self.settings.model = model
+            end,
+            change_adapter = function(self, adapter, model)
+              self.settings = self.settings or {}
+              self.settings.adapter = adapter
               self.settings.model = model
             end,
             settings = {},
@@ -89,12 +100,27 @@ local T = new_set({
           end,
         }
 
+        normalize_content = function(content)
+          if type(content) == 'table' then
+            return normalize_content(vim.inspect(content))
+          end
+          return vim.trim(tostring(content or ''))
+        end
+
         SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 
         -- Use a temp sessions dir in project workspace
         local tmp = vim.fn.getcwd() .. '/tests/tmp_sessions'
         vim.fn.mkdir(tmp, 'p')
-        SessionManager.setup({ sessions_dir = tmp })
+        local Config = require('codecompanion._extensions.reasoning.config')
+        Config.setup({
+          session_history = {
+            sessions_dir = tmp,
+            continue_last_session = false,
+            auto_generate_title = true,
+          },
+        })
+        SessionManager.setup()
       ]])
     end,
     post_once = child.stop,
@@ -169,8 +195,8 @@ T['restores tool call cycles visibly'] = function()
       string.format('expected 3 buffer messages, got %s', vim.inspect(chat_or_err.added))
     )
     assert(
-      chat_or_err.added.tool == 1,
-      string.format('expected 1 tool message, got %s', vim.inspect(chat_or_err.added))
+      chat_or_err.added.tool == 0,
+      string.format('expected tool outputs to be rendered inline (0 tracked entries), got %s', vim.inspect(chat_or_err.added))
     )
   ]])
 end

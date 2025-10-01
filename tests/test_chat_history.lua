@@ -3,16 +3,27 @@ local MiniTest = require('mini.test')
 
 local SessionManager = require('codecompanion._extensions.reasoning.helpers.session_manager')
 local ReasoningPlugin = require('codecompanion-reasoning')
+local Config = require('codecompanion._extensions.reasoning.config')
 
 -- Test suite for chat history
 local T = MiniTest.new_set({
   hooks = {
     -- Setup test environment
     pre_once = function()
-      -- Use a temporary directory for testing
-      SessionManager.setup({
-        sessions_dir = vim.fn.tempname() .. '_chat_sessions',
+      local tmp_dir = vim.fn.tempname() .. '_chat_sessions'
+      vim.fn.delete(tmp_dir, 'rf')
+      vim.fn.mkdir(tmp_dir, 'p')
+
+      Config.setup({
+        session_history = {
+          sessions_dir = tmp_dir,
+          continue_last_session = false,
+          auto_save = true,
+          auto_generate_title = true,
+        },
       })
+
+      SessionManager.setup()
     end,
   },
 })
@@ -134,7 +145,7 @@ T['direct API functions work'] = function()
   -- Verify deletion removes the backing file
   local delete_success = ReasoningPlugin.delete_session(session.filename)
   MiniTest.expect.equality(delete_success, true)
-  local session_path = SessionManager.get_sessions_dir() .. '/' .. session.filename
+  local session_path = Config.get().session_history.sessions_dir .. '/' .. session.filename
   MiniTest.expect.equality(vim.fn.filereadable(session_path), 0)
 end
 

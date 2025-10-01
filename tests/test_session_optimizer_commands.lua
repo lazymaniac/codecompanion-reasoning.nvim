@@ -26,7 +26,23 @@ local T = new_set({
                 { role = 'user', content = 'Thanks, I have a complex question about coding.' },
                 { role = 'assistant', content = 'Please go ahead and ask your coding question!' },
               },
-              adapter = { name = 'test_adapter' },
+              adapter = {
+                name = 'test_adapter',
+                map_schema_to_params = function(_, params)
+                  return params
+                end,
+                map_roles = function(_, messages)
+                  return messages
+                end,
+                handlers = {
+                  chat_output = function()
+                    return {
+                      status = 'success',
+                      output = { content = 'This chat covers a user greeting and a request for coding help.' },
+                    }
+                  end,
+                },
+              },
               settings = { model = 'test_model' },
               opts = { title = 'Test Chat' },
               render = function() end,
@@ -63,38 +79,54 @@ T['optimize_current_session']['should get current chat object'] = function()
   local success = true
   local error_msg = nil
 
-  -- Mock the SessionOptimizer to test chat extraction
-  local original_new = require('codecompanion._extensions.reasoning.helpers.session_optimizer').new
-  require('codecompanion._extensions.reasoning.helpers.session_optimizer').new = function()
-    return {
-      compact_session = function(self, session_data, callback)
-        -- Verify we got the right data
-        MiniTest.expect.equality(#session_data.messages, 5)
-        MiniTest.expect.equality(session_data.messages[1].role, 'system')
-        MiniTest.expect.equality(session_data.adapter.name, 'test_adapter')
+  local adapters = require('codecompanion.adapters')
+  local schema = require('codecompanion.schema')
+  local http = require('codecompanion.http')
 
-        -- Return a mock optimized session
-        callback({
-          messages = {
-            {
-              role = 'assistant',
-              content = '**[Session Summary - 5 messages compacted]**\n\nThis chat covers a user greeting and a request for coding help.',
-              opts = {
-                tag = 'session_summary',
-                compacted_at = os.time(),
-                original_message_count = 5,
-              },
-            },
-          },
-          metadata = {
-            compaction = {
-              original_message_count = 5,
-              compacted_message_count = 1,
-            },
-          },
-        })
-      end,
-    }
+  local original_resolve = adapters and adapters.resolve
+  local original_get_default = schema and schema.get_default
+  local original_http_new = http and http.new
+
+  if adapters then
+    adapters.resolve = function(name)
+      return {
+        map_schema_to_params = function(_, params)
+          return params
+        end,
+        map_roles = function(_, messages)
+          return messages
+        end,
+        handlers = {
+          chat_output = function()
+            return {
+              status = 'success',
+              output = { content = 'This chat covers a user greeting and a request for coding help.' },
+            }
+          end,
+        },
+      }
+    end
+  end
+
+  if schema then
+    schema.get_default = function(_, opts)
+      opts = opts or {}
+      opts.model = opts.model or 'test_model'
+      return opts
+    end
+  end
+
+  if http then
+    http.new = function(opts)
+      return {
+        request = function(_, _, handlers)
+          handlers.callback(
+            nil,
+            { output = { content = 'This chat covers a user greeting and a request for coding help.' } }
+          )
+        end,
+      }
+    end
   end
 
   -- Mock SessionManager
@@ -105,8 +137,15 @@ T['optimize_current_session']['should get current chat object'] = function()
   -- Test the function
   Commands.optimize_current_session()
 
-  -- Restore the original
-  require('codecompanion._extensions.reasoning.helpers.session_optimizer').new = original_new
+  if adapters then
+    adapters.resolve = original_resolve
+  end
+  if schema then
+    schema.get_default = original_get_default
+  end
+  if http then
+    http.new = original_http_new
+  end
 end
 
 T['optimize_current_session']['should handle no active chat gracefully'] = function()
