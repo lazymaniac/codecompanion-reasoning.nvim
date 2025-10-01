@@ -72,7 +72,7 @@ The system prompt ensures consistent project understanding and knowledge managem
 
 **Project Knowledge Usage**: Treats project context as single source of truth for repository conventions, development practices, and architectural decisions.
 
-**Change Documentation**: Requires concise changelog recording via `project_knowledge` tool with description and affected files for successful completions.
+**Knowledge Capture**: Encourages recording durable project facts via `project_knowledge` with concise descriptions and supporting sources so future sessions can jump directly to the right place.
 
 **Context Preservation**: Maintains development decision history and ensures consistency across chat sessions through persistent project knowledge updates.
 
@@ -202,14 +202,14 @@ User ────> AI: "Refactor this legacy code"
 **Core Functionality**:
 
 - Auto-loads existing project knowledge into every new chat
-- Records significant changes with approval workflow
-- Maintains chronological changelog of development decisions
+- Captures durable project facts with an approval workflow
+- Highlights where key subsystems live, which patterns or libraries they use, and other reusable context
 - Serves as single source of truth for project conventions
 
 **Schema Parameters**:
 
 - `description` (required): Brief description of accomplished work or learned insights
-- `files` (optional): Array of involved files (auto-detects from git if not provided)
+- `sources` (optional): Array of supporting references (files, docs, URLs)
 
 **Knowledge Structure**:
 
@@ -228,7 +228,7 @@ User ────> AI: "Refactor this legacy code"
               │
               v
      ┌────────────────────┐
-     │ Changelog          │ ◄─ Chronological development log
+     │ Key Facts          │ ◄─ Durable facts (e.g., auth location, auth mechanism)
      └────────────────────┘
               │
               v
@@ -258,7 +258,7 @@ User ──────────────> AI: Implement feature
 User: ◄─────────────AI: Complete feature implementation
                      │
                      v
-Project Knowledge: Record changes
+Project Knowledge: Capture new fact
                      │
                      v
 User: ◄──── Show approval dialog
@@ -267,7 +267,7 @@ User: ◄──── Show approval dialog
 User ──────────────> Approve knowledge update
                      │
                      v
-                   File: Update changelog
+                   File: Append fact entry
 ```
 
 #### Add Tools (Dynamic Capability Discovery)
@@ -379,7 +379,7 @@ User ──────────────> Approve knowledge update
 - **Directory Structure**: Explanation of module organization
 - **Development Workflow**: How to run, test, build, and deploy
 - **Conventions**: Coding standards, naming patterns, architectural decisions
-- **Recent Changes**: Foundation for ongoing changelog tracking
+- **Key Facts**: Placeholder guidance for durable facts captured later via `project_knowledge`
 
 #### Tool Interaction Patterns
 

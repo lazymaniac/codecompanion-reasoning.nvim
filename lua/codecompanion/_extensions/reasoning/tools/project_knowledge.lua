@@ -29,13 +29,13 @@ local function ensure_knowledge_file()
     local initial_content = [[# Project Knowledge
 
 ## Project Overview
-*This section will be updated with project information*
+*Capture purpose, tech stack, and how to run/test the project.*
 
 ## Directory Structure
-*Key directories and their purposes will be documented here*
+*Highlight important directories and their responsibilities.*
 
-## Changelog
-*Recent project changes will be logged here*
+## Key Facts
+*Use `project_knowledge` to capture durable insights (e.g., auth lives in `apps/auth`).*
 ]]
     local file = io.open(knowledge_file, 'w')
     if file then
@@ -55,49 +55,93 @@ end
 local function format_knowledge_preview(proposal)
   local preview = string.format('Description: %s', proposal.description)
 
-  if proposal.files and #proposal.files > 0 then
-    preview = preview .. string.format('\nFiles: %s', table.concat(proposal.files, ', '))
+  if proposal.sources and #proposal.sources > 0 then
+    preview = preview .. string.format('\nSources: %s', table.concat(proposal.sources, ', '))
   end
 
   return preview
 end
 
-local function store_changelog_entry(knowledge_file, description, files)
-  local date = os.date('%Y-%m-%d')
-  local entry = string.format('### %s\n- **%s**', date, description)
-
-  if files and #files > 0 then
-    entry = entry .. string.format(' (%d files changed)', #files)
-    for _, file in ipairs(files) do
-      entry = entry .. string.format('\n  - `%s`', file)
+local function ensure_key_facts_section(lines)
+  local header_index
+  for idx, line in ipairs(lines) do
+    if line == '## Key Facts' then
+      header_index = idx
+      break
     end
   end
-  entry = entry .. '\n\n'
+
+  if header_index then
+    return header_index
+  end
+
+  if #lines > 0 and lines[#lines] ~= '' then
+    table.insert(lines, '')
+  end
+  table.insert(lines, '## Key Facts')
+  table.insert(lines, "*Use `project_knowledge` to capture durable insights (e.g., auth lives in `apps/auth`).*")
+
+  return #lines - 1
+end
+
+local function store_fact_entry(knowledge_file, description, sources)
+  local entry = string.format('- %s', description)
+
+  if sources and #sources > 0 then
+    entry = entry .. string.format(' (sources: %s)', table.concat(sources, ', '))
+  end
 
   local file = io.open(knowledge_file, 'r')
   if not file then
     return false
   end
 
-  local content = file:read('*all')
+  local content = file:read('*all') or ''
   file:close()
 
-  local changelog_pattern = '## Changelog\n'
-  local changelog_pos = content:find(changelog_pattern)
+  local lines = vim.split(content, '\n', { plain = true, trimempty = false })
 
-  if changelog_pos then
-    local insert_pos = changelog_pos + #changelog_pattern
-    local new_content = content:sub(1, insert_pos) .. entry .. content:sub(insert_pos + 1)
+  local header_index = ensure_key_facts_section(lines)
 
-    file = io.open(knowledge_file, 'w')
-    if file then
-      file:write(new_content)
-      file:close()
-      return true
-    end
+  local placeholder_line = '*Use `project_knowledge` to capture durable insights (e.g., auth lives in `apps/auth`).*'
+  if lines[header_index + 1] == placeholder_line then
+    table.remove(lines, header_index + 1)
   end
 
-  return false
+  local insert_index = header_index + 1
+  while insert_index <= #lines do
+    local line = lines[insert_index]
+    if line == '' then
+      local next_line = lines[insert_index + 1]
+      if not next_line or next_line:match('^##%s') then
+        break
+      end
+    elseif line:match('^##%s') then
+      break
+    end
+    insert_index = insert_index + 1
+  end
+
+  table.insert(lines, insert_index, entry)
+
+  local next_line = lines[insert_index + 1]
+  if next_line and next_line ~= '' and next_line:match('^##%s') then
+    table.insert(lines, insert_index + 1, '')
+  end
+
+  local updated_content = table.concat(lines, '\n')
+  if not updated_content:match('\n$') then
+    updated_content = updated_content .. '\n'
+  end
+
+  file = io.open(knowledge_file, 'w')
+  if not file then
+    return false
+  end
+  file:write(updated_content)
+  file:close()
+
+  return true
 end
 
 local function show_knowledge_approval_dialog(proposal, callback)
@@ -105,17 +149,17 @@ local function show_knowledge_approval_dialog(proposal, callback)
 
   vim.schedule(function()
     vim.ui.select({ '✓ Approve', '✗ Reject' }, {
-      prompt = 'Store this knowledge?\n\n' .. preview,
+      prompt = 'Store this project fact?\n\n' .. preview,
       format_item = function(item)
         return item
       end,
     }, function(choice)
       if choice == '✓ Approve' then
         local knowledge_file = ensure_knowledge_file()
-        local success = store_changelog_entry(knowledge_file, proposal.description, proposal.files)
+        local success = store_fact_entry(knowledge_file, proposal.description, proposal.sources)
 
         if success then
-          callback('✓ Knowledge stored: ' .. proposal.description)
+          callback('✓ Fact stored: ' .. proposal.description)
         else
           callback('✗ Failed to store knowledge')
         end
@@ -160,7 +204,7 @@ return {
     function(self, args, input, callback)
       local proposal = {
         description = args.description,
-        files = args.files,
+        sources = args.sources,
       }
 
       if not proposal.description or proposal.description == '' then
@@ -185,7 +229,7 @@ return {
     type = 'function',
     ['function'] = {
       name = 'project_knowledge',
-      description = 'Update project knowledge with new information (project context is auto-loaded at chat start)',
+      description = 'Record durable project knowledge (context auto-loaded at chat start).',
       parameters = {
         type = 'object',
         properties = {
@@ -193,10 +237,10 @@ return {
             type = 'string',
             description = 'Brief description of what was accomplished or learned',
           },
-          files = {
+          sources = {
             type = 'array',
             items = { type = 'string' },
-            description = 'List of files involved in this change (optional, will auto-detect from git if not provided)',
+            description = 'List key sources (files, docs, URLs) backing the fact (optional).',
           },
         },
         required = { 'description' },

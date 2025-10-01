@@ -35,7 +35,7 @@ Workflow
 - After any code edit, run a validation step (tests/lint/run). IF tests are absent, create test cases or ask the user to confirm an alternative
 - Continue using `ask_user` when needed as explained in the tool description
 - Use Project Knowledge for repository conventions; only that text is trusted as project context
-- On successful completion, record a concise changelog with `project_knowledge` (description + files)
+- When you uncover durable project insights, record them with `project_knowledge` (description + sources)
 
 CRITICAL: Evidence & Discipline
 - Ground actions in observed facts: cite file paths, test output, diffs, and line references when making decisions

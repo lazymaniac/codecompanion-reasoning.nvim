@@ -407,7 +407,7 @@ EXAMPLE (use as reference)
 - `tree_of_thoughts_agent(action="add_thought", parent_id="<optionA_id>", type="validation", content="Test Option A: impact scope, risk level, implementation time")`
 - `tree_of_thoughts_agent(action="add_thought", parent_id="<optionB_id>", type="validation", content="Test Option B: breaking changes, migration path, long-term benefits")`
 - `tree_of_thoughts_agent(action="reflect", content="Compare validated options; Option A wins on speed/risk, Option B for long-term")`
-- `project_knowledge(description="Multi-path validation analysis; chose localized fix", files=["lua/utils/validation.lua","tests/..."], tags=["tot","comparative-analysis"])`
+- `project_knowledge(description="Multi-path validation analysis; chose localized fix", sources=["lua/utils/validation.lua","tests/..."], tags=["tot","comparative-analysis"])`
 
 FORBIDDEN PATTERNS
 - Linear progression without genuine alternatives
