@@ -364,31 +364,226 @@ These interactive tools transform AI assistance from reactive responses into pro
 
 ### Session Management
 
-- **Functionality-Specific Adapters**
-  - Configure different adapters/models per functionality
-  - Session optimization with fast local models (e.g., Ollama)
-  - Title generation with creative models (e.g., GPT-4)
-  - Cost and quality optimization per use case
+Session Management provides comprehensive development workspace persistence with intelligent session handling, automatic metadata generation, and advanced organization features. This system transforms CodeCompanion from a single-use chat into a persistent knowledge base that grows with your projects.
 
-- **History and Restoration**
-  - Auto-saves chat sessions
-  - Browse history with UI picker
-  - Restore previous sessions
-  - Project-scoped session views
+#### Functionality-Specific Adapters
 
-- **Smart Titles**
-  - Auto-generates descriptive titles
-  - Updates based on conversation progress
-  - Configurable refresh intervals
-  - Example: "Debugging authentication middleware timeout"
-  - Command: `:CodeCompanionRefreshSessionTitles` regenerates titles for saved sessions
+**Purpose**: Optimize performance and cost by using different AI models for different background tasks, allowing you to reserve premium models for actual development work while using efficient models for maintenance tasks.
+
+**Smart Resource Allocation**:
+
+```
+   Development Session
+         │
+         ├── Main Chat ──────────► Premium Model (GPT-4/Claude)
+         │   (Your actual work)
+         │
+         ├── Title Generation ───► Creative Model (GPT-4)
+         │   (Descriptive names)
+         │
+         ├── Session Optimization ► Fast Model (Ollama/gpt-oss)
+         │   (Compress long chats)
+         │
+         ├── Tag Generation ─────► Standard Model (GPT-3.5)
+         │   (Auto-categorization)
+         │
+         └── Meta Agent ─────────► Configured Model
+             (Agent selection)
+```
+
+**Benefits**:
+
+• **Cost Control**: Use expensive models only where quality matters most
+• **Performance**: Fast local models for background tasks like compression
+• **Quality Focus**: Creative models for user-facing features like titles
+• **Flexibility**: Fine-tune model selection per functionality
+
+#### Advanced Session Features
+
+**Auto-Generated Session Tags**:
+
+Sessions automatically receive intelligent tags based on conversation content. The system analyzes your chat to generate relevant categorization tags.
+
+```
+Session Content Analysis
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ Extract topics from conversation    │ ◄─ "authentication", "debugging"
+    └─────────────────────────────────────┘
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ Generate relevant tags via LLM      │ ◄─ ["python", "auth", "middleware"]
+    └─────────────────────────────────────┘
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ Store with session metadata         │
+    └─────────────────────────────────────┘
+```
+
+**Session Favorites System**:
+
+Mark important sessions as favorites for priority access and protection from cleanup.
+
+```
+╭─────────────────────────────────────────────────────────────╮
+│ Session Browser                                             │
+│ ─────────────────────────────────────────────────────────── │
+│ ★ Fix authentication middleware timeout + retry logic       │ ◄─ Favorite
+│ ★ Debug database connection pool                            │ ◄─ Favorite
+╰─────────────────────────────────────────────────────────────╯
+```
+
+**Token Estimation and Size Tracking**:
+
+Every session tracks estimated token usage and file size for resource management.
+
+#### Session Optimization and Compaction
+
+**Purpose**: Compress long conversations into concise summaries while preserving essential context, enabling continued development without token limit issues.
+
+**Optimization Workflow**:
+
+```
+    Long Session (50+ messages)
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Preserve system prompt              │ ◄─ Keep original configuration
+    └─────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Analyze conversation content        │ ◄─ Extract key developments
+    └─────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Generate comprehensive summary      │ ◄─ Use session_optimizer model
+    └─────────────────────────────────────┘
+              │
+              v
+    ┌─────────────────────────────────────┐
+    │ Replace messages with summary       │ ◄─ System + Summary + Continue
+    └─────────────────────────────────────┘
+```
+
+**Benefits**:
+
+• **Token Efficiency**: Reduce 50+ messages to 2-3 essential messages
+• **Context Preservation**: Maintain development history and decisions
+• **Continued Development**: Resume work without starting from scratch
+• **Performance**: Faster loading and processing of optimized sessions
+
+#### History and Restoration
+
+**Auto-Save System**:
+
+Every message is automatically saved with rich metadata, creating a comprehensive development audit trail.
+
+**Session Metadata Tracking**:
+
+```
+Session File Contents:
+├── messages[]           ◄─ Full conversation history
+├── metadata
+│   ├── total_messages   ◄─ Message count
+│   ├── token_estimate   ◄─ Estimated token usage
+│   ├── tags[]           ◄─ Auto-generated topic tags
+│   ├── favorite         ◄─ Favorite status
+│   └── project_root     ◄─ Associated project
+├── config
+│   ├── adapter          ◄─ AI model used
+│   ├── model            ◄─ Specific model version
+│   └── settings         ◄─ Model parameters
+├── title               ◄─ Auto-generated descriptive title
+├── created_at          ◄─ Session start timestamp
+├── updated_at          ◄─ Last modification time
+└── session_id          ◄─ Unique identifier
+```
+
+**Project-Scoped Organization**:
+
+Sessions are automatically associated with project directories, enabling focused browsing and team collaboration.
+
+```
+    Project A Sessions          Project B Sessions
+    ├── auth-middleware-fix     ├── react-dashboard-ui
+    ├── database-optimization   ├── api-error-handling
+    └── ci-cd-pipeline         └── payment-refactor
+```
+
+#### Smart Title Generation
+
+**Purpose**: Automatically creates searchable, descriptive titles that evolve with conversation content, eliminating generic session names.
 
 ### UI Features
 
-- **Session Navigation**
-  - Built-in picker for browsing sessions
-  - Fast session switching
-  - Search and filter capabilities
+UI Features provide intuitive interfaces for managing your development history with advanced filtering, preview capabilities, and efficient navigation. The interface transforms session management from background functionality into an active part of your development workflow.
+
+#### Session Browser Interface
+
+**Purpose**: Fast, searchable access to your entire development history with rich metadata display and instant previews.
+
+**Session Information Display**:
+
+• Stars for favorites, icons for status
+• Date, model, message count at a glance
+• Favorites first, then by recency
+• See resource usage per session
+
+#### Integration with Development Workflow
+
+**Seamless Project Integration**:
+
+```
+    Development Context
+           │
+           v
+    ┌─────────────────────────────────────┐
+    │ Auto-detect current project         │ ◄─ Use vim.fn.getcwd()
+    └─────────────────────────────────────┘
+           │
+           v
+    ┌─────────────────────────────────────┐
+    │ Filter sessions by project          │ ◄─ :CodeCompanionProjectHistory
+    └─────────────────────────────────────┘
+           │
+           v
+    ┌─────────────────────────────────────┐
+    │ Show relevant session history       │
+    └─────────────────────────────────────┘
+```
+
+**Auto-Continue Workflow**:
+
+```
+    Neovim Startup
+         │
+         v
+    ┌─────────────────────────────────────┐
+    │ continue_chat enabled?             │
+    └─────────────────────────────────────┘
+         │ yes                    │ no
+         v                        v
+    ┌─────────────────────┐   [Start clean]
+    │ Find last session   │
+    └─────────────────────┘
+         │
+         v
+    ┌─────────────────────┐
+    │ Auto-restore chat   │ ◄─ Resume exactly where you left off
+    └─────────────────────┘
+         │
+         v
+    ┌─────────────────────┐
+    │ Continue working    │
+    └─────────────────────┘
+```
+
+These UI features create a comprehensive development workspace where your AI-assisted conversations become organized, searchable knowledge that builds systematically over time, supporting both individual development and team collaboration patterns.
 
 ## Requirements
 
