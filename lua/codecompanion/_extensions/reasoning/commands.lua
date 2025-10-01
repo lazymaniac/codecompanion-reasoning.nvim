@@ -5,6 +5,7 @@ local SessionManager = require('codecompanion._extensions.reasoning.helpers.sess
 local SessionManagerUI = require('codecompanion._extensions.reasoning.ui.session_manager_ui')
 local ChatHooks = require('codecompanion._extensions.reasoning.helpers.chat_hooks')
 local SessionOptimizer = require('codecompanion._extensions.reasoning.helpers.session_optimizer')
+local SessionRestorer = require('codecompanion._extensions.reasoning.helpers.session_restorer')
 
 -- Command implementations
 
@@ -62,17 +63,20 @@ function Commands.init_project_knowledge()
   end
 
   -- Start custom initialization with config-based adapter/model
-  ProjectKnowledgeInitializer.start_custom_initialization({}, function(accepted, chat)
-    if accepted then
-      if chat then
-        vim.notify('Project knowledge initialization started with custom configuration', vim.log.levels.INFO)
+  ProjectKnowledgeInitializer.prompt_for_initialization(
+    require('codecompanion.strategies.chat').bufnr,
+    function(accepted, chat)
+      if accepted then
+        if chat then
+          vim.notify('Project knowledge initialization started with custom configuration', vim.log.levels.INFO)
+        else
+          vim.notify('Project knowledge initialization started', vim.log.levels.INFO)
+        end
       else
-        vim.notify('Project knowledge initialization started', vim.log.levels.INFO)
+        vim.notify('Project knowledge initialization cancelled', vim.log.levels.INFO)
       end
-    else
-      vim.notify('Project knowledge initialization cancelled', vim.log.levels.INFO)
     end
-  end)
+  )
 end
 
 ---Show project-specific chat history
@@ -180,21 +184,39 @@ function Commands.optimize_current_session()
         end)
       end
 
-      -- Refresh the chat buffer display
-      if chat_obj.render then
-        pcall(function()
-          chat_obj:render()
-        end)
-      end
+      -- Reload active session with compacted version using session_restorer
+      local compacted_session_data = vim.deepcopy(compacted)
+      compacted_session_data.config = {
+        adapter = chat_obj.adapter,
+        model = chat_obj.settings and chat_obj.settings.model or 'unknown',
+      }
+      compacted_session_data.tools = chat_obj.tool_registry and vim.tbl_keys(chat_obj.tool_registry.in_use) or {}
+      compacted_session_data.session_id = chat_obj.id
 
-      vim.notify(
-        string.format(
-          'Session optimized: %d messages compacted into 1 summary',
-          compacted.metadata and compacted.metadata.compaction and compacted.metadata.compaction.original_message_count
-            or 0
-        ),
-        vim.log.levels.INFO
-      )
+      -- Use session_restorer to reload the active chat buffer with compacted content
+      local success, _ =
+        SessionRestorer.restore_session(compacted_session_data, current_session_filename, { chat = chat_obj })
+
+      if success then
+        vim.notify(
+          string.format(
+            'Session optimized and reloaded: %d messages compacted into 1 summary',
+            compacted.metadata
+                and compacted.metadata.compaction
+                and compacted.metadata.compaction.original_message_count
+              or 0
+          ),
+          vim.log.levels.INFO
+        )
+      else
+        vim.notify(
+          string.format(
+            'Session optimized but failed to reload: %s. Manual refresh may be needed.',
+            result or 'unknown error'
+          ),
+          vim.log.levels.WARN
+        )
+      end
     end)
   end)
 end
