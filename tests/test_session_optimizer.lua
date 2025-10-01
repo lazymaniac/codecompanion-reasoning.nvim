@@ -104,10 +104,10 @@ T['compact_session uses configured adapter and produces summary message'] = func
   end)
 
   MiniTest.expect.no_equality(compacted, nil)
-  MiniTest.expect.equality(#compacted.messages, 1)
+  MiniTest.expect.equality(#compacted.messages, 2)
   MiniTest.expect.equality(resolve_calls[#resolve_calls], 'mock_adapter')
   MiniTest.expect.equality(captured_http_opts.model, 'mock-model')
-  MiniTest.expect.equality(compacted.messages[1].opts.tag, 'session_summary')
+  MiniTest.expect.equality(compacted.messages[2].opts.tag, 'session_summary')
 end
 
 T['compact_session returns original data when messages missing'] = function()
