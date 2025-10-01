@@ -24,9 +24,59 @@ Ask User tool:
 - Integrated session history browser with automatic naming
 - Grow with project - keep track of recent changes
 - At least partially usable with open source models
-- Token efficient
 
 ## Features
+
+### System Prompt
+#### Disciplined Workflow Management
+
+The system prompt enforces a structured workflow that prevents common AI pitfalls and ensures reliable, step-by-step problem-solving:
+
+**Agent Selection Protocol**: Every interaction begins with mandatory selection of appropriate reasoning agent (Chain, Tree, or Graph) via `meta_agent`, ensuring the cognitive approach matches task complexity. This prevents rushing into solutions without proper cognitive structure.
+
+**Task Clarity Assessment**: Critical second step requires proactive use of `ask_user` tool when requests are vague, multiple approaches exist, or key information is missing. This prevents AI from making arbitrary assumptions on ambiguous problems.
+
+**Tool Management**: Structured attachment of capabilities through `add_tools` prevents tool availability errors and ensures LLM has necessary capabilities before attempting operations. Clear error prevention through CORRECT → review tools → add tool → call tool patterns.
+
+**Evidence-Based Progression**: Enforces analysis → decision → minimal change → validation → reflection cycles with mandatory validation steps after code changes through tests, lint, or user confirmation.
+
+#### Engineering Excellence Standards
+
+The system prompt embeds comprehensive engineering practices that guide code quality, security, and maintainability decisions:
+
+**Security-First Practices**: Built-in guidance for input validation/sanitization, least privilege access, avoiding arbitrary command execution, path traversal protection, secure secret handling via configuration, dependency caution, and sandbox respect.
+
+**Code Quality Standards**: Enforces descriptive naming, small single-purpose functions, early returns, minimal nesting, repository style compliance (2-space indent, 120 columns, single quotes), modularization, DRY principles, clear interfaces, and comprehensive LuaDoc for public APIs.
+
+**Performance Optimization**: Promotes linear algorithm preferences, O(n^2) avoidance, batching and lazy evaluation strategies, minimal external process spawning, safe caching practices, and hot-path optimization.
+
+**Testing Integration**: Mandates test addition/updates for new behavior and error paths, deterministic test patterns, MiniTest framework integration, and comprehensive error path coverage.
+
+**Maintainability Focus**: Emphasizes backwards compatibility preservation, public API stability, change impact validation, and systematic refactoring approaches with user consultation for risky changes.
+
+#### Communication and Output Standards
+
+The system prompt establishes consistent, professional communication patterns that enhance developer experience:
+
+**Format Consistency**: Enforces English-only communication, concise and impersonal tone, structured Markdown formatting without H1/H2 headers, four-backtick code blocks with language specification, and complete single-turn responses.
+
+**Code Block Standards**: Mandates filepath comments in modifications, relevant code focus with `// ...existing code...` comments for omitted parts, no diff formatting or line numbers, and proper language identification.
+
+**Evidence-Based Decision Making**: Requires grounding all actions in observed facts with file paths, test output, diffs, and line references. Prevents raw chain-of-thought dumping in favor of concise reasoning with concrete next actions.
+
+**Token Efficiency**: Promotes low token usage without quality sacrifice, list/prose formatting over markdown tables, and focused output discipline.
+
+#### Project Context Integration
+
+The system prompt ensures consistent project understanding and knowledge management:
+
+**Project Knowledge Usage**: Treats project context as single source of truth for repository conventions, development practices, and architectural decisions.
+
+**Change Documentation**: Requires concise changelog recording via `project_knowledge` tool with description and affected files for successful completions.
+
+**Context Preservation**: Maintains development decision history and ensures consistency across chat sessions through persistent project knowledge updates.
+
+This comprehensive system prompt creates a reliable, professional AI programming assistant that works systematically, maintains high standards, communicates effectively, and collaborates intelligently with developers on complex software engineering tasks.
 
 ### Reasoning Agents
 
@@ -708,7 +758,7 @@ make format  # Format code with stylua
 6. Submit a pull request
 
 ## TODO
-- [ ] Fix active session compaction. It should reload active session with compacted version so user can contniue conversation.
+- [ ] Fix active session compaction. It should reload active session with compacted version so user can continue conversation.
 - [ ] Improve prompts for session compaction to extract more useful information.
 - [ ] Make better use of ask_user tool. Maybe instruct LLM to use it at the start of the task to ask clarification questions.
 - [ ] Refine project_knowledge updates. Maybe instead of storing recent changes it would be better to store key insights gathered during regular usage (like: auth logic is in AuthController.java and is using JWT)
