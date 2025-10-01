@@ -12,6 +12,10 @@ Session browser
 
 https://github.com/user-attachments/assets/f947509b-05bf-410e-af7b-877f0282d63d
 
+Ask User tool:
+
+<img width="782" height="687" alt="Screenshot 2025-10-01 at 16 50 29" src="https://github.com/user-attachments/assets/7b7dcfe1-5d46-4d30-b6ba-e2ff0dabfaf5" />
+
 ## Goals
 
 - Human id the loop - make work with LLMs more interactive
