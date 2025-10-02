@@ -155,6 +155,15 @@ function SessionOptimizer:compact_session(session_data, callback)
 
     compacted.metadata.token_estimate = math.floor(#summary / 4)
 
+    -- Add [compacted] prefix to title to clearly indicate optimized sessions
+    local current_title = compacted.title
+    if not current_title or vim.trim(current_title) == '' then
+      current_title = 'Untitled'
+    end
+    if not current_title:match('^%[compacted%]') then
+      compacted.title = '[compacted] ' .. current_title
+    end
+
     if callback then
       callback(compacted)
     end

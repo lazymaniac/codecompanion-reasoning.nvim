@@ -57,3 +57,8 @@ make all       # deps + format + test
 
 ## Constraints Facts
 - MiniTest setup: Framework is initialized by minimal_init.lua - test files should NOT call helpers.setup() (non-existent function). Use MiniTest.new_set() pattern for test registration. (sources: scripts/minimal_init.lua, tests/test_init.lua, tests/test_project_knowledge_enhanced.lua)
+- Session compaction title prefix bug fix: The original logic `compacted.title or 'Untitled'` only handled nil titles, not empty strings or whitespace-only titles. Fixed to properly check for empty/whitespace titles using vim.trim() before applying "[compacted]" prefix. (sources: lua/codecompanion/_extensions/reasoning/helpers/session_optimizer.lua)
+
+## Workflow Facts
+- Session browser duplicate functionality: Press 'y' in session picker UI to duplicate sessions. Creates copy with "(Copy)" suffix, new save_id, updated timestamps, and fresh metadata. (sources: lua/codecompanion/_extensions/reasoning/ui/session_picker.lua, lua/codecompanion/_extensions/reasoning/ui/session_manager_ui.lua)
+- Session compaction automatically adds "[compacted]" prefix to chat titles. Happens in SessionOptimizer.compact_session for both command (CodeCompanionOptimizeSession) and UI (session picker 'c' key) optimization workflows. Prevents duplicate prefixes if already present. (sources: lua/codecompanion/_extensions/reasoning/helpers/session_optimizer.lua, lua/codecompanion/_extensions/reasoning/commands.lua, lua/codecompanion/_extensions/reasoning/ui/session_picker.lua, tests/test_compacted_title_prefix.lua)

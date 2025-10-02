@@ -400,6 +400,7 @@ local function build_session_preview(session)
   add_line('    r      Rename session')
   add_line('    R      Regenerate title')
   add_line('    d      Delete session')
+  add_line('    y      Duplicate session')
   add_line('    D      Delete all sessions')
   add_line('    *      Toggle favorite')
   add_line('    f      Search sessions')
@@ -715,6 +716,17 @@ local function setup_picker_mappings(windows, sessions, selected_index, callback
     end,
   })
 
+  -- Duplicate key
+  vim.api.nvim_buf_set_keymap(list_buf, 'n', 'y', '', {
+    noremap = true,
+    silent = true,
+    callback = function()
+      if #sessions > 0 and current_selection >= 1 and current_selection <= #sessions then
+        callback('duplicate', sessions[current_selection])
+      end
+    end,
+  })
+
   -- Regenerate title key
   vim.api.nvim_buf_set_keymap(list_buf, 'n', 'R', '', {
     noremap = true,
@@ -833,6 +845,9 @@ function SessionPicker.show_session_picker(callback)
       elseif action == 'rename' and session then
         close_picker()
         SessionPicker._handle_rename(session, callback)
+      elseif action == 'duplicate' and session then
+        close_picker()
+        SessionPicker._handle_duplicate(session, callback)
       elseif action == 'regenerate_title' and session then
         close_picker()
         SessionPicker._handle_regenerate_title(session, callback)
@@ -901,9 +916,6 @@ function SessionPicker._handle_rename(session, callback)
   end)
 end
 
--- Handler function for regenerating session titles
----@param session table Session to regenerate title for
----@param callback function Main picker callback
 function SessionPicker._handle_regenerate_title(session, callback)
   vim.notify('Regenerating title...', vim.log.levels.INFO)
 
@@ -946,8 +958,46 @@ function SessionPicker._handle_regenerate_title(session, callback)
   end) -- true indicates this is a refresh
 end
 
--- Handler function for deleting all sessions
+-- Handler function for duplicating sessions
+---@param session table Session to duplicate
 ---@param callback function Main picker callback
+function SessionPicker._handle_duplicate(session, callback)
+  -- Load the original session
+  local session_data, err = SessionManager.load_session(session.filename)
+  if not session_data then
+    vim.notify(fmt('Failed to load session: %s', err or 'unknown error'), vim.log.levels.ERROR)
+    SessionPicker.show_session_picker(callback)
+    return
+  end
+
+  -- Generate new session data
+  local new_title = (session.title or 'Untitled') .. ' (Copy)'
+  local new_filename = SessionManager.generate_session_filename()
+
+  -- Update session data for the copy
+  session_data.save_id = SessionManager.generate_save_id()
+  session_data.title = new_title
+  session_data.created_at = os.date('%Y-%m-%d %H:%M:%S')
+  session_data.updated_at = os.time()
+  session_data.timestamp = os.time()
+
+  -- Reset title refresh count for new session
+  if session_data.metadata then
+    session_data.metadata.title_refresh_count = 0
+  end
+
+  -- Save the duplicated session
+  local success, save_err = SessionManager.save_session_data(session_data, new_filename)
+  if success then
+    vim.notify(fmt('✓ Duplicated as "%s"', new_title), vim.log.levels.INFO)
+  else
+    vim.notify(fmt('✗ Failed to duplicate: %s', save_err or 'unknown error'), vim.log.levels.ERROR)
+  end
+
+  -- Re-show picker with new session included
+  SessionPicker.show_session_picker(callback)
+end
+
 function SessionPicker._handle_delete_all(callback)
   local sessions = SessionManager.list_sessions()
 
