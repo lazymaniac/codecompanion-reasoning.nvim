@@ -16,6 +16,8 @@ Ask User tool:
 
 <img width="782" height="687" alt="Screenshot 2025-10-01 at 16 50 29" src="https://github.com/user-attachments/assets/7b7dcfe1-5d46-4d30-b6ba-e2ff0dabfaf5" />
 
+<img width="1115" height="730" alt="Screenshot 2025-10-02 at 15 28 23" src="https://github.com/user-attachments/assets/d687e021-2c71-4def-a340-d1c5dda6368f" />
+
 ## Goals
 
 - Human id the loop - make work with LLMs more interactive, more like code companion
