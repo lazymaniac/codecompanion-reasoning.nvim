@@ -39,21 +39,22 @@ Prevents AI from rushing to solutions by enforcing structured problem-solving wo
 
 ```
 Request ──► Meta Agent ──► Agent Selection ──► Tool Attachment ──► Evidence Gathering ──► Solution ──► Validation
-   │            │              │                 │                      │                │         │
-   │            ▼              │                 ▼                      ▼                ▼         │
-   │      Analyze task         │           add_tools()            Research context    Implement    │
-   │      complexity           │           Review available       Read files          changes      │
-   │                           │           capabilities           Run commands                     │
-   │                           ▼                                                                   │
-   │                     Chain/Tree/Graph                                                         │
-   │                     reasoning agent                                                          │
-   │                                                                                              │
-   └──────────────────────────────── ask_user (when ambiguous) ◄────────────────────────────────┘
+   │            │               │                  │                      │                   │         │
+   │            ▼               │                  ▼                      ▼                   ▼         │
+   │      Analyze task          │            add_tools()            Research context       Implement    │
+   │      complexity            │            Review available       Read files             changes      │
+   │                            │            capabilities           Run commands                        │
+   │                            ▼                                                                       │
+   │                      Chain/Tree/Graph                                                              │
+   │                      reasoning agent                                                               │
+   │                                                                                                    │
+   └──────────────────────────────── ask_user (when ambiguous) ◄────────────────────────────────────────┘
 ```
 
 **Key Enforcement Patterns:**
+
 - **Agent Selection First**: Every session starts with `meta_agent` selection (Chain/Tree/Graph)
-- **Clarify Before Code**: Proactive `ask_user` for vague requests or multiple valid approaches  
+- **Clarify Before Code**: Proactive `ask_user` for vague requests or multiple valid approaches
 - **Tools Then Actions**: `add_tools` → verify → use (prevents capability errors)
 - **Evidence Before Solutions**: Analysis → research → reasoning → implementation → validation
 
@@ -70,12 +71,12 @@ Embeds professional software engineering practices into every AI response:
          │         │      │
          └─────────┼──────┘
                    │
-              Testing & 
+              Testing &
             Maintainability
 ```
 
 **Security-First:** Input validation, least privilege, no arbitrary execution, secure secrets
-**Code Quality:** Descriptive naming, single-purpose functions, DRY principles, clear interfaces  
+**Code Quality:** Descriptive naming, single-purpose functions, DRY principles, clear interfaces
 **Performance:** Linear algorithms, batch operations, safe caching, hot-path optimization
 **Testing:** MiniTest integration, deterministic patterns, error path coverage
 **Maintainability:** Backwards compatibility, systematic refactoring, change impact validation
@@ -86,13 +87,13 @@ Establishes consistent, professional output that enhances developer experience:
 
 ```
 Input Request ──► Analysis ──► Evidence ──► Reasoning ──► Output
-      │             │           │            │           │
-      │             ▼           ▼            ▼           ▼
-      │        Break down    Research     Ground in    Markdown
-      │        problem       context      observed     + Code
-      │        angles                     facts        blocks
+      │               │           │            │           │
+      │               ▼           ▼            ▼           ▼
+      │         Break down    Research     Ground in    Markdown
+      │         problem       context      observed     + Code
+      │         angles                     facts        blocks
       │                                                   │
-      └──────────────── Concise, actionable ◄────────────┘
+      └──────────────── Concise, actionable ◄─────────────┘
 ```
 
 **Format Standards:** English-only, Markdown structure, four-backtick code blocks with filepaths
@@ -156,23 +157,25 @@ Three structured agents provide disciplined, evidence-based AI problem-solving w
 
 #### Agent Comparison
 
-| Agent | Use Cases | Workflow Pattern | Best For |
-|-------|-----------|------------------|----------|
-| **Chain** | Bug fixes, targeted features, config changes | Analysis → Evidence → Reasoning → Validation | Linear problems with clear paths |
-| **Tree** | Multiple solutions, refactoring options, architectural decisions | Analysis × N → Evidence → Reasoning × N → Compare → Select | Exploring alternatives before deciding |
-| **Graph** | Cross-system features, complex refactors, dependency analysis | Multi-dimensional analysis → Synthesis → Integration | Complex interconnected changes |
+| Agent     | Use Cases                                                        | Workflow Pattern                                           | Best For                               |
+| --------- | ---------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------- |
+| **Chain** | Bug fixes, targeted features, config changes                     | Analysis → Evidence → Reasoning → Validation               | Linear problems with clear paths       |
+| **Tree**  | Multiple solutions, refactoring options, architectural decisions | Analysis × N → Evidence → Reasoning × N → Compare → Select | Exploring alternatives before deciding |
+| **Graph** | Cross-system features, complex refactors, dependency analysis    | Multi-dimensional analysis → Synthesis → Integration       | Complex interconnected changes         |
 
 #### Agent Workflow Patterns
 
 **Chain of Thoughts** - Linear progression:
+
 ```
 Problem ──► Analysis ──► Evidence ──► Reasoning ──► Validation ──► Solution
     │           │           │            │             │            │
     └───────────┼───────────┼────────────┼─────────────┼────────────┘
-           Sequential steps building on each other
+                Sequential steps building on each other
 ```
 
 **Tree of Thoughts** - Multi-path exploration:
+
 ```
                  Problem
                     │
@@ -191,6 +194,7 @@ Problem ──► Analysis ──► Evidence ──► Reasoning ──► Vali
 ```
 
 **Graph of Thoughts** - Interconnected analysis:
+
 ```
         Problem
            │
@@ -227,12 +231,13 @@ All agents structure work through four node types that enforce evidence-based de
 #### Mandatory Quality Patterns
 
 **Root Decomposition**: 2-4 analysis branches explore different problem facets
+
 ```
     Root Problem
          │
     ┌────┼────┐
     │    │    │
-   A1   A2   A3  ◄── Different angles required
+    A1   A2   A3  ◄── Different angles required
     │    │    │
     └────┼────┘
          ▼
@@ -240,6 +245,7 @@ All agents structure work through four node types that enforce evidence-based de
 ```
 
 **Evidence Before Solutions**: Task nodes gather context before reasoning
+
 ```
 ❌ FORBIDDEN:  Analysis ──► Reasoning ──► Task
 ✅ REQUIRED:   Analysis ──► Task ──► Reasoning ──► Validation
@@ -248,6 +254,7 @@ All agents structure work through four node types that enforce evidence-based de
 ```
 
 **Multi-Path Validation**: Tree/Graph agents compare 2-3 alternatives
+
 ```
          Evidence
              │
