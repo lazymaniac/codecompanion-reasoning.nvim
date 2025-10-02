@@ -29,95 +29,239 @@ Ask User tool:
 
 ### System Prompt
 
+The system prompt transforms CodeCompanion into a disciplined, evidence-based programming assistant that collaborates systematically with developers through structured workflows and professional standards.
+
 #### Disciplined Workflow Management
 
-The system prompt enforces a structured workflow that prevents common AI pitfalls and ensures reliable, step-by-step problem-solving:
+Prevents AI from rushing to solutions by enforcing structured problem-solving workflows:
 
-**Agent Selection Protocol**: Every interaction begins with mandatory selection of appropriate reasoning agent (Chain, Tree, or Graph) via `meta_agent`, ensuring the cognitive approach matches task complexity. This prevents rushing into solutions without proper cognitive structure.
+```
+Request ──► Meta Agent ──► Agent Selection ──► Tool Attachment ──► Evidence Gathering ──► Solution ──► Validation
+   │            │              │                 │                      │                │         │
+   │            ▼              │                 ▼                      ▼                ▼         │
+   │      Analyze task         │           add_tools()            Research context    Implement    │
+   │      complexity           │           Review available       Read files          changes      │
+   │                           │           capabilities           Run commands                     │
+   │                           ▼                                                                   │
+   │                     Chain/Tree/Graph                                                         │
+   │                     reasoning agent                                                          │
+   │                                                                                              │
+   └──────────────────────────────── ask_user (when ambiguous) ◄────────────────────────────────┘
+```
 
-**Task Clarity Assessment**: Critical second step requires proactive use of `ask_user` tool when requests are vague, multiple approaches exist, or key information is missing. This prevents AI from making arbitrary assumptions on ambiguous problems.
-
-**Tool Management**: Structured attachment of capabilities through `add_tools` prevents tool availability errors and ensures LLM has necessary capabilities before attempting operations. Clear error prevention through CORRECT → review tools → add tool → call tool patterns.
-
-**Evidence-Based Progression**: Enforces analysis → decision → minimal change → validation → reflection cycles with mandatory validation steps after code changes through tests, lint, or user confirmation.
+**Key Enforcement Patterns:**
+- **Agent Selection First**: Every session starts with `meta_agent` selection (Chain/Tree/Graph)
+- **Clarify Before Code**: Proactive `ask_user` for vague requests or multiple valid approaches  
+- **Tools Then Actions**: `add_tools` → verify → use (prevents capability errors)
+- **Evidence Before Solutions**: Analysis → research → reasoning → implementation → validation
 
 #### Engineering Excellence Standards
 
-The system prompt embeds comprehensive engineering practices that guide code quality, security, and maintainability decisions:
+Embeds professional software engineering practices into every AI response:
 
-**Security-First Practices**: Built-in guidance for input validation/sanitization, least privilege access, avoiding arbitrary command execution, path traversal protection, secure secret handling via configuration, dependency caution, and sandbox respect.
+```
+        Security Foundation
+              │
+         ┌────┴────┐
+         │         │
+    Code Quality ──┼── Performance
+         │         │      │
+         └─────────┼──────┘
+                   │
+              Testing & 
+            Maintainability
+```
 
-**Code Quality Standards**: Enforces descriptive naming, small single-purpose functions, early returns, minimal nesting, repository style compliance (2-space indent, 120 columns, single quotes), modularization, DRY principles, clear interfaces, and comprehensive LuaDoc for public APIs.
+**Security-First:** Input validation, least privilege, no arbitrary execution, secure secrets
+**Code Quality:** Descriptive naming, single-purpose functions, DRY principles, clear interfaces  
+**Performance:** Linear algorithms, batch operations, safe caching, hot-path optimization
+**Testing:** MiniTest integration, deterministic patterns, error path coverage
+**Maintainability:** Backwards compatibility, systematic refactoring, change impact validation
 
-**Performance Optimization**: Promotes linear algorithm preferences, O(n^2) avoidance, batching and lazy evaluation strategies, minimal external process spawning, safe caching practices, and hot-path optimization.
+#### Communication Standards
 
-**Testing Integration**: Mandates test addition/updates for new behavior and error paths, deterministic test patterns, MiniTest framework integration, and comprehensive error path coverage.
+Establishes consistent, professional output that enhances developer experience:
 
-**Maintainability Focus**: Emphasizes backwards compatibility preservation, public API stability, change impact validation, and systematic refactoring approaches with user consultation for risky changes.
+```
+Input Request ──► Analysis ──► Evidence ──► Reasoning ──► Output
+      │             │           │            │           │
+      │             ▼           ▼            ▼           ▼
+      │        Break down    Research     Ground in    Markdown
+      │        problem       context      observed     + Code
+      │        angles                     facts        blocks
+      │                                                   │
+      └──────────────── Concise, actionable ◄────────────┘
+```
 
-#### Communication and Output Standards
-
-The system prompt establishes consistent, professional communication patterns that enhance developer experience:
-
-**Format Consistency**: Enforces English-only communication, concise and impersonal tone, structured Markdown formatting without H1/H2 headers, four-backtick code blocks with language specification, and complete single-turn responses.
-
-**Code Block Standards**: Mandates filepath comments in modifications, relevant code focus with `// ...existing code...` comments for omitted parts, no diff formatting or line numbers, and proper language identification.
-
-**Evidence-Based Decision Making**: Requires grounding all actions in observed facts with file paths, test output, diffs, and line references. Prevents raw chain-of-thought dumping in favor of concise reasoning with concrete next actions.
-
-**Token Efficiency**: Promotes low token usage without quality sacrifice, list/prose formatting over markdown tables, and focused output discipline.
+**Format Standards:** English-only, Markdown structure, four-backtick code blocks with filepaths
+**Evidence-Based:** All decisions cite specific files, test output, or line references
+**Token Efficiency:** Low usage without quality sacrifice, focused output discipline
 
 #### Project Context Integration
 
-The system prompt ensures consistent project understanding and knowledge management:
+Ensures consistent understanding and knowledge accumulation across sessions:
 
-**Project Knowledge Usage**: Treats project context as single source of truth for repository conventions, development practices, and architectural decisions.
+```
+    New Chat ──────────► Auto-load project context
+        │                        │
+        │                        ▼
+        │                .codecompanion/project-knowledge.md
+        │                        │
+        │                        ▼
+        ▼                 Architecture Facts
+   Work with full           Workflow Facts
+   context from             Business Logic
+   session start           Constraints Facts
+        │                        │
+        │                        ▼
+        └───► New insights ──► Capture via project_knowledge
+```
 
-**Knowledge Capture**: Encourages recording durable project facts via `project_knowledge` with concise descriptions and supporting sources so future sessions can jump directly to the right place.
+**Knowledge Management:** Auto-loads project context, treats as single source of truth
+**Fact Capture:** Records durable insights (where features live, how to build/test, business rules)
+**Session Continuity:** Maintains context across chats, enables resumption exactly where left off
 
-**Context Preservation**: Maintains development decision history and ensures consistency across chat sessions through persistent project knowledge updates.
-
-This comprehensive system prompt creates a reliable, professional AI programming assistant that works systematically, maintains high standards, communicates effectively, and collaborates intelligently with developers on complex software engineering tasks.
+This comprehensive system prompt creates a reliable programming assistant that works systematically, maintains professional standards, and builds institutional knowledge over time.
 
 ### Reasoning Agents
 
-This extension provides three reasoning agents that structure AI problem-solving through disciplined, evidence-based workflows. Each agent is designed around specific cognitive patterns that match different programming scenarios, ensuring that complex tasks are approached systematically with verifiable steps.
+Three structured agents provide disciplined, evidence-based AI problem-solving with automatic tool attachment and intelligent agent selection.
 
-- **Chain of Thoughts Agent** excels at linear problem-solving where there's a clear, sequential path from problem to solution. This agent works best for straightforward tasks like fixing a specific bug, implementing a well-defined feature, or making targeted configuration changes. It follows a disciplined workflow of analysis, evidence gathering, decision-making, and validation. The agent should ensure each step builds logically on the previous one, making it ideal for tasks like methodical progression without exploring alternative approaches.
+#### Agent Selection Overview
 
-- **Tree of Thoughts Agent** for scenarios requiring exploration of multiple viable solutions before converging on the optimal approach. This agent implements a mandatory multi-path exploration pattern that forces consideration of genuine alternatives rather than rushing to the first plausible solution. When tackling problems with multiple potential causes, the Tree agent creates structured branching paths that explore different problem decomposition angles. The agent's workflow mandates evidence investigation through task branches before proposing solutions, comparative evaluation of alternatives, and synthesis of insights from the best approaches.
+```
+    Problem ────────► Meta Agent ────────► Reasoning Agent
+         │                 │                      │
+         │                 ▼                      │
+         │          ┌─────────────┐               │
+         │          │ Analyze:    │               │
+         └─────────►│ • Scope     │               │
+                    │ • Complexity│               │
+                    │ • Approach  │               │
+                    └─────────────┘               │
+                           │                      │
+                           ▼                      │
+                    ┌─────────────┐               │
+                    │ Select:     │               │
+                    │ Chain/Tree/ │◄──────────────┘
+                    │ Graph Agent │
+                    └─────────────┘
+                           │
+                           ▼
+                    Auto-attach tools
+                    (ask_user, project_knowledge, add_tools)
+```
 
-- **Graph of Thoughts Agent** for most complex scenarios. This agent maps dependencies across the codebase, analyzes ripple effects of changes, and synthesizes solutions that account for complex interactions. It's particularly valuable for features spanning multiple services, repository-wide refactors, or architectural changes that affect logging, authentication, or data flow patterns. The Graph agent excels at tasks requiring synthesis of new knowledge from multiple information sources, ensuring that solutions account for all affected subsystems.
+#### Agent Comparison
 
-- **Meta Agent** serves as an intelligent dispatcher that automatically selects the most appropriate reasoning agent for your specific task. It analyzes the complexity, scope, and characteristics of your request to determine whether linear Chain reasoning, exploratory Tree reasoning, or interconnected Graph reasoning best fits the problem. The Meta Agent also automatically attaches essential companion tools including user consultation capabilities, project knowledge management, and dynamic tool discovery, ensuring right capabilities available from the start.
+| Agent | Use Cases | Workflow Pattern | Best For |
+|-------|-----------|------------------|----------|
+| **Chain** | Bug fixes, targeted features, config changes | Analysis → Evidence → Reasoning → Validation | Linear problems with clear paths |
+| **Tree** | Multiple solutions, refactoring options, architectural decisions | Analysis × N → Evidence → Reasoning × N → Compare → Select | Exploring alternatives before deciding |
+| **Graph** | Cross-system features, complex refactors, dependency analysis | Multi-dimensional analysis → Synthesis → Integration | Complex interconnected changes |
 
-#### Node Types and Evidence-Based Workflow
+#### Agent Workflow Patterns
 
-The reasoning agents structure their work through four distinct node types that enforce evidence-based decision making:
+**Chain of Thoughts** - Linear progression:
+```
+Problem ──► Analysis ──► Evidence ──► Reasoning ──► Validation ──► Solution
+    │           │           │            │             │            │
+    └───────────┼───────────┼────────────┼─────────────┼────────────┘
+           Sequential steps building on each other
+```
 
-**Analysis Nodes** perform multi-dimensional problem decomposition, breaking complex issues into distinct facets or angles. These nodes are mandatory starting points that prevent rushing to solutions without proper understanding. The Tree and Graph agents require multiple analysis nodes to ensure comprehensive problem exploration.
+**Tree of Thoughts** - Multi-path exploration:
+```
+                 Problem
+                    │
+              ┌─────┼─────┐
+              │     │     │
+         Analysis1 Analysis2 Analysis3
+              │     │     │
+           ┌──┴──┐  │  ┌──┴──┐
+       Reason1 Reason2  Reason3 Reason4
+           │     │       │       │
+           └─────┼───────┼───────┘
+                 │       │
+              Compare & Select
+                 │
+              Solution
+```
 
-**Task Nodes** conduct evidence investigation and implementation actions. These nodes are the foundation of evidence-based reasoning, requiring agents to gather contextual information, research existing patterns, and understand constraints before proposing solutions. Task nodes might investigate current codebase patterns, analyze similar implementations, examine error logs, or conduct focused research. Crucially, evidence-gathering task nodes must precede solution reasoning, ensuring decisions are grounded in observed facts rather than assumptions.
+**Graph of Thoughts** - Interconnected analysis:
+```
+        Problem
+           │
+    ┌──────┼──────┐
+    │      │      │
+  Deps   Core   Effects
+    │      │      │
+    └──┬───┼───┬──┘
+       │   │   │
+    Synthesis │ Integration
+       │   │   │
+       └───┼───┘
+           │
+       Solution
+```
 
-**Reasoning Nodes** propose specific solution hypotheses based on gathered evidence. These nodes present concrete approaches with explicit trade-offs, always building on insights discovered through task node investigation. The Tree agent mandates multiple reasoning alternatives per analysis branch, forcing consideration of different approaches.
+#### Evidence-Based Node Types
 
-**Validation Nodes** perform comparative verification of reasoning alternatives, testing feasibility, complexity, maintainability, and risk factors. These nodes ensure that multiple approaches are systematically evaluated before path selection. The Tree agent requires validation of multiple alternatives before convergence, preventing selection of suboptimal solutions.
+All agents structure work through four node types that enforce evidence-based decision making:
 
-#### Mandatory Patterns and Workflows
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│ ANALYSIS    │───►│ TASK        │───►│ REASONING   │───►│ VALIDATION  │
+│ Problem     │    │ Evidence    │    │ Solutions   │    │ Verify &    │
+│ breakdown   │    │ gathering   │    │ based on    │    │ compare     │
+│ into angles │    │ & research  │    │ evidence    │    │ approaches  │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+      │                   │                   │                   │
+      ▼                   ▼                   ▼                   ▼
+   Multiple            Context           Concrete           Systematic
+  perspectives        investigation      hypotheses         evaluation
+```
 
-The reasoning agents implement strict workflow patterns that prevent common AI pitfalls like premature convergence, insufficient evidence gathering, and single-path thinking:
+#### Mandatory Quality Patterns
 
-**Root Decomposition** requires creating 2-4 analysis children that explore different problem facets before any solution work begins. This ensures comprehensive problem understanding and prevents narrow thinking.
+**Root Decomposition**: 2-4 analysis branches explore different problem facets
+```
+    Root Problem
+         │
+    ┌────┼────┐
+    │    │    │
+   A1   A2   A3  ◄── Different angles required
+    │    │    │
+    └────┼────┘
+         ▼
+    Evidence tasks must follow before solutions
+```
 
-**Evidence Investigation** mandates task nodes that gather contextual information, research existing patterns, and understand constraints before proposing any solutions. Evidence gathering must precede reasoning in all workflows.
+**Evidence Before Solutions**: Task nodes gather context before reasoning
+```
+❌ FORBIDDEN:  Analysis ──► Reasoning ──► Task
+✅ REQUIRED:   Analysis ──► Task ──► Reasoning ──► Validation
+                            │
+                         Evidence gathering must precede solutions
+```
 
-**Solution Alternatives** require generating 2-3 reasoning branches per major decision point, with different approaches and explicit trade-offs. This prevents anchoring on the first plausible solution.
+**Multi-Path Validation**: Tree/Graph agents compare 2-3 alternatives
+```
+         Evidence
+             │
+      ┌──────┼──────┐
+      │      │      │
+  Solution1 Solution2 Solution3
+      │      │      │
+      └──────┼──────┘
+             │
+         Compare
+    (complexity, risk, maintainability)
+             │
+       Best approach
+```
 
-**Comparative Evaluation** demands validation branches that systematically compare alternatives on criteria like complexity, maintainability, risk, and alignment with project goals before path selection.
-
-**Synthesis Convergence** combines insights from the best alternative approaches into integrated implementations, ensuring final solutions benefit from multi-path exploration.
-
-These patterns should ensure that AI assistants work through problems systematically, gather sufficient evidence, explore genuine alternatives, and make well-informed decisions rather than rushing to implementation. The structured approach is particularly valuable for complex software engineering tasks where hasty decisions can create technical debt, introduce bugs, or miss better architectural solutions.
+This structured approach prevents AI from rushing to solutions, ensures evidence-based decisions, and systematically explores alternatives for complex engineering tasks.
 
 ### Interactive Tools
 
@@ -827,7 +971,7 @@ make format  # Format code with stylua
 ## TODO
 
 - [x] Fix active session compaction. It should reload active session with compacted version so user can continue conversation.
-- [ ] Improve prompts for session compaction to extract more useful information.
+- [x] Improve prompts for session compaction to extract more useful information.
 - [x] Make better use of ask_user tool. Maybe instruct LLM to use it at the start of the task to ask clarification questions.
 - [x] Refine project_knowledge updates. Maybe instead of storing recent changes it would be better to store key insights gathered during regular usage (like: auth logic is in AuthController.java and is using JWT)
 - [ ] Add optimization algorithm. Implement a filter running before request to LLM is made. Currently whole chat is acting as context or short term memory. It may be possible to use open or cheap models for context filtering to sent only relevant messages from chat history.
