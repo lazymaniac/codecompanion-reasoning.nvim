@@ -922,6 +922,9 @@ These UI features create a comprehensive development workspace where your AI-ass
         chat = {
           tools = {
             opts = {
+              -- Important:
+              auto_submit_errors = true, -- Send any errors to the LLM automatically
+              auto_submit_success = true, -- Send any successful output to the LLM automatically
               default_tools = {
                 'meta_agent',
               },
