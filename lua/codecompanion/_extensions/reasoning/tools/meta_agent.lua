@@ -54,16 +54,12 @@ WHY FIRST
 CHOICES
 - chain_of_thoughts_agent: sequential steps with reflection. Best for simple, linear tasks with a single obvious path.
 - tree_of_thoughts_agent: branching alternatives with periodic comparison. Best when exploring multiple viable approaches or comparing trade-offs.
-- graph_of_thoughts_agent: relationships + synthesis across aspects. Best for cross-cutting work spanning multiple modules/components or complex .
+- graph_of_thoughts_agent: relationships + synthesis across aspects. Best for cross-cutting work or complex task requiring deep thinking.
 
 SELECTION GUIDELINES
-- Prefer tree_of_thoughts_agent or graph_of_thoughts_agent for complex software engineering tasks. Use chain_of_thoughts_agent only for small, local, linear edits.
-- Choose tree_of_thoughts_agent when you need to generate and compare alternative designs, refactoring strategies, or debugging hypotheses.
+- Prefer tree_of_thoughts_agent or graph_of_thoughts_agent for complex software engineering tasks. Use chain_of_thoughts_agent only for straitforward tasks.
+- Choose tree_of_thoughts_agent when you need to generate and compare alternative designs, refactoring strategies, debugging hypotheses etc.
 - Choose graph_of_thoughts_agent when the task is complex, requires vast analysis or synthesizing new knowledge based on fidings to produce final solution.
-- Examples:
-  - chain_of_thoughts_agent: small localized bug fix, rename, add a single helper, adjust one config.
-  - tree_of_thoughts_agent: API design with trade-offs, selecting libraries, multi-step refactor with strategy choices, ambiguous bug with multiple hypotheses.
-  - graph_of_thoughts_agent: feature touching many modules, cross-cutting concerns (auth/logging/telemetry), repository-wide refactor, plugin integration across subsystems, synthesizing new knowledge, designing new features.
 ]],
       parameters = {
         type = 'object',

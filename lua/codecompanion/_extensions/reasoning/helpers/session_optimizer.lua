@@ -57,62 +57,62 @@ function SessionOptimizer:compact_session(session_data, callback)
   local conversation_context = table.concat(conversation_lines, '\n\n')
 
   local prompt_parts = {
-    'You are an AI conversation summarizer specializing in preserving context for seamless conversation continuation.',
+    'Create a conversation resumption summary that allows seamless continuation without context loss.',
     '',
-    'TASK: Create a comprehensive yet concise summary that allows another AI to continue this conversation as if no interruption occurred.',
+    'OBJECTIVE: Enable another AI to continue this conversation naturally, maintaining user rapport and technical momentum.',
     '',
-    'REQUIRED OUTPUT STRUCTURE:',
-    '## Context Overview',
-    '- Domain/technology being discussed',
-    '- Current project or task scope',
-    "- User's apparent skill level and preferences",
+    'REQUIRED SECTIONS:',
     '',
-    '## Technical State',
-    '- Active files, functions, or components mentioned',
-    '- Current implementation approach or architecture',
-    '- Tools, libraries, or frameworks in use',
-    '- Code patterns or standards established',
+    '## Current Focus',
+    'Document the immediate work context and active elements:',
+    '- Specific technical problem or task being addressed',
+    '- Files, functions, classes, or components currently in scope',
+    '- Tools, libraries, frameworks, or methodologies in active use',
+    '- Current implementation approach or solution strategy',
+    '- Any code, configurations, or technical details that are immediately relevant',
     '',
-    '## Workflow Progress',
-    '- Completed tasks or resolved issues',
-    '- Current objective or goal',
-    '- Next planned steps or pending actions',
-    '- Open questions or unresolved items',
+    '## User Context',
+    "Capture the user's perspective and working state:",
+    '- Technical expertise level and relevant experience',
+    '- Communication preferences and explanation style they respond to',
+    '- Current understanding of the problem domain and any knowledge gaps',
+    '- Goals, constraints, deadlines, or success criteria driving their decisions',
+    '- Mental state and energy level: methodical, exploring, frustrated, excited, stuck, or making progress',
     '',
-    '## Key Decisions & Insights',
-    '- Important choices made and rationale',
-    '- Established constraints or requirements',
-    '- Lessons learned or gotchas discovered',
-    '- Performance or design considerations',
+    '## Next Steps',
+    'Identify the logical progression and immediate actions:',
+    '- The next logical step or decision point in the workflow',
+    '- Specific questions they will likely ask or areas they want to explore',
+    '- Known blockers, dependencies, or issues that need resolution',
+    '- Quick wins or immediate progress opportunities available',
+    '- Alternative approaches or options they might want to consider',
     '',
-    '## Conversation Dynamics',
-    "- User's communication style and preferences",
-    '- Specific terminology or conventions used',
-    '- Level of explanation typically provided',
-    '- Any recurring themes or concerns',
+    '## Resume With',
+    'Provide natural conversation continuation:',
+    'Write 2-3 sentences that smoothly restart the conversation, acknowledging where we left off and naturally transitioning to the next step. Use their established terminology and communication style.',
     '',
     'INSTRUCTIONS:',
-    '- Write in a clear, structured format using the sections above',
-    '- Focus on information needed to continue the conversation productively',
-    '- Include specific technical details, file names, and code concepts',
-    "- Preserve the user's mental model and current understanding",
-    '- Keep technical context precise but avoid excessive code reproduction',
+    '- Prioritize information critical for seamless resumption over comprehensive history',
+    '- Include specific technical details: exact file names, function names, variable names, concepts',
+    "- Preserve the user's mental model and current level of understanding",
+    '- Use precise technical language and established terminology from the conversation',
+    '- Focus on actionable context rather than abstract summaries',
   }
 
   local max_words = config.get().session_optimizer.summary_max_words
   table.insert(
     prompt_parts,
     fmt(
-      '- Target %d words, but prioritize completeness over strict limits - use more words if necessary for continuity',
+      '- Target %d words minimum, distribute roughly: Current Focus 40%%, User Context 25%%, Next Steps 25%%, Resume With 10%%',
       max_words
     )
   )
 
   table.insert(prompt_parts, '')
-  table.insert(prompt_parts, 'CONVERSATION TO SUMMARIZE:')
+  table.insert(prompt_parts, 'CONVERSATION TO ANALYZE:')
   table.insert(prompt_parts, conversation_context)
   table.insert(prompt_parts, '')
-  table.insert(prompt_parts, 'STRUCTURED SUMMARY:')
+  table.insert(prompt_parts, 'RESUMPTION SUMMARY:')
 
   local prompt = table.concat(prompt_parts, '\n')
 

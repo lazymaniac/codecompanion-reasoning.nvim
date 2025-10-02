@@ -318,10 +318,10 @@ return {
     ['function'] = {
       name = 'graph_of_thoughts_agent',
       description = [[
-MANDATORY Network-Based Investigation Agent. Model complex problems as interconnected evidence networks requiring deep cross-cutting analysis.
+Deep Network-Based (Graph of Thoughts pattern) Reasoning Agent. Model complex problems as interconnected evidence networks requiring deep cross-cutting analysis. This tool is designed to help you guide you through problem solving process and sort your thoughts in a Graph of Thought pattern. Use it often - it's your best friend.
 
 INVESTIGATION REQUIREMENTS (MANDATORY)
-- DECOMPOSITION NETWORK: 3-4 analysis nodes exploring different problem dimensions with interconnections
+- DECOMPOSITION NETWORK: 3 or more analysis nodes exploring different problem dimensions with interconnections
 - EVIDENCE MANDATES: Task nodes MUST gather contextual evidence before any reasoning attempts
 - CROSS-CONNECTION: Reasoning nodes MUST connect to evidence from multiple analysis branches
 - VALIDATION NETWORKS: All reasoning paths require validation nodes with specific verification steps
@@ -333,13 +333,6 @@ MANDATORY NETWORK WORKFLOW
 3) HYPOTHESIS NETWORK: Reasoning nodes proposing solutions based on cross-dimensional evidence
 4) VALIDATION MESH: Validation nodes testing each hypothesis against gathered evidence
 5) SYNTHESIS CONVERGENCE: Integration nodes combining validated approaches into cohesive solution
-
-NODE TYPE MANDATES
-- `analysis`: ONLY for multi-dimensional problem decomposition; minimum 3 different angles required
-- `task`: MANDATORY evidence collection phase; must investigate context before reasoning
-- `reasoning`: MUST connect to evidence from multiple task nodes; reference specific findings
-- `validation`: MANDATORY for each reasoning path; must verify against evidence and constraints
-- `synthesis`: ONLY for integrating multiple validated reasoning paths; show evidence cross-connections
 
 CROSS-CONNECTION REQUIREMENTS
 - Reasoning nodes MUST connect to 2+ evidence sources
@@ -383,18 +376,17 @@ FORBIDDEN PATTERNS
             type = 'string',
             enum = { 'analysis', 'reasoning', 'task', 'validation', 'synthesis' },
             description = [[
-Node type: `analysis`, `reasoning`, `task`, `validation`, `synthesis` (required for `add_node`)
+Node types (required for add_node):
 
-NETWORK-ENFORCED INSTRUCTIONS:
-`analysis` - Multi-dimensional problem space mapping ONLY. Must explore different dimensions (technical, business, security, performance). REQUIRED: minimum 3 analysis nodes with different angles. FORBIDDEN: single-dimension analysis.
+`analysis` - Multi-dimensional problem space mapping ONLY. MUST explore different dimensions (technical, business, security, performance). REQUIRED: minimum 3 analysis nodes with different angles. FORBIDDEN: single-dimension analysis.
 
-`reasoning` - Cross-dimensional solution hypothesis. Must connect to evidence from multiple task nodes. REQUIRED: reference findings from 2+ evidence sources. FORBIDDEN: reasoning without cross-dimensional evidence connections.
+`task` - MANDATORY evidence collection phase or implementation. MUST investigate context, patterns, constraints for specific problem dimensions. REQUIRED: gather concrete evidence before any reasoning attempts. FORBIDDEN: implementation tasks without evidence foundation.
 
-`task` - MANDATORY evidence collection phase. Must investigate context, patterns, constraints for specific problem dimensions. REQUIRED: gather concrete evidence before any reasoning attempts. FORBIDDEN: implementation tasks without evidence foundation.
+`reasoning` - Cross-dimensional solution hypothesis. MUST connect to evidence from multiple task nodes. REQUIRED: reference findings from 2+ evidence sources. FORBIDDEN: reasoning without cross-dimensional evidence connections.
 
-`validation` - Network verification of reasoning paths. Must test hypotheses against gathered evidence and constraints. REQUIRED: connect to both reasoning and evidence nodes. FORBIDDEN: validation without evidence cross-reference.
+`validation` - Network verification of reasoning paths. MUST test hypotheses against gathered evidence and constraints. REQUIRED: connect to both reasoning and evidence nodes. FORBIDDEN: validation without evidence cross-reference.
 
-`synthesis` - Multi-path integration ONLY. Must combine validated insights from multiple reasoning branches. REQUIRED: connect to 3+ different reasoning paths with evidence backing. FORBIDDEN: synthesis without cross-validated reasoning network.
+`synthesis` - Multi-path integration ONLY. MUST combine validated insights from multiple reasoning branches. REQUIRED: connect to 3+ different reasoning paths with evidence backing. FORBIDDEN: synthesis without cross-validated reasoning network.
 ]],
           },
           connect_to = {

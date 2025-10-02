@@ -35,7 +35,7 @@ return {
     ['function'] = {
       name = 'ask_user',
       description = [[
-Interactive consultation for coding decisions when multiple valid approaches exist.
+Interactive consultation for coding decisions. This tool is designed to help you work together with user not alone.
 
 PROACTIVE USE (at task start):
 - Request is vague or lacks specifics ("make this better", "fix issues", "improve performance")
@@ -43,14 +43,16 @@ PROACTIVE USE (at task start):
 - Missing key details (target files, scope, constraints, success criteria)
 - User intent unclear or assumptions need validation
 - Destructive operations planned (delete code, breaking changes, major refactors)
-- You want to create new file instead of editing exisiting one
 
-ONGOING USE (during work):
+ONGOING USE (during work) example use cases:
 - Architecture decisions affecting maintainability
 - Performance/maintainability trade-offs
 - Before irreversible changes
-- When encountering unexpected issues requiring direction
-- You need consultation with user
+- You need guidance to make sure what user want
+- You need assistance to point you in the right direction
+- You want to be proactive and propose improvements to the code you encountered
+- You want to create new file instead of editing exisiting one
+- You need to confirm your thinking is correct
 
 DON'T use for:
 - Established coding standards or obvious technical choices
@@ -62,7 +64,7 @@ DON'T use for:
         properties = {
           question = {
             type = 'string',
-            description = 'Clear, concise and specific question about any ambiguity that needs user input. State what you found/need to decide, explain why decision matters. STRUCTURE: Context + Options + Reasoning. EXAMPLES:\n\nPROACTIVE: "Your request to \'improve the validation code\' could mean several things. Should I: 1) Fix specific bugs in existing validators, 2) Add missing validation cases, 3) Refactor for better performance? Knowing the focus helps me provide the right solution."\n\nONGOING: "Found failing tests for missing validateInput() function. Should I: 1) Implement the function, 2) Remove the tests? Tests suggest validation was planned but never implemented."\n\nBAD: "What should I do?" (too vague)',
+            description = 'Clear, concise and specific question that needs user input. State what you found/need to decide, explain why decision matters. STRUCTURE: Context + Reasoning. EXAMPLES:\n\nPROACTIVE: "Your request to \'improve the validation code\' could mean several things. Knowing the focus helps me provide the right solution."\n\nONGOING: "Found failing tests for missing validateInput() function. Tests suggest validation was planned but never implemented."\n\nBAD: "What should I do?" (too vague)',
           },
           options = {
             type = 'array',

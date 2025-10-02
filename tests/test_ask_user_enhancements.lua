@@ -41,7 +41,7 @@ T['ask_user question parameter has enhanced examples'] = function()
   local question_desc = schema['function'].parameters.properties.question.description
 
   -- Check for structure guidance
-  h.eq(true, string.find(question_desc, 'STRUCTURE: Context + Options + Reasoning', 1, true) ~= nil)
+  h.eq(true, string.find(question_desc, 'STRUCTURE: Context + Reasoning', 1, true) ~= nil)
 
   -- Check for proactive example
   h.eq(true, string.find(question_desc, 'PROACTIVE:', 1, true) ~= nil)

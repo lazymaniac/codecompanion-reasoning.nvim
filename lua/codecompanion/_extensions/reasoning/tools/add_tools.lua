@@ -86,18 +86,20 @@ AddTools.schema = {
   type = 'function',
   ['function'] = {
     name = 'add_tools',
-    description = [[Attach optional tools (capabilities) to the current chat.
+    description = [[
+Use it to attach tools (functions, capabilities) to the current conversation that may help you solve you problem.
 
 Usage:
-- Review the AVAILABLE TOOLS section in the system prompt to find the exact tool names.
-- Call with tool_name set to a matching name when you are ready to use that capability.
-- Add only the tools you plan to invoke next.]],
+- Review the AVAILABLE TOOLS section in the system prompt to find the exact tool names and what they can do
+- Call with tool_name set to a matching name when you are ready to use that capability
+- Add only the tools you plan to invoke next
+- You HAVE TO add tool before using it]],
     parameters = {
       type = 'object',
       properties = {
         tool_name = {
           type = 'string',
-          description = [[Exact tool key to add. Must match a name from the AVAILABLE TOOLS section of the system prompt.]],
+          description = [[Exact tool key (name) to add. Must match a name from the AVAILABLE TOOLS section I already shared with you during this conversation]],
         },
       },
       required = { 'tool_name' },

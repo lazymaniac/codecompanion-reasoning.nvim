@@ -6,11 +6,11 @@ It helps LLM work in small, safe, and verifiable steps: picks an agent that fits
 
 Example session run (poor quality)
 
-https://github.com/user-attachments/assets/00f93891-4712-4197-95a5-35ed97fc819c
+<https://github.com/user-attachments/assets/00f93891-4712-4197-95a5-35ed97fc819c>
 
 Session browser
 
-https://github.com/user-attachments/assets/f947509b-05bf-410e-af7b-877f0282d63d
+<https://github.com/user-attachments/assets/f947509b-05bf-410e-af7b-877f0282d63d>
 
 Ask User tool:
 
@@ -28,6 +28,7 @@ Ask User tool:
 ## Features
 
 ### System Prompt
+
 #### Disciplined Workflow Management
 
 The system prompt enforces a structured workflow that prevents common AI pitfalls and ensures reliable, step-by-step problem-solving:
@@ -162,11 +163,6 @@ The extension provides powerful interactive tools that transform AI-assisted dev
 - Handles architecture choices that affect long-term maintainability
 - Manages performance vs. maintainability trade-offs
 
-**Schema Parameters**:
-
-- `question` (required): Clear, specific question explaining the decision context and why it matters
-- `options` (optional): Array of 2-3 numbered choices, allowing custom responses
-
 **Use Cases**:
 
 ```
@@ -197,7 +193,7 @@ User ────> AI: "Refactor this legacy code"
 
 #### Project Knowledge Tool
 
-**Purpose**: Maintains project context in `.codecompanion/project-knowledge.md`, providing persistent memory across chat sessions and team members.
+**Purpose**: Maintains categorized project context in `.codecompanion/project-knowledge.md`, providing structured institutional memory that reduces discovery time and token usage across sessions.
 
 **Core Functionality**:
 
@@ -206,10 +202,29 @@ User ────> AI: "Refactor this legacy code"
 - Highlights where key subsystems live, which patterns or libraries they use, and other reusable context
 - Serves as single source of truth for project conventions
 
-**Schema Parameters**:
+**Fact Categories**:
 
-- `description` (required): Brief description of accomplished work or learned insights
-- `sources` (optional): Array of supporting references (files, docs, URLs)
+```
+Architecture Facts ──────> Where features are implemented
+    ├─ "Authentication logic is in src/auth/ (JWT + middleware pattern)"
+    ├─ "Database models are in app/models/ (Sequelize ORM)"
+    └─ "API routes are in routes/api/ (Express.js with validation)"
+
+Workflow Facts ──────────> How to build, test, and deploy
+    ├─ "Testing: Run `npm test` (requires Docker running)"
+    ├─ "Database setup: Run `npm run db:migrate` then `npm run db:seed`"
+    └─ "Build process: Uses Webpack with hot reload in dev mode"
+
+Business Logic Facts ────> How features work and business rules
+    ├─ "User permissions: Role-based (admin/user/guest) defined in User.role"
+    ├─ "Payment processing: Stripe integration in src/payments/ (webhooks + async)"
+    └─ "File uploads: Limited to 10MB, stored in S3 with presigned URLs"
+
+Constraints Facts ───────> Technical limitations and requirements
+    ├─ "Performance constraint: API responses must be <200ms (monitored)"
+    ├─ "Security requirement: All API endpoints require JWT authentication"
+    └─ "Database constraint: MySQL 8.0+ required for JSON column features"
+```
 
 **Knowledge Structure**:
 
@@ -228,7 +243,22 @@ User ────> AI: "Refactor this legacy code"
               │
               v
      ┌────────────────────┐
-     │ Key Facts          │ ◄─ Durable facts (e.g., auth location, auth mechanism)
+     │ Architecture Facts │ ◄─ Code locations and patterns
+     └────────────────────┘
+              │
+              v
+     ┌────────────────────┐
+     │ Workflow Facts     │ ◄─ Commands and processes
+     └────────────────────┘
+              │
+              v
+     ┌────────────────────┐
+     │ Business Logic     │ ◄─ Feature behavior and rules
+     └────────────────────┘
+              │
+              v
+     ┌────────────────────┐
+     │ Constraints Facts  │ ◄─ Technical limitations
      └────────────────────┘
               │
               v
@@ -237,6 +267,20 @@ User ────> AI: "Refactor this legacy code"
      │ New Chat Sessions  │
      └────────────────────┘
 ```
+
+**Quality Guidelines**:
+
+✅ **Capture These:**
+
+- "Authentication middleware is in src/middleware/auth.js (JWT validation)"
+- "User uploads go to S3 bucket via src/storage/s3.js (10MB limit)"
+- "Database migrations: `npm run migrate` (requires PostgreSQL 13+)"
+
+❌ **Avoid These:**
+
+- "Fixed a bug in the login form" (temporary, not architectural)
+- "The code is well structured" (opinion, not actionable)
+- "Working on user dashboard" (current activity, not durable knowledge)
 
 **Workflow Integration**:
 
@@ -281,10 +325,6 @@ User ──────────────> Approve knowledge update
 - Adds tools to current chat's tool registry
 - Prevents addition of excluded tools (reasoning agents, auto-added tools)
 
-**Schema Parameters**:
-
-- `tool_name` (required): Exact tool name matching AVAILABLE TOOLS section
-
 **Tool Discovery Workflow**:
 
 ```
@@ -322,11 +362,6 @@ User ──────────────> Approve knowledge update
 - Falls back to filesystem scan with sensible ignore patterns
 - Supports directory scoping and glob pattern filtering
 - Optimized for large repositories with result limits
-
-**Schema Parameters**:
-
-- `dir` (optional): Base directory (absolute or relative to project root)
-- `glob` (optional): Pattern filter (e.g., `**/*.lua`, `*test*`, `api/**/*.js`)
 
 **Intelligent Behavior**:
 
@@ -504,7 +539,38 @@ Every session tracks estimated token usage and file size for resource management
 
 #### Session Optimization and Compaction
 
-**Purpose**: Compress long conversations into concise summaries while preserving essential context, enabling continued development without token limit issues.
+**Purpose**: Transform conversations into resumption-focused summaries that enable seamless continuation exactly where you left off, optimized for "conversation time-travel".
+
+**Enhanced Resumption Design**:
+The session optimizer creates resumption-specific summaries with four focused sections designed for natural conversation continuation:
+
+```
+## Current Focus (40% of summary)
+├── Immediate technical problem or task being addressed
+├── Specific files, functions, or components currently in scope
+├── Tools, libraries, frameworks, or methodologies in active use
+├── Current implementation approach or solution strategy
+└── Code, configurations, or technical details immediately relevant
+
+## User Context (25% of summary)
+├── Technical expertise level and relevant experience
+├── Communication preferences and explanation style they respond to
+├── Current understanding of the problem domain and knowledge gaps
+├── Goals, constraints, deadlines, or success criteria driving decisions
+└── Mental state: methodical, exploring, frustrated, excited, stuck, progressing
+
+## Next Steps (25% of summary)
+├── Next logical step or decision point in the workflow
+├── Specific questions they will likely ask or areas they want to explore
+├── Known blockers, dependencies, or issues that need resolution
+├── Quick wins or immediate progress opportunities available
+└── Alternative approaches or options they might want to consider
+
+## Resume With (10% of summary)
+└── 2-3 sentences that smoothly restart the conversation, acknowledging where
+    we left off and naturally transitioning to the next step using their
+    established terminology and communication style
+```
 
 **Optimization Workflow**:
 
@@ -518,25 +584,26 @@ Every session tracks estimated token usage and file size for resource management
               │
               v
     ┌─────────────────────────────────────┐
-    │ Analyze conversation content        │ ◄─ Extract key developments
+    │ Analyze conversation for resumption │ ◄─ Extract current focus & user state
     └─────────────────────────────────────┘
               │
               v
     ┌─────────────────────────────────────┐
-    │ Generate comprehensive summary      │ ◄─ Use session_optimizer model
+    │ Generate resumption-focused summary │ ◄─ 4-section structure (500+ words)
     └─────────────────────────────────────┘
               │
               v
     ┌─────────────────────────────────────┐
-    │ Replace messages with summary       │ ◄─ System + Summary + Continue
+    │ Replace with resumption bridge      │ ◄─ Ready-to-continue conversation
     └─────────────────────────────────────┘
 ```
 
 **Benefits**:
 
 • **Token Efficiency**: Reduce 50+ messages to 2-3 essential messages
-• **Context Preservation**: Maintain development history and decisions
-• **Continued Development**: Resume work without starting from scratch
+• **Seamless Resumption**: Continue exactly where you left off with full context
+• **Natural Flow**: AI can restart conversation as if no interruption occurred
+• **Mental State Preservation**: Maintains user's cognitive and emotional context
 • **Performance**: Faster loading and processing of optimized sessions
 
 #### History and Restoration
@@ -676,7 +743,7 @@ These UI features create a comprehensive development workspace where your AI-ass
             session_optimizer = {
               adapter = nil, -- e.g. 'ollama', defaults to chat adapter
               model = nil, -- e.g. 'gpt-oss' defaults to chat model
-              summary_max_words = 300, -- target number of words in generated summary
+              summary_max_words = 500, -- target words for resumption-focused summary (minimum recommended)
             },
             session_title_generator = {
               adapter = nil, -- e.g. 'ollama', defaults to chat adapter
@@ -758,6 +825,7 @@ make format  # Format code with stylua
 6. Submit a pull request
 
 ## TODO
+
 - [x] Fix active session compaction. It should reload active session with compacted version so user can continue conversation.
 - [ ] Improve prompts for session compaction to extract more useful information.
 - [x] Make better use of ask_user tool. Maybe instruct LLM to use it at the start of the task to ask clarification questions.
@@ -766,6 +834,7 @@ make format  # Format code with stylua
 - [ ] Refactor used tool restoration in historical session to use tags like @{ask_user} instead of manually adding it to tool_registry.
 - [ ] Use compacted sessions history as context in current chat. Select it from session picker and use as context.
 - [ ] Maybe allow LLM to look through sessions via tags, or full text search?
+
 ## License
 
 MIT License - see LICENSE file for details.

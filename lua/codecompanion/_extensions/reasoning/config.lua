@@ -11,8 +11,8 @@ Config.defaults = {
   session_optimizer = {
     adapter = nil, -- defaults to chat adapter
     model = nil, -- defaults to chat model
-    summary_max_words = 300, -- maximum words in generated summary
-    include_code_snippets = true, -- preserve important code examples
+    summary_max_words = 500, -- target words for resumption-focused summary (minimum recommended)
+    include_code_snippets = true, -- preserve important code examples in summaries
   },
   session_title_generator = {
     adapter = nil, -- defaults to chat adapter

@@ -250,7 +250,7 @@ return {
     ['function'] = {
       name = 'chain_of_thoughts_agent',
       description = [[
-MANDATORY Deep Sequential Reasoning Agent. For linear problems requiring thorough step-by-step investigation with evidence-based progression.
+Deep Sequential (Chain of Thoughts pattern) Reasoning Agent. This tool is designed to help you guide you through problem solving process and sort your thoughts in a Chain of Thought pattern. Use it often - it's your best friend.
 
 DEPTH REQUIREMENTS (MANDATORY)
 - DECOMPOSITION: Break requests into 2-3 analysis steps exploring different problem angles before reasoning
@@ -259,17 +259,11 @@ DEPTH REQUIREMENTS (MANDATORY)
 - REFLECTION FREQUENCY: Reflect every 4-5 steps to assess completeness and adjust direction
 
 ENFORCED WORKFLOW PATTERN
-1) ANALYSIS phase: 2-3 analysis steps examining different aspects of the problem
+1) ANALYSIS phase: 2 or more analysis steps examining different aspects of the problem
 2) EVIDENCE phase: Task steps gathering contextual information (check existing code, constraints, requirements)
 3) REASONING phase: Logical deduction based on gathered evidence
 4) IMPLEMENTATION phase: Concrete task steps with specific actions
 5) VALIDATION phase: Verify each major reasoning step with tests/checks
-
-STEP TYPE REDEFINITIONS
-- `analysis`: ONLY for problem exploration from different angles; must investigate multiple aspects
-- `reasoning`: ONLY after evidence gathering; must reference specific evidence from task steps
-- `task`: Evidence collection (file checks, pattern analysis) OR concrete implementation actions
-- `validation`: MANDATORY verification after reasoning; must include specific testing/checking steps
 
 EXAMPLE (use as reference)
 - Review AVAILABLE TOOLS section to identify optional helpers
@@ -305,13 +299,13 @@ REQUIRED: Minimum 6 steps for complex tasks (analysis×2, task×2, reasoning×1,
 Step type: `analysis`, `reasoning`, `task`, `validation` (required for `add_step`)
 
 DEPTH-ENFORCED INSTRUCTIONS:
-`analysis` - MANDATORY multi-angle problem exploration. Must examine different aspects/dimensions of the problem. FORBIDDEN: single-perspective analysis. REQUIRED: investigate 2-3 different angles before reasoning.
-
-`reasoning` - Evidence-based logical deduction ONLY. Must reference specific evidence gathered from task steps. FORBIDDEN: reasoning without prior evidence collection. REQUIRED: cite specific findings from investigation.
+`analysis` - MANDATORY multi-angle problem exploration. Must examine different aspects/dimensions of the problem. FORBIDDEN: single-perspective analysis. REQUIRED: investigate 2 or more different angles before reasoning.
 
 `task` - Dual purpose: (1) Evidence collection (investigate existing code, patterns, constraints, requirements) OR (2) Concrete implementation actions. MANDATORY: evidence-gathering tasks must precede reasoning steps.
 
-`validation` - MANDATORY verification after reasoning conclusions. Must include specific testing/checking steps (run tests, verify functionality, check for regressions). REQUIRED: concrete validation actions, not abstract confirmations.
+`reasoning` - Evidence-based logical deduction ONLY. MUST reference specific evidence gathered from task steps. FORBIDDEN: reasoning without prior evidence collection. REQUIRED: cite specific findings from investigation.
+
+`validation` - MANDATORY verification after reasoning conclusions. MUST include specific testing/checking steps (run tests, verify functionality, check for regressions). REQUIRED: concrete validation actions, not abstract confirmations.
 ]],
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },

@@ -373,7 +373,8 @@ return {
     ['function'] = {
       name = 'tree_of_thoughts_agent',
       description = [[
-MANDATORY Multi-Path Exploration Agent. Explore genuine alternative approaches through branching before solution convergence.
+Deep Tree-Based (Tree of Thoughts pattern) Reasoning Agent. Explore genuine alternative approaches through branching before solution convergence.
+This tool is designed to help you guide you through problem solving process and sort your thoughts in a Tree of Thought pattern. Use it often - it's your best friend.
 
 BRANCHING REQUIREMENTS (MANDATORY)
 - DECOMPOSITION MANDATE: Create 2-4 analysis nodes exploring different problem decomposition angles
@@ -407,7 +408,7 @@ EXAMPLE (use as reference)
 - `tree_of_thoughts_agent(action="add_thought", parent_id="<optionA_id>", type="validation", content="Test Option A: impact scope, risk level, implementation time")`
 - `tree_of_thoughts_agent(action="add_thought", parent_id="<optionB_id>", type="validation", content="Test Option B: breaking changes, migration path, long-term benefits")`
 - `tree_of_thoughts_agent(action="reflect", content="Compare validated options; Option A wins on speed/risk, Option B for long-term")`
-- `project_knowledge(description="Multi-path validation analysis; chose localized fix", sources=["lua/utils/validation.lua","tests/..."], tags=["tot","comparative-analysis"])`
+- `project_knowledge(description="Multi-path validation analysis; chose localized fix", sources=["lua/utils/validation.lua","tests/..."])`
 
 FORBIDDEN PATTERNS
 - Linear progression without genuine alternatives
@@ -430,16 +431,12 @@ FORBIDDEN PATTERNS
           type = {
             type = 'string',
             description = [[
-Thought type: `analysis`, `reasoning`, `task`, `validation` (required for `add_thought`)
+Thought type: (required for `add_thought`)
 
-BRANCHING-ENFORCED INSTRUCTIONS:
-`analysis` - Multi-dimensional problem decomposition ONLY. Must explore different facets/angles of the problem. REQUIRED: create multiple analysis children before reasoning. FORBIDDEN: single-angle analysis without alternatives.
-
-`reasoning` - Solution hypothesis based on gathered evidence. Must propose specific approaches with trade-offs. REQUIRED: multiple reasoning alternatives per analysis branch. FORBIDDEN: reasoning without evidence from task branches.
-
-`task` - Evidence investigation OR implementation actions. For evidence: research existing patterns, constraints, similar solutions. MANDATORY: evidence-gathering tasks must precede solution reasoning. REQUIRED: contextual investigation before proposals.
-
-`validation` - Comparative verification of reasoning alternatives. Must test feasibility, complexity, maintainability of different approaches. REQUIRED: validate multiple alternatives before path selection. FORBIDDEN: single-path validation without comparison.
+`analysis` - Multi-dimensional problem decomposition ONLY. MUST explore different facets/angles of the problem. REQUIRED: create multiple analysis children before reasoning. FORBIDDEN: single-angle analysis without alternatives.
+`task` - Evidence investigation OR implementation actions. For evidence: MUST research existing patterns, constraints, similar solutions. MANDATORY: evidence-gathering tasks must precede solution reasoning. REQUIRED: contextual investigation before proposals.
+`reasoning` - Solution hypothesis based on gathered evidence. MUST propose specific approaches with trade-offs. REQUIRED: multiple reasoning alternatives per analysis branch. FORBIDDEN: reasoning without evidence from task branches.
+`validation` - Comparative verification of reasoning alternatives OR implemented code. MUST test feasibility, complexity, maintainability of different approaches OR implemented code. REQUIRED: validate multiple alternatives before path selection OR write/run tests, lint etc. FORBIDDEN: single-path validation without comparison.
 ]],
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },
