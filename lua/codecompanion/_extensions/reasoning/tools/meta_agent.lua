@@ -90,7 +90,7 @@ SELECTION GUIDELINES
       if agent_config and chat.tool_registry then
         chat.tool_registry:add(selected_agent, vim.deepcopy(agent_config))
 
-        local companion_tools = { 'ask_user', 'add_tools', 'project_knowledge' }
+        local companion_tools = { 'ask_user', 'add_tools', 'project_knowledge', 'reflect_on_progress' }
         local added_companions = {}
 
         for _, tool_name in ipairs(companion_tools) do
@@ -111,6 +111,7 @@ SELECTION GUIDELINES
           ask_user = 'Ask User',
           add_tools = 'Add Tools',
           project_knowledge = 'Project Knowledge',
+          reflect_on_progress = 'Reflect on Progress'
         }
 
         local human_agent = agent_labels[selected_agent] or selected_agent

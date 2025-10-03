@@ -15,6 +15,7 @@ local function register_tools()
     'list_files',
     'project_knowledge',
     'initialize_project_knowledge',
+    'reflect_on_progress',
   }
 
   local registered_tools = {}
