@@ -73,7 +73,8 @@ DON'T use for:
           },
         },
         required = {
-          'question', 'options'
+          'question',
+          'options',
         },
         additionalProperties = false,
       },

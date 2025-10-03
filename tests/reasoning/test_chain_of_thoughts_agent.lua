@@ -137,7 +137,6 @@ T['add_step requires content and step_type'] = function()
   h.eq(true, validation_info.missing_step_type_error)
 end
 
-
 -- Test invalid action
 T['invalid action returns validation error (uses add_step validation)'] = function()
   child.lua([[

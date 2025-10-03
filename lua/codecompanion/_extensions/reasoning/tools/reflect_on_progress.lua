@@ -16,7 +16,7 @@ local function handle_action(args)
 
   return {
     status = 'success',
-    data = args.content
+    data = args.content,
   }
 end
 

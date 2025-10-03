@@ -281,7 +281,7 @@ return {
           dir = { type = 'string', description = 'Base directory (absolute or relative to project root)' },
           glob = { type = 'string', description = 'Optional glob relative to dir (e.g., **/*.lua or *agent*.lua)' },
         },
-        required = {'dir', 'glob'},
+        required = { 'dir', 'glob' },
         additionalProperties = false,
       },
       strict = true,

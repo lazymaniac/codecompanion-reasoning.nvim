@@ -196,8 +196,6 @@ T['requires content parameter'] = function()
 
   local info = child.lua_get('info')
 
-  -- Current implementation does not enforce parameter validation at runtime; schema enforces it at call-time in integration
-  -- For unit tests, expect success with empty content
   h.eq('success', info.status)
 end
 

@@ -184,7 +184,6 @@ T['invalid action falls back to add_node (current behavior)'] = function()
   h.eq('success', invalid_action_info.status)
 end
 
-
 -- Test add_node missing required parameters
 T['add_node requires content and node_type'] = function()
   child.lua([[
