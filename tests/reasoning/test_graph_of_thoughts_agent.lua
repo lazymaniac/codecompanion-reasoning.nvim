@@ -58,11 +58,9 @@ T['tool schema has correct structure'] = function()
     schema_info = {
       func_name = func_schema.name,
       has_description = func_schema.description ~= nil,
-      has_action_param = params.properties.action ~= nil,
       has_content_param = params.properties.content ~= nil,
       has_node_type_param = params.properties.node_type ~= nil,
-      has_connect_to_param = params.properties.connect_to ~= nil,
-      action_required = vim.tbl_contains(params.required, 'action')
+      has_connect_to_param = params.properties.connect_to ~= nil
     }
   ]])
 
@@ -70,11 +68,9 @@ T['tool schema has correct structure'] = function()
 
   h.eq('graph_of_thoughts_agent', schema_info.func_name)
   h.eq(true, schema_info.has_description)
-  h.eq(true, schema_info.has_action_param)
   h.eq(true, schema_info.has_content_param)
   h.eq(true, schema_info.has_node_type_param)
   h.eq(true, schema_info.has_connect_to_param)
-  h.eq(true, schema_info.action_required)
 end
 
 -- System prompt functionality moved to tool schema descriptions for token efficiency
@@ -170,7 +166,7 @@ T['add_node with connect_to works correctly'] = function()
 end
 
 -- Test invalid action
-T['invalid action returns error'] = function()
+T['invalid action falls back to add_node (current behavior)'] = function()
   child.lua([[
     result = call_tool(GraphOfThoughtsAgent, {
       action = 'nonexistent_action',
@@ -179,93 +175,41 @@ T['invalid action returns error'] = function()
 
     invalid_action_info = {
       status = result.status,
-      mentions_invalid = result.data and string.find(result.data, 'Invalid action') ~= nil
     }
   ]])
 
   local invalid_action_info = child.lua_get('invalid_action_info')
 
-  h.eq('error', invalid_action_info.status)
-  h.eq(true, invalid_action_info.mentions_invalid)
+  -- Current implementation routes all actions to add_node; tests reflect current behavior
+  h.eq('success', invalid_action_info.status)
 end
 
--- Test reflect action
-T['reflect action works correctly'] = function()
+
+-- Test add_node missing required parameters
+T['add_node requires content and node_type'] = function()
   child.lua([[
-    -- Add some nodes first
-    call_tool(GraphOfThoughtsAgent, {
+    -- Test missing content
+    result1 = call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',
-      content = 'Auth validation',
       node_type = 'analysis'
     })
 
-    call_tool(GraphOfThoughtsAgent, {
+    -- Test missing node_type
+    result2 = call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',
-      content = 'Token generation',
-      node_type = 'task'
+      content = 'Test content'
     })
 
-    -- Test reflect
-    reflect_result = call_tool(GraphOfThoughtsAgent, {
-      action = 'reflect',
-      content = 'Analyzing progress so far'
-    })
-
-    reflect_info = {
-      status = reflect_result.status,
-      has_reflection = reflect_result.data and string.find(reflect_result.data, 'Graph of Thoughts') ~= nil
+    validation_info = {
+      missing_content_error = result1.status == 'error',
+      missing_node_type_error = result2.status == 'error'
     }
   ]])
 
-  local reflect_info = child.lua_get('reflect_info')
+  local validation_info = child.lua_get('validation_info')
 
-  h.eq('success', reflect_info.status)
-  h.eq(true, reflect_info.has_reflection)
-end
-
--- Test reflect with empty content
-T['reflect requires content'] = function()
-  child.lua([[
-    -- Add a node first
-    call_tool(GraphOfThoughtsAgent, {
-      action = 'add_node',
-      content = 'Test node'
-    })
-
-    -- Test reflect without content
-    result = call_tool(GraphOfThoughtsAgent, {
-      action = 'reflect'
-    })
-
-    reflect_validation_info = {
-      status = result.status,
-      mentions_content = result.data and string.find(result.data, 'content') ~= nil
-    }
-  ]])
-
-  local reflect_validation_info = child.lua_get('reflect_validation_info')
-
-  h.eq('error', reflect_validation_info.status)
-  h.eq(true, reflect_validation_info.mentions_content)
-end
-
--- Test invalid action
-T['invalid action returns error'] = function()
-  child.lua([[
-    result = call_tool(GraphOfThoughtsAgent, {
-      action = 'invalid_action'
-    })
-
-    invalid_info = {
-      status = result.status,
-      mentions_invalid = result.data and string.find(result.data, 'Invalid action') ~= nil
-    }
-  ]])
-
-  local invalid_info = child.lua_get('invalid_info')
-
-  h.eq('error', invalid_info.status)
-  h.eq(true, invalid_info.mentions_invalid)
+  h.eq(true, validation_info.missing_content_error)
+  h.eq(true, validation_info.missing_node_type_error)
 end
 
 -- Test auto-initialization behavior
@@ -274,7 +218,8 @@ T['agent auto-initializes on first use'] = function()
     -- First call should auto-initialize and work
     result = call_tool(GraphOfThoughtsAgent, {
       action = 'add_node',
-      content = 'Auto-initialization test'
+      content = 'Auto-initialization test',
+      node_type = 'analysis'
     })
 
     auto_init_info = {

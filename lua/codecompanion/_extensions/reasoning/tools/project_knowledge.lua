@@ -296,17 +296,19 @@ return {
     type = 'function',
     ['function'] = {
       name = 'project_knowledge',
-      description = [[Record durable project facts that reduce future discovery time. 
+      description = [[
+Record durable project facts that reduce future discovery time.
 CAPTURE: Location of features, workflow commands, business rules, technical constraints
 AVOID: Temporary findings, opinions, implementation details that change frequently
 
 EXAMPLES:
-• "Authentication logic is in src/auth/ (JWT + middleware pattern)" 
-• "Testing: Run `npm test` (requires Docker running)"
-• "User permissions: Role-based (admin/user/guest) defined in User.role"
-• "Performance constraint: API responses must be <200ms (monitored)"
+- "Authentication logic is in src/auth/ (JWT + middleware pattern)"
+- "Testing: Run `npm test` (requires Docker running)"
+- "User permissions: Role-based (admin/user/guest) defined in User.role"
+- "Performance constraint: API responses must be <200ms (monitored)"
 
-Facts auto-load in future chats to reduce token usage and discovery time.]],
+Facts auto-load in future chats to reduce token usage and discovery time.
+]],
       parameters = {
         type = 'object',
         properties = {
@@ -325,7 +327,7 @@ Facts auto-load in future chats to reduce token usage and discovery time.]],
             description = 'Files, commands, or documentation that validate this fact',
           },
         },
-        required = { 'category', 'description' },
+        required = { 'category', 'description', 'sources' },
         additionalProperties = false,
       },
       strict = true,

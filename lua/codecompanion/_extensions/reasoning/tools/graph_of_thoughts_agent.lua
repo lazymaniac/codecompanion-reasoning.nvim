@@ -111,63 +111,6 @@ function GraphOfThoughts:get_node_count()
   return count
 end
 
--- Reflection analysis for graph state
-function GraphOfThoughts:reflect()
-  local analysis = {
-    total_nodes = self:get_node_count(),
-    total_edges = 0,
-    type_distribution = {},
-    insights = {},
-    improvements = {},
-    complexity_metrics = {},
-  }
-
-  for _, edges in pairs(self.edges) do
-    for _ in pairs(edges) do
-      analysis.total_edges = analysis.total_edges + 1
-    end
-  end
-
-  for _, node in pairs(self.nodes) do
-    analysis.type_distribution[node.type] = (analysis.type_distribution[node.type] or 0) + 1
-  end
-
-  if analysis.total_nodes > 10 then
-    table.insert(
-      analysis.insights,
-      string.format('Complex reasoning graph with %d interconnected nodes', analysis.total_nodes)
-    )
-  elseif analysis.total_nodes > 0 then
-    table.insert(analysis.insights, string.format('Growing reasoning graph with %d nodes', analysis.total_nodes))
-  end
-
-  local type_counts = {}
-  for type, count in pairs(analysis.type_distribution) do
-    table.insert(type_counts, string.format('%s:%d', type, count))
-  end
-  if #type_counts > 0 then
-    table.insert(analysis.insights, 'Node types: ' .. table.concat(type_counts, ', '))
-  end
-
-  if analysis.total_nodes == 0 then
-    table.insert(analysis.improvements, 'Start by adding analysis nodes to explore the problem space')
-  end
-
-  if not analysis.type_distribution['validation'] then
-    table.insert(analysis.improvements, 'Add validation nodes to test your reasoning')
-  end
-
-  if not analysis.type_distribution['synthesis'] then
-    table.insert(analysis.improvements, 'Consider synthesis nodes to create new ideas or knowledge')
-  end
-
-  if analysis.total_edges == 0 and analysis.total_nodes > 1 then
-    table.insert(analysis.improvements, 'Connect related nodes to show dependencies and relationships')
-  end
-
-  return analysis
-end
-
 local Actions = {}
 
 function Actions.add_node(args, agent_state)
@@ -200,43 +143,6 @@ function Actions.add_node(args, agent_state)
   }
 end
 
-function Actions.reflect(args, agent_state)
-  if not agent_state.current_instance or agent_state.current_instance:get_node_count() == 0 then
-    return { status = 'error', data = 'No nodes to reflect on. Add some nodes first.' }
-  end
-
-  local reflection_analysis = agent_state.current_instance:reflect()
-
-  local output_parts = {}
-
-  table.insert(output_parts, 'Graph of Thoughts Reflection')
-  table.insert(output_parts, fmt('Total nodes: %d', reflection_analysis.total_nodes))
-  table.insert(output_parts, fmt('Total connections: %d', reflection_analysis.total_edges))
-
-  if #reflection_analysis.insights > 0 then
-    table.insert(output_parts, '\nInsights:')
-    for _, insight in ipairs(reflection_analysis.insights) do
-      table.insert(output_parts, fmt('• %s', insight))
-    end
-  end
-
-  if #reflection_analysis.improvements > 0 then
-    table.insert(output_parts, '\nSuggested Improvements:')
-    for _, improvement in ipairs(reflection_analysis.improvements) do
-      table.insert(output_parts, fmt('• %s', improvement))
-    end
-  end
-
-  if args.content and args.content ~= '' then
-    table.insert(output_parts, fmt('\nUser Reflection:\n%s', args.content))
-  end
-
-  return {
-    status = 'success',
-    data = table.concat(output_parts, '\n'),
-  }
-end
-
 local function initialize(agent_state)
   if agent_state.current_instance then
     return nil
@@ -253,15 +159,8 @@ local function handle_action(args)
   local agent_state = _G._codecompanion_graph_of_thoughts_state or {}
   _G._codecompanion_graph_of_thoughts_state = agent_state
 
-  local action = Actions[args.action]
-  if not action then
-    return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
-  end
-
   local validation_rules = {
-    add_node = { 'content' },
-    reflect = { 'content' },
-    merge_nodes = { 'source_nodes', 'merged_content' },
+    add_node = { 'content', 'node_type' },
   }
 
   local required_fields = validation_rules[args.action] or {}
@@ -271,7 +170,7 @@ local function handle_action(args)
     end
   end
 
-  return action(args, agent_state)
+  return Actions.add_node(args, agent_state)
 end
 
 ---@class CodeCompanion.Tool.GraphOfThoughtsAgent: CodeCompanion.Tools.Tool
@@ -344,15 +243,14 @@ EXAMPLE (use as reference)
 - Review AVAILABLE TOOLS section to identify optional helpers
 - `add_tools(tool_name="list_files")` — inventory affected modules
 - `list_files(dir="lua", glob="**/*auth*|**/*api*|**/*logging*" )` — scope cross‑cutting areas
-- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Technical dimension: audit logging integration points across auth/API")`
-- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Security dimension: PII handling and data sensitivity in audit logs")`
-- `graph_of_thoughts_agent(action="add_node", node_type="analysis", content="Performance dimension: logging overhead and async processing needs")`
-- `graph_of_thoughts_agent(action="add_node", node_type="task", content="Investigate existing auth flow touchpoints and current logging patterns", connect_to=["<tech_analysis_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="task", content="Analyze PII exposure risks in current API payloads and responses", connect_to=["<security_analysis_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="reasoning", content="Audit insertion strategy: post-auth hook + pre-response filter based on flow evidence", connect_to=["<tech_task_id>", "<security_task_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="validation", content="Test audit strategy: unit tests + integration tests for auth/API flows", connect_to=["<reasoning_id>", "<tech_task_id>"])`
-- `graph_of_thoughts_agent(action="add_node", node_type="synthesis", content="Integrated solution: async audit pipeline with PII filtering, validated across all dimensions", connect_to=["<reasoning_id>","<validation_id>","<security_analysis_id>"])`
-- `graph_of_thoughts_agent(action="reflect", content="Evidence network complete: technical, security, performance dimensions investigated and integrated")`
+- `graph_of_thoughts_agent(node_type="analysis", content="Technical dimension: audit logging integration points across auth/API")`
+- `graph_of_thoughts_agent(node_type="analysis", content="Security dimension: PII handling and data sensitivity in audit logs")`
+- `graph_of_thoughts_agent(node_type="analysis", content="Performance dimension: logging overhead and async processing needs")`
+- `graph_of_thoughts_agent(node_type="task", content="Investigate existing auth flow touchpoints and current logging patterns", connect_to=["<tech_analysis_id>"])`
+- `graph_of_thoughts_agent(node_type="task", content="Analyze PII exposure risks in current API payloads and responses", connect_to=["<security_analysis_id>"])`
+- `graph_of_thoughts_agent(node_type="reasoning", content="Audit insertion strategy: post-auth hook + pre-response filter based on flow evidence", connect_to=["<tech_task_id>", "<security_task_id>"])`
+- `graph_of_thoughts_agent(node_type="validation", content="Test audit strategy: unit tests + integration tests for auth/API flows", connect_to=["<reasoning_id>", "<tech_task_id>"])`
+- `graph_of_thoughts_agent(node_type="synthesis", content="Integrated solution: async audit pipeline with PII filtering, validated across all dimensions", connect_to=["<reasoning_id>","<validation_id>","<security_analysis_id>"])`
 
 FORBIDDEN PATTERNS
 - Linear analysis→reasoning→task chains
@@ -363,20 +261,15 @@ FORBIDDEN PATTERNS
       parameters = {
         type = 'object',
         properties = {
-          action = {
-            type = 'string',
-            description = 'The graph action to perform: `add_node`, `reflect`',
-            enum = { 'add_node', 'reflect' },
-          },
           content = {
             type = 'string',
-            description = 'The node content to add (required for `add_node`) or reflection content (required for `reflect`). Make it concise, focused and thoughtful.',
+            description = 'The node content to add. Make it concise, focused and thoughtful.',
           },
           node_type = {
             type = 'string',
             enum = { 'analysis', 'reasoning', 'task', 'validation', 'synthesis' },
             description = [[
-Node types (required for add_node):
+Node types:
 
 `analysis` - Multi-dimensional problem space mapping ONLY. MUST explore different dimensions (technical, business, security, performance). REQUIRED: minimum 3 analysis nodes with different angles. FORBIDDEN: single-dimension analysis.
 
@@ -392,10 +285,10 @@ Node types (required for add_node):
           connect_to = {
             type = 'array',
             items = { type = 'string' },
-            description = "Array of node IDs to connect this new node to (for 'add_node'). Creates relationships between nodes.",
+            description = 'Array of node IDs to connect this new node to. Creates relationships between nodes.',
           },
         },
-        required = { 'action' },
+        required = { 'content', 'node_type', 'connect_to' },
         additionalProperties = false,
       },
       strict = true,

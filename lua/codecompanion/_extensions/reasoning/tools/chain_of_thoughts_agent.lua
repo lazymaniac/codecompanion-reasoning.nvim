@@ -12,7 +12,6 @@ end
 local fmt = string.format
 local step_count = 0
 
--- ChainOfThoughts class (merged from helpers/chain_of_thoughts.lua)
 local ChainOfThoughts = {}
 ChainOfThoughts.__index = ChainOfThoughts
 
@@ -55,69 +54,6 @@ function ChainOfThoughts:add_step(step_type, content, step_id)
 
   table.insert(self.steps, step)
   return true, 'Step added successfully'
-end
-
--- Reflect on the reasoning process
-function ChainOfThoughts:reflect()
-  local insights = {}
-  local improvements = {}
-
-  if #self.steps == 0 then
-    return {
-      total_steps = 0,
-      insights = { 'No steps to analyze' },
-      improvements = { 'Add reasoning steps to begin analysis' },
-    }
-  end
-
-  local step_counts = {}
-  for _, step in ipairs(self.steps) do
-    step_counts[step.type] = (step_counts[step.type] or 0) + 1
-  end
-
-  table.insert(insights, string.format('Step distribution: %s', table.concat(self:table_to_strings(step_counts), ', ')))
-
-  local has_analysis = step_counts.analysis and step_counts.analysis > 0
-  local has_reasoning = step_counts.reasoning and step_counts.reasoning > 0
-  local has_tasks = step_counts.task and step_counts.task > 0
-  local has_validation = step_counts.validation and step_counts.validation > 0
-
-  if has_analysis and has_reasoning and has_tasks then
-    table.insert(insights, 'Good logical progression from analysis to implementation')
-  else
-    if not has_analysis then
-      table.insert(improvements, 'Consider adding analysis steps to explore the problem')
-    end
-    if not has_reasoning then
-      table.insert(improvements, 'Consider adding reasoning steps for logical deduction')
-    end
-    if not has_tasks then
-      table.insert(improvements, 'Consider adding task steps for actionable implementation')
-    end
-  end
-
-  if not has_validation then
-    table.insert(improvements, 'Add validation steps to verify reasoning')
-  end
-
-  local steps_with_reasoning = 0
-  for _, step in ipairs(self.steps) do
-    if step.reasoning and step.reasoning ~= '' then
-      steps_with_reasoning = steps_with_reasoning + 1
-    end
-  end
-
-  if steps_with_reasoning < #self.steps * 0.5 then
-    table.insert(improvements, 'Consider adding more detailed reasoning explanations to steps')
-  else
-    table.insert(insights, 'Good coverage of reasoning explanations across steps')
-  end
-
-  return {
-    total_steps = #self.steps,
-    insights = insights,
-    improvements = improvements,
-  }
 end
 
 function ChainOfThoughts:table_to_strings(t)
@@ -166,42 +102,6 @@ function Actions.add_step(args, agent_state)
   }
 end
 
-function Actions.reflect(args, agent_state)
-  if #agent_state.current_instance.steps == 0 then
-    return { status = 'error', data = 'No steps to reflect on. Add some steps first.' }
-  end
-
-  local reflection_analysis = agent_state.current_instance:reflect()
-
-  local output_parts = {}
-
-  table.insert(output_parts, 'Reflection Analysis')
-  table.insert(output_parts, fmt('Total steps: %d', reflection_analysis.total_steps))
-
-  if #reflection_analysis.insights > 0 then
-    table.insert(output_parts, '\nInsights:')
-    for _, insight in ipairs(reflection_analysis.insights) do
-      table.insert(output_parts, fmt('• %s', insight))
-    end
-  end
-
-  if #reflection_analysis.improvements > 0 then
-    table.insert(output_parts, '\nSuggested Improvements:')
-    for _, improvement in ipairs(reflection_analysis.improvements) do
-      table.insert(output_parts, fmt('• %s', improvement))
-    end
-  end
-
-  if args.content and args.content ~= '' then
-    table.insert(output_parts, fmt('\nUser Reflection:\n%s', args.content))
-  end
-
-  return {
-    status = 'success',
-    data = table.concat(output_parts, '\n'),
-  }
-end
-
 local function initialize(agent_state)
   if agent_state.current_instance then
     return nil
@@ -217,14 +117,8 @@ end
 local function handle_action(args)
   local agent_state = _G._codecompanion_chain_of_thoughts_state or {}
 
-  local action = Actions[args.action]
-  if not action then
-    return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
-  end
-
   local validation_rules = {
     add_step = { 'content', 'step_type' },
-    reflect = { 'content' },
   }
 
   local required_fields = validation_rules[args.action] or {}
@@ -234,7 +128,7 @@ local function handle_action(args)
     end
   end
 
-  return action(args, agent_state)
+  return Actions.add_step(args, agent_state)
 end
 
 ---@class CodeCompanion.Tool.ChainOfThoughtsAgent: CodeCompanion.Tools.Tool
@@ -269,13 +163,12 @@ EXAMPLE (use as reference)
 - Review AVAILABLE TOOLS section to identify optional helpers
 - `add_tools(tool_name="list_files")`  — discover code locations fast
 - `list_files(dir="lua", glob="**/*validate*.*")`  — find relevant files
-- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Problem angle 1: failing tests reference utils/validation.lua edge‑case")`
-- `chain_of_thoughts_agent(action="add_step", step_type="analysis", content="Problem angle 2: empty string handling inconsistency across codebase")`
-- `chain_of_thoughts_agent(action="add_step", step_type="task", content="Check existing validation patterns and empty string handling in codebase")`
-- `chain_of_thoughts_agent(action="add_step", step_type="reasoning", content="Root cause: treated empty as truthy based on evidence from validation patterns")`
-- `chain_of_thoughts_agent(action="add_step", step_type="task", content="Update validate_input to handle empty/whitespace; preserve existing API")`
-- `chain_of_thoughts_agent(action="add_step", step_type="validation", content="Run tests; confirm validate_input cases pass and no regressions")`
-- `chain_of_thoughts_agent(action="reflect", content="Summarize fix based on multi-angle analysis and evidence")`
+- `chain_of_thoughts_agent(step_type="analysis", content="Problem angle 1: failing tests reference utils/validation.lua edge‑case")`
+- `chain_of_thoughts_agent(step_type="analysis", content="Problem angle 2: empty string handling inconsistency across codebase")`
+- `chain_of_thoughts_agent(step_type="task", content="Check existing validation patterns and empty string handling in codebase")`
+- `chain_of_thoughts_agent(step_type="reasoning", content="Root cause: treated empty as truthy based on evidence from validation patterns")`
+- `chain_of_thoughts_agent(step_type="task", content="Update validate_input to handle empty/whitespace; preserve existing API")`
+- `chain_of_thoughts_agent(step_type="validation", content="Run tests; confirm validate_input cases pass and no regressions")`
 
 FORBIDDEN: Single analysis→reasoning→task chains without evidence gathering or validation
 FORBIDDEN: Solutions without investigating existing context first
@@ -284,11 +177,6 @@ REQUIRED: Minimum 6 steps for complex tasks (analysis×2, task×2, reasoning×1,
       parameters = {
         type = 'object',
         properties = {
-          action = {
-            type = 'string',
-            description = 'The reasoning action to perform: `add_step`, `reflect`',
-            enum = { 'add_step', 'reflect' },
-          },
           content = {
             type = 'string',
             description = 'The reasoning step content or thought (required for `add_step` and `reflect`). Make it concise, focused and thoughtful.',
@@ -296,9 +184,8 @@ REQUIRED: Minimum 6 steps for complex tasks (analysis×2, task×2, reasoning×1,
           step_type = {
             type = 'string',
             description = [[
-Step type: `analysis`, `reasoning`, `task`, `validation` (required for `add_step`)
+Step types:
 
-DEPTH-ENFORCED INSTRUCTIONS:
 `analysis` - MANDATORY multi-angle problem exploration. Must examine different aspects/dimensions of the problem. FORBIDDEN: single-perspective analysis. REQUIRED: investigate 2 or more different angles before reasoning.
 
 `task` - Dual purpose: (1) Evidence collection (investigate existing code, patterns, constraints, requirements) OR (2) Concrete implementation actions. MANDATORY: evidence-gathering tasks must precede reasoning steps.
@@ -310,7 +197,7 @@ DEPTH-ENFORCED INSTRUCTIONS:
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },
         },
-        required = { 'action', 'content' },
+        required = { 'content', 'step_type' },
         additionalProperties = false,
       },
       strict = true,

@@ -132,87 +132,6 @@ function TreeOfThoughts:find_node_by_id(id)
   return search(self.root)
 end
 
--- Reflection analysis for tree state
-function TreeOfThoughts:reflect()
-  local analysis = {
-    total_nodes = 0,
-    max_depth = 0,
-    leaf_nodes = 0,
-    type_distribution = {},
-    insights = {},
-    improvements = {},
-    branches = {},
-  }
-
-  local function traverse(node, depth)
-    analysis.total_nodes = analysis.total_nodes + 1
-    analysis.max_depth = math.max(analysis.max_depth, depth)
-
-    analysis.type_distribution[node.type] = (analysis.type_distribution[node.type] or 0) + 1
-
-    if node:is_leaf() then
-      analysis.leaf_nodes = analysis.leaf_nodes + 1
-      if depth > 0 then -- Don't count root as branch
-        table.insert(analysis.branches, {
-          depth = depth,
-          type = node.type,
-          content_length = #node.content,
-        })
-      end
-    end
-
-    for _, child in ipairs(node.children) do
-      traverse(child, depth + 1)
-    end
-  end
-
-  traverse(self.root, 0)
-
-  if analysis.total_nodes > 1 then
-    table.insert(
-      analysis.insights,
-      string.format(
-        'Explored %d different thoughts across %d depth levels',
-        analysis.total_nodes - 1,
-        analysis.max_depth
-      )
-    )
-  end
-
-  if analysis.leaf_nodes > 1 then
-    table.insert(analysis.insights, string.format('%d exploration branches created', analysis.leaf_nodes))
-  end
-
-  local type_counts = {}
-  for type, count in pairs(analysis.type_distribution) do
-    if type ~= 'analysis' or count > 1 then -- Don't report single analysis (root)
-      table.insert(type_counts, string.format('%s:%d', type, count))
-    end
-  end
-  if #type_counts > 0 then
-    table.insert(analysis.insights, 'Node types: ' .. table.concat(type_counts, ', '))
-  end
-
-  -- Generate improvement suggestions
-  if analysis.max_depth < 3 then
-    table.insert(analysis.improvements, 'Consider deeper exploration of promising ideas')
-  end
-
-  if analysis.leaf_nodes < 3 then
-    table.insert(analysis.improvements, 'Try exploring alternative approaches or solutions')
-  end
-
-  if not analysis.type_distribution['validation'] then
-    table.insert(analysis.improvements, 'Add validation thoughts to test your reasoning')
-  end
-
-  if not analysis.type_distribution['task'] then
-    table.insert(analysis.improvements, 'Include concrete task nodes for implementation steps')
-  end
-
-  return analysis
-end
-
 local Actions = {}
 
 function Actions.add_thought(args, agent_state)
@@ -258,44 +177,6 @@ function Actions.add_thought(args, agent_state)
   }
 end
 
-function Actions.reflect(args, agent_state)
-  if not agent_state.current_instance or #agent_state.current_instance.root.children == 0 then
-    return { status = 'error', data = 'No thoughts to reflect on. Add some thoughts first.' }
-  end
-
-  local reflection_analysis = agent_state.current_instance:reflect()
-
-  local output_parts = {}
-
-  table.insert(output_parts, 'Tree of Thoughts Reflection')
-  table.insert(output_parts, fmt('Total nodes explored: %d', reflection_analysis.total_nodes))
-  table.insert(output_parts, fmt('Maximum depth: %d levels', reflection_analysis.max_depth))
-  table.insert(output_parts, fmt('Active branches: %d', reflection_analysis.leaf_nodes))
-
-  if #reflection_analysis.insights > 0 then
-    table.insert(output_parts, '\nInsights:')
-    for _, insight in ipairs(reflection_analysis.insights) do
-      table.insert(output_parts, fmt('• %s', insight))
-    end
-  end
-
-  if #reflection_analysis.improvements > 0 then
-    table.insert(output_parts, '\nSuggested Next Steps:')
-    for _, improvement in ipairs(reflection_analysis.improvements) do
-      table.insert(output_parts, fmt('• %s', improvement))
-    end
-  end
-
-  if args.content and args.content ~= '' then
-    table.insert(output_parts, fmt('\nYour Reflection:\n%s', args.content))
-  end
-
-  return {
-    status = 'success',
-    data = table.concat(output_parts, '\n'),
-  }
-end
-
 local function initialize(agent_state)
   if agent_state.current_instance then
     return nil
@@ -312,14 +193,8 @@ local function handle_action(args)
   local agent_state = _G._codecompanion_tree_of_thoughts_state or {}
   _G._codecompanion_tree_of_thoughts_state = agent_state
 
-  local action = Actions[args.action]
-  if not action then
-    return { status = 'error', data = 'Invalid action: ' .. (args.action or 'nil') }
-  end
-
   local validation_rules = {
-    add_thought = { 'content' },
-    reflect = { 'content' },
+    add_thought = { 'content', 'type' },
   }
 
   local required_fields = validation_rules[args.action] or {}
@@ -329,7 +204,7 @@ local function handle_action(args)
     end
   end
 
-  return action(args, agent_state)
+  return Actions.add_thought(args, agent_state)
 end
 
 ---@class CodeCompanion.Tool.TreeOfThoughtsAgent: CodeCompanion.Tools.Tool
@@ -347,15 +222,7 @@ return {
       initialize(agent_state)
     end,
     on_exit = function(agent)
-      local agent_state = _G._codecompanion_tree_of_thoughts_state
-      if agent_state and agent_state.current_instance then
-        local reflection = agent_state.current_instance:reflect()
-        log:debug(
-          '[Tree of Thoughts Agent] Session ended with %d thoughts explored across %d branches',
-          reflection.total_nodes,
-          reflection.leaf_nodes
-        )
-      end
+      log:debug('[Tree of Thoughts Agent] Session ended')
     end,
   },
   output = {
@@ -400,14 +267,14 @@ EXAMPLE (use as reference)
 - Review AVAILABLE TOOLS section to identify optional helpers
 - `add_tools(tool_name="list_files")` — prepare to scope the change
 - `list_files(dir="lua", glob="**/*validation*.*")` — surface likely touchpoints
-- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Problem angle 1: input validation edge cases")`
-- `tree_of_thoughts_agent(action="add_thought", type="analysis", content="Problem angle 2: API consistency across validation functions")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<analysis1_id>", type="task", content="Investigate current empty string handling patterns in codebase")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<analysis1_id>", type="reasoning", content="Option A: localized predicate fix in utils/validation.lua")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<analysis1_id>", type="reasoning", content="Option B: comprehensive validation refactor with helpers")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<optionA_id>", type="validation", content="Test Option A: impact scope, risk level, implementation time")`
-- `tree_of_thoughts_agent(action="add_thought", parent_id="<optionB_id>", type="validation", content="Test Option B: breaking changes, migration path, long-term benefits")`
-- `tree_of_thoughts_agent(action="reflect", content="Compare validated options; Option A wins on speed/risk, Option B for long-term")`
+- `tree_of_thoughts_agent(type="analysis", content="Problem angle 1: input validation edge cases")`
+- `tree_of_thoughts_agent(type="analysis", content="Problem angle 2: API consistency across validation functions")`
+- `tree_of_thoughts_agent(parent_id="<analysis1_id>", type="task", content="Investigate current empty string handling patterns in codebase")`
+- `tree_of_thoughts_agent(parent_id="<analysis1_id>", type="reasoning", content="Option A: localized predicate fix in utils/validation.lua")`
+- `tree_of_thoughts_agent(parent_id="<analysis1_id>", type="reasoning", content="Option B: comprehensive validation refactor with helpers")`
+- `tree_of_thoughts_agent(parent_id="<optionA_id>", type="validation", content="Test Option A: impact scope, risk level, implementation time")`
+- `tree_of_thoughts_agent(parent_id="<optionB_id>", type="validation", content="Test Option B: breaking changes, migration path, long-term benefits")`
+- `reflect_on_progress(content="Compare validated options; Option A wins on speed/risk, Option B for long-term")`
 - `project_knowledge(description="Multi-path validation analysis; chose localized fix", sources=["lua/utils/validation.lua","tests/..."])`
 
 FORBIDDEN PATTERNS
@@ -419,24 +286,19 @@ FORBIDDEN PATTERNS
       parameters = {
         type = 'object',
         properties = {
-          action = {
-            type = 'string',
-            description = 'The tree action to perform: `add_thought`, `reflect`',
-            enum = { 'add_thought', 'reflect' },
-          },
           content = {
             type = 'string',
-            description = 'The thought content to add (required for `add_thought`) or reflection content (required for `reflect`). Make it concise and focused.',
+            description = 'The thought content to add. Make it concise and focused.',
           },
           type = {
             type = 'string',
             description = [[
-Thought type: (required for `add_thought`)
+Thought type:
 
 `analysis` - Multi-dimensional problem decomposition ONLY. MUST explore different facets/angles of the problem. REQUIRED: create multiple analysis children before reasoning. FORBIDDEN: single-angle analysis without alternatives.
 `task` - Evidence investigation OR implementation actions. For evidence: MUST research existing patterns, constraints, similar solutions. MANDATORY: evidence-gathering tasks must precede solution reasoning. REQUIRED: contextual investigation before proposals.
 `reasoning` - Solution hypothesis based on gathered evidence. MUST propose specific approaches with trade-offs. REQUIRED: multiple reasoning alternatives per analysis branch. FORBIDDEN: reasoning without evidence from task branches.
-`validation` - Comparative verification of reasoning alternatives OR implemented code. MUST test feasibility, complexity, maintainability of different approaches OR implemented code. REQUIRED: validate multiple alternatives before path selection OR write/run tests, lint etc. FORBIDDEN: single-path validation without comparison.
+`validation` - Comparative verification of reasoning alternatives OR  verification of implemented code. MUST test feasibility, complexity, maintainability of different approaches OR implemented code. REQUIRED: validate multiple alternatives before path selection OR write/run tests, lint etc. FORBIDDEN: single-path validation without comparison.
 ]],
             enum = { 'analysis', 'reasoning', 'task', 'validation' },
           },
@@ -445,7 +307,7 @@ Thought type: (required for `add_thought`)
             description = "ID of parent node to add thought to (default: 'root', for 'add_thought')",
           },
         },
-        required = { 'action' },
+        required = { 'content', 'type', 'parent_id' },
         additionalProperties = false,
       },
       strict = true,

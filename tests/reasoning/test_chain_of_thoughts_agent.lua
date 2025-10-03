@@ -55,10 +55,8 @@ T['tool schema has correct structure'] = function()
     schema_info = {
       func_name = func_schema.name,
       has_description = func_schema.description ~= nil,
-      has_action_param = params.properties.action ~= nil,
       has_content_param = params.properties.content ~= nil,
-      has_step_type_param = params.properties.step_type ~= nil,
-      action_required = vim.tbl_contains(params.required, 'action')
+      has_step_type_param = params.properties.step_type ~= nil
     }
   ]])
 
@@ -66,10 +64,8 @@ T['tool schema has correct structure'] = function()
 
   h.eq('chain_of_thoughts_agent', schema_info.func_name)
   h.eq(true, schema_info.has_description)
-  h.eq(true, schema_info.has_action_param)
   h.eq(true, schema_info.has_content_param)
   h.eq(true, schema_info.has_step_type_param)
-  h.eq(true, schema_info.action_required)
 end
 
 T['tool description contains workflow guidance'] = function()
@@ -141,59 +137,9 @@ T['add_step requires content and step_type'] = function()
   h.eq(true, validation_info.missing_step_type_error)
 end
 
--- Test reflect action
-T['reflect action works with existing steps'] = function()
-  child.lua([[
-    -- Add a step first
-    call_tool(ChainOfThoughtsAgent, {
-      action = 'add_step',
-      content = 'Test step for reflection',
-      step_type = 'analysis'
-    })
-
-    -- Then reflect
-    result = call_tool(ChainOfThoughtsAgent, {
-      action = 'reflect',
-      content = 'This approach seems to be working well'
-    })
-
-    reflect_info = {
-      status = result.status,
-      has_analysis = result.data and string.find(result.data, 'Reflection Analysis') ~= nil,
-      has_total_steps = result.data and string.find(result.data, 'Total steps:') ~= nil,
-      has_user_reflection = result.data and string.find(result.data, 'Reflection:') ~= nil
-    }
-  ]])
-
-  local reflect_info = child.lua_get('reflect_info')
-
-  h.eq('success', reflect_info.status)
-  h.eq(true, reflect_info.has_analysis)
-  h.eq(true, reflect_info.has_total_steps)
-  h.eq(true, reflect_info.has_user_reflection)
-end
-
--- Test reflect action requires content parameter
-T['reflect action requires content parameter'] = function()
-  child.lua([[
-    result = call_tool(ChainOfThoughtsAgent, {
-      action = 'reflect'
-    })
-
-    reflect_info = {
-      status = result.status,
-      has_error_message = result.data and string.find(result.data, 'content is required') ~= nil
-    }
-  ]])
-
-  local reflect_info = child.lua_get('reflect_info')
-
-  h.eq('error', reflect_info.status)
-  h.eq(true, reflect_info.has_error_message)
-end
 
 -- Test invalid action
-T['invalid action returns error'] = function()
+T['invalid action returns validation error (uses add_step validation)'] = function()
   child.lua([[
     result = call_tool(ChainOfThoughtsAgent, {
       action = 'invalid_action'
@@ -201,18 +147,16 @@ T['invalid action returns error'] = function()
 
     invalid_info = {
       status = result.status,
-      mentions_invalid = result.data and string.find(result.data, 'Invalid action') ~= nil
     }
   ]])
 
   local invalid_info = child.lua_get('invalid_info')
 
   h.eq('error', invalid_info.status)
-  h.eq(true, invalid_info.mentions_invalid)
 end
 
 -- Test complete workflow
-T['complete workflow: add steps and reflect'] = function()
+T['complete workflow: add multiple steps'] = function()
   child.lua([[
     -- Add multiple steps
     step1 = call_tool(ChainOfThoughtsAgent, {
@@ -233,18 +177,10 @@ T['complete workflow: add steps and reflect'] = function()
       step_type = 'task'
     })
 
-    -- Reflect on the process
-    reflection = call_tool(ChainOfThoughtsAgent, {
-      action = 'reflect',
-      content = 'The step-by-step approach worked well'
-    })
-
     workflow_info = {
       step1_success = step1.status == 'success',
       step2_success = step2.status == 'success',
-      step3_success = step3.status == 'success',
-      reflection_success = reflection.status == 'success',
-      reflection_shows_steps = reflection.data and string.find(reflection.data, 'Total steps:') ~= nil
+      step3_success = step3.status == 'success'
     }
   ]])
 
@@ -253,8 +189,6 @@ T['complete workflow: add steps and reflect'] = function()
   h.eq(true, workflow_info.step1_success)
   h.eq(true, workflow_info.step2_success)
   h.eq(true, workflow_info.step3_success)
-  h.eq(true, workflow_info.reflection_success)
-  h.eq(true, workflow_info.reflection_shows_steps)
 end
 
 return T

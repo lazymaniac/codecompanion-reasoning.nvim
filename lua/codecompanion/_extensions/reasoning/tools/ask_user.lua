@@ -69,11 +69,11 @@ DON'T use for:
           options = {
             type = 'array',
             items = { type = 'string' },
-            description = 'Numbered choices for user (optional). Provide 2-3 numbered options allowing custom responses. User can select by number or provide custom response. Example: ["Implement the missing function", "Remove the failing tests", "Refactor approach entirely"]',
+            description = 'Numbered choices for user. Provide numbered options allowing custom responses. User can select by number or provide custom response. Example: ["Implement the missing function", "Remove the failing tests", "Refactor approach entirely"]',
           },
         },
         required = {
-          'question',
+          'question', 'options'
         },
         additionalProperties = false,
       },
