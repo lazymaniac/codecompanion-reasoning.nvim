@@ -111,7 +111,7 @@ SELECTION GUIDELINES
           ask_user = 'Ask User',
           add_tools = 'Add Tools',
           project_knowledge = 'Project Knowledge',
-          reflect_on_progress = 'Reflect on Progress'
+          reflect_on_progress = 'Reflect on Progress',
         }
 
         local human_agent = agent_labels[selected_agent] or selected_agent

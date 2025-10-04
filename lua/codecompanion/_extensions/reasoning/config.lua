@@ -21,6 +21,11 @@ Config.defaults = {
     max_words_per_title = 6,
     format_title = nil,
   },
+  -- Dedicated adapter/model for reflection tool (falls back to chat adapter/model when nil)
+  reflect_on_progress = {
+    adapter = nil,
+    model = nil,
+  },
   session_history = {
     auto_save = true,
     auto_generate_title = true,
