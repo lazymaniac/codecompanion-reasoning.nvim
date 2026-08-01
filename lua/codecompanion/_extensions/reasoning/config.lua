@@ -1,62 +1,59 @@
----@class CodeCompanion.ReasoningConfig
----Central configuration management for the reasoning extension.
-local Config = {}
+local M = {}
 
----@type table
-Config.defaults = {
-  project_knowledge_initialization = {
-    adapter = nil, -- defaults to chat adapter
-    model = nil, -- defaults to chat model
-  },
-  session_optimizer = {
-    adapter = nil, -- defaults to chat adapter
-    model = nil, -- defaults to chat model
-    summary_max_words = 500, -- target words for resumption-focused summary (minimum recommended)
-    include_code_snippets = true, -- preserve important code examples in summaries
-  },
-  session_title_generator = {
-    adapter = nil, -- defaults to chat adapter
-    model = nil, -- defaults to chat model
-    refresh_every_n_user_prompts = 3,
-    max_words_per_title = 6,
-    format_title = nil,
-  },
-  -- Dedicated adapter/model for reflection tool (falls back to chat adapter/model when nil)
-  reflect_on_progress = {
-    adapter = nil,
-    model = nil,
-  },
-  session_history = {
-    auto_save = true,
-    auto_generate_title = true,
-    continue_last_session = false,
-    picker = 'default',
-    max_sessions = 100,
-    sessions_dir = vim.fn.stdpath('data') .. '/codecompanion-reasoning/sessions',
-    session_file_pattern = 'session_%Y%m%d_%H%M%S.lua',
-    keymaps = {
-      rename = { n = 'r', i = '<M-r>' },
-      delete = { n = 'd', i = '<M-d>' },
-      duplicate = { n = '<C-y>', i = '<C-y>' },
-    },
+local defaults = {
+  auto_attach = false,
+  default_depth = 'deep',
+  limits = {
+    max_artifacts = 192,
+    max_batch_items = 8,
+    max_text_chars = 2000,
+    max_array_items = 12,
   },
 }
 
-Config._options = vim.deepcopy(Config.defaults)
+local options = vim.deepcopy(defaults)
 
----Merge user configuration into defaults and persist the result.
----@param user_opts? table
----@return table merged
-function Config.setup(user_opts)
-  user_opts = vim.deepcopy(user_opts or {})
-  Config._options = vim.tbl_deep_extend('force', vim.deepcopy(Config.defaults), user_opts)
-  return Config._options
+local function validate(candidate)
+  local allowed_options = { auto_attach = true, default_depth = true, limits = true }
+  for name in pairs(candidate) do
+    if not allowed_options[name] then
+      error('unknown option: ' .. name)
+    end
+  end
+  if type(candidate.auto_attach) ~= 'boolean' then
+    error('auto_attach must be a boolean')
+  end
+  if candidate.default_depth ~= 'standard' and candidate.default_depth ~= 'deep' then
+    error("default_depth must be 'standard' or 'deep'")
+  end
+  if type(candidate.limits) ~= 'table' then
+    error('limits must be a table')
+  end
+  local allowed_limits = {
+    max_artifacts = true,
+    max_batch_items = true,
+    max_text_chars = true,
+    max_array_items = true,
+  }
+  for name, value in pairs(candidate.limits) do
+    if not allowed_limits[name] then
+      error('unknown limit: ' .. name)
+    end
+    if type(value) ~= 'number' or value < 1 or value % 1 ~= 0 then
+      error(name .. ' must be a positive integer')
+    end
+  end
 end
 
----Retrieve the last merged configuration.
----@return table config
-function Config.get()
-  return Config._options
+function M.setup(user_options)
+  local candidate = vim.tbl_deep_extend('force', vim.deepcopy(defaults), user_options or {})
+  validate(candidate)
+  options = candidate
+  return vim.deepcopy(options)
 end
 
-return Config
+function M.get()
+  return vim.deepcopy(options)
+end
+
+return M
