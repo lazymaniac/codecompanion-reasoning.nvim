@@ -408,6 +408,177 @@ function M.evidence(chat, args)
   return evidence_success(workspace, artifacts)
 end
 
+function M.options(chat, args)
+  local workspace = State.get(chat)
+  if not workspace then
+    return failure('workspace_missing', 'start a frame before creating branches', {}, 'Call reasoning_frame')
+  end
+  if
+    type(args) ~= 'table'
+    or not text_valid(args.question)
+    or not vim.tbl_contains({ 'solution', 'hypothesis', 'scenario' }, args.branch_type)
+    or not bounded_array(args.criteria, 1, math.min(8, Config.get().limits.max_array_items))
+    or type(args.supersedes_branch_id) ~= 'string'
+    or (args.supersedes_branch_id ~= '' and not text_valid(args.supersedes_branch_id))
+  then
+    return failure('options_invalid', 'branch-set fields are invalid', {}, 'Correct reasoning_options fields')
+  end
+  local criteria = {}
+  for _, criterion in ipairs(args.criteria) do
+    if not text_valid(criterion) then
+      return failure('options_invalid', 'criteria must contain bounded text', {}, 'Correct reasoning_options criteria')
+    end
+    local key = normalized(criterion)
+    if criteria[key] then
+      return failure('options_invalid', 'criteria must be unique', {}, 'Remove the duplicate criterion')
+    end
+    criteria[key] = true
+  end
+  if not bounded_array(args.options, 2, math.min(6, Config.get().limits.max_array_items)) then
+    return failure(
+      'branch_count_insufficient',
+      'a branch set requires two to six options',
+      {},
+      'Provide competing options'
+    )
+  end
+
+  local active_branch
+  for index = #workspace.artifact_order, 1, -1 do
+    local artifact = State.find(workspace, workspace.artifact_order[index])
+    if artifact.kind == 'branch' and artifact.status == 'active' then
+      active_branch = artifact
+      break
+    end
+  end
+  if active_branch and args.supersedes_branch_id == '' then
+    return failure(
+      'options_invalid',
+      'an active branch set must be explicitly superseded',
+      { active_branch.id },
+      'Set supersedes_branch_id to the active branch ID'
+    )
+  end
+  if active_branch and args.supersedes_branch_id ~= active_branch.id then
+    return failure(
+      'options_invalid',
+      'supersedes_branch_id must name the current active branch set',
+      { active_branch.id },
+      'Set supersedes_branch_id to the active branch ID'
+    )
+  end
+
+  local replaced
+  if args.supersedes_branch_id ~= '' then
+    local code
+    replaced, code = active_reference(workspace, args.supersedes_branch_id)
+    if code then
+      return failure(
+        code,
+        'the replaced branch set is unavailable',
+        { args.supersedes_branch_id },
+        'Use an active branch ID'
+      )
+    end
+    if replaced.kind ~= 'branch' then
+      return failure(
+        'invalid_reference',
+        'supersedes_branch_id must name a branch set',
+        { replaced.id },
+        'Use an active B artifact'
+      )
+    end
+  end
+
+  local labels = {}
+  local prepared = {}
+  for index, option in ipairs(args.options) do
+    if
+      type(option) ~= 'table'
+      or not text_valid(option.label)
+      or not text_valid(option.summary)
+      or not text_array_valid(option.evidence_ids)
+      or not text_array_valid(option.assumptions)
+      or not text_array_valid(option.predictions)
+      or not text_array_valid(option.benefits)
+      or not text_array_valid(option.costs)
+      or not text_array_valid(option.risks)
+      or not vim.tbl_contains({ 'easy', 'moderate', 'hard' }, option.reversibility)
+    then
+      return failure('options_invalid', 'option ' .. index .. ' is invalid', {}, 'Correct the option fields')
+    end
+    local label = normalized(option.label)
+    if labels[label] then
+      return failure('options_invalid', 'option labels must be unique', {}, 'Rename the duplicate option')
+    end
+    labels[label] = true
+    local seen_evidence = {}
+    for _, id in ipairs(option.evidence_ids) do
+      if seen_evidence[id] then
+        return failure('options_invalid', 'option evidence_ids contains a duplicate', { id }, 'Remove the duplicate ID')
+      end
+      seen_evidence[id] = true
+      local target, code = active_reference(workspace, id)
+      if code then
+        return failure(code, 'option evidence is unavailable', { id }, 'Use active evidence IDs')
+      end
+      if target.kind ~= 'evidence' then
+        return failure('invalid_reference', 'option evidence_ids must name evidence', { id }, 'Use E artifact IDs')
+      end
+    end
+    table.insert(prepared, vim.deepcopy(option))
+  end
+
+  if #workspace.artifact_order + 1 + #prepared > Config.get().limits.max_artifacts then
+    return failure(
+      'limit_exceeded',
+      'the branch set exceeds the artifact limit',
+      {},
+      'Replace the workspace or reduce branches'
+    )
+  end
+
+  local branch_data = {
+    question = args.question,
+    branch_type = args.branch_type,
+    criteria = vim.deepcopy(args.criteria),
+    option_ids = {},
+    frame_id = workspace.frame_id,
+    supersedes_branch_id = args.supersedes_branch_id,
+  }
+  local branch = assert(State.add(workspace, 'branch', branch_data))
+  State.add_relation(branch, 'depends_on', workspace.frame_id)
+  local options = {}
+  for _, option in ipairs(prepared) do
+    local artifact = assert(State.add(workspace, 'option', option))
+    table.insert(branch.data.option_ids, artifact.id)
+    State.add_relation(artifact, 'depends_on', branch.id)
+    for _, id in ipairs(option.evidence_ids) do
+      State.add_relation(artifact, 'supports', id)
+    end
+    table.insert(options, artifact)
+  end
+  if replaced then
+    State.supersede(workspace, replaced.id, branch.id)
+    for _, id in ipairs(replaced.data.option_ids) do
+      if State.find(workspace, id).status == 'active' then
+        State.supersede(workspace, id, branch.id)
+      end
+    end
+  end
+  return {
+    status = 'success',
+    data = {
+      workspace_id = workspace.id,
+      artifact = vim.deepcopy(branch),
+      artifacts = vim.deepcopy(options),
+      progress = vim.deepcopy(workspace.counts_by_kind),
+      unmet_gates = M.final_gates(workspace, nil),
+      next_action = Guidance.next(workspace),
+    },
+  }
+end
+
 function M.final_gates(workspace, synthesis)
   local gates = {}
   if not workspace or not workspace.frame_id then
