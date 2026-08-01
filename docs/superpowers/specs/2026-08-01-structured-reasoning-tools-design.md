@@ -184,10 +184,11 @@ Inputs:
 - `success_criteria`: observable conditions for a satisfactory result.
 - `unknowns`: unresolved questions that matter to the outcome.
 - `perspectives`: two to four objects containing a unique `name` and `purpose` in deep mode; one to four in standard mode.
+- `temporal_required`: whether the problem explicitly requires reasoning across transitions or evolution over time.
 - `branching_required`: whether competing options, hypotheses, or scenarios must be developed.
 - `branching_rationale`: why branching is or is not appropriate.
 
-Default branching behavior is required for decision, diagnosis, design, and planning problems. An analysis frame may disable it with a non-empty rationale. `start` fails when a workspace already exists, `revise` fails without one, and `replace` creates a fresh workspace after explicit intent. A revision cannot remove or rename a perspective referenced by an active artifact; the caller must replace or retract those artifacts first.
+Default branching behavior is required for decision, diagnosis, design, and planning problems. An analysis frame may disable it with a non-empty rationale. `start` fails when a workspace already exists, `revise` fails without one, and `replace` creates a fresh workspace after explicit intent. A revision cannot remove or rename a perspective, or remove an unknown, referenced by active evidence; the caller must replace or retract those artifacts first.
 
 The perspectives incorporate Prism's domain discovery and dynamic-lens ideas without generating a separate long prompt. Each perspective names what it is intended to reveal.
 
@@ -203,6 +204,7 @@ Each item contains:
 - `confidence`: `low`, `medium`, or `high`.
 - `falsifier`: evidence or result that would overturn or materially revise the item.
 - `perspective`: a perspective name from the active frame.
+- `addresses_unknowns`: exact unknown strings from the active frame that this item helps resolve; an empty array when it addresses none.
 - `supports`, `contradicts`, and `qualifies`: arrays of artifact IDs.
 - `supersedes_id`: an evidence artifact being revised, or an empty string for a new item.
 
@@ -233,6 +235,8 @@ Each option contains:
 
 The tool creates one branch-set artifact and an artifact for each option. Labels must be unique within the branch set. Referenced evidence must exist and be active. Revising one option creates a complete replacement branch set so criteria and comparisons remain coherent; the old set is marked superseded. Numeric scoring is not part of the API; measurable numeric criteria can be recorded as evidence. Selection happens during synthesis after review, not in the same call that invents alternatives.
 
+Only one branch set may be active. A subsequent call must name the active branch in `supersedes_branch_id`, preventing older active options from silently disappearing from guidance and final gates. Individual options cannot be retracted independently; review either requests a complete branch-set replacement or retracts the branch and all of its option members together.
+
 This tool captures tree-style branching, hypothesis testing, construction of alternatives, and explicit trade-offs without exposing separate chain, tree, and graph APIs.
 
 ### `reasoning_review`
@@ -248,9 +252,10 @@ Inputs:
 - `blind_spots`: relevant angles the current analysis did not cover.
 - `stress_tests`: scenarios, predicted behavior, and observable failure signals.
 - `verdicts`: `keep`, `revise`, or `retract` for every target, plus a non-empty `revision_instruction` for `revise`.
+- `contradiction_resolutions`: explicit records naming both contradictory artifact IDs, a bounded resolution or qualification, and active evidence IDs supporting that resolution; the array may be empty.
 - `structural_tradeoffs`: trade-off claims with evidence IDs and a falsifier; the array may be empty.
 
-`full` mode requires a defense, at least one disconfirming challenge, at least one shared or hidden-assumption challenge, a blind-spot entry, and a verdict for every target. Temporal stress tests are required only for `temporal` mode or when the frame explicitly concerns evolution over time. A `revise` verdict creates an unresolved revision requirement. The relevant typed tool must supersede the target before final synthesis can pass.
+`full` mode requires a defense, at least one disconfirming challenge, at least one shared or hidden-assumption challenge, a blind-spot entry, and a verdict for every target. Temporal stress tests are required only for `temporal` mode or when the frame sets `temporal_required`. A contradiction is resolved only by a cited, active `contradiction_resolutions` record for an actual active contradiction whose endpoints are both reviewed and kept; its supporting evidence is revalidated at final synthesis, and targeting both endpoints with unrelated keep verdicts is insufficient. A `revise` verdict creates an unresolved revision requirement. The relevant typed tool must supersede the target before final synthesis can pass.
 
 Structural trade-offs are optional. They are never presented as universal conservation laws unless evidence and a falsifier support that wording. This retains Prism's search for invariants while avoiding forced pseudo-profundity.
 
@@ -288,6 +293,9 @@ Standard depth requires:
 - At least one active evidence or assumption artifact.
 - A branch set when `branching_required` is true.
 - A review when a branch set exists or active evidence is contradicted.
+- A stress-tested review when `temporal_required` is true.
+- Evidence cited by the conclusion for every unknown named in the active frame.
+- No unresolved `revise` verdict affecting the active frame, the selected branch or option, cited support, or criterion evidence.
 - Criterion coverage and no failed or pending criterion for final synthesis.
 
 ### Deep depth
@@ -302,7 +310,7 @@ Deep depth requires all standard gates plus:
 - Explicit trade-offs, uncertainties, and blind spots, even when any list is intentionally empty.
 - Support for every selected option and passed criterion.
 - No selected or supporting artifact with `retracted` status.
-- No unresolved `revise` verdict affecting a selected or supporting artifact.
+- No unresolved `revise` verdict anywhere in that final-result relevance closure.
 - Resolution through review of every active contradiction affecting selected support.
 
 The engine enforces only these structural facts. It does not claim that list entries are substantively adequate.
@@ -315,7 +323,7 @@ After every accepted call, the guidance engine returns exactly one next action u
 2. Correct invalid or uncovered frame requirements.
 3. Gather evidence for uncovered perspectives or consequential unknowns.
 4. Create branches when required and absent.
-5. Gather discriminating evidence when options lack support or predictions.
+5. Replace the complete branch set when an immutable option lacks active evidence citations or testable predictions.
 6. Review contradictions or unreviewed high-impact artifacts.
 7. Apply revisions or replacements required by the latest review.
 8. Complete success-criterion verification.
@@ -331,7 +339,8 @@ Expected validation failures return normal tool errors with this logical shape:
 code: stable machine-readable code
 message: concise explanation
 artifact_ids: relevant IDs
-next_action: exact corrective tool and requirement
+next_action.tool: exact corrective tool
+next_action.reason: concise corrective requirement
 ```
 
 Stable error categories include:
@@ -342,11 +351,14 @@ Stable error categories include:
 - `invalid_reference`
 - `inactive_reference`
 - `duplicate_artifact`
+- `frame_incomplete`
+- `branching_required`
+- `evidence_invalid`
+- `options_invalid`
 - `perspective_unknown`
 - `branch_count_insufficient`
 - `review_incomplete`
-- `revision_missing`
-- `contradiction_unresolved`
+- `synthesis_invalid`
 - `synthesis_gate_failed`
 
 Programmer errors are logged through `codecompanion.utils.log` and returned without a Lua traceback in chat. The extension never silently converts an internal failure into a successful result.
@@ -395,12 +407,12 @@ Tests cover:
 - Deterministic IDs and append-oriented revisions.
 - Branch-set replacement and unresolved revision requirements.
 - Every relation and invalid-reference path.
-- Frame rules by problem type and depth.
-- Evidence source, falsifier, perspective, duplication, and batch validation.
+- Frame rules by problem type, depth, temporal requirement, and referenced unknowns.
+- Evidence source, falsifier, perspective, unknown coverage, duplication, and batch validation.
 - Option counts, unique labels, criteria, evidence references, and reversibility.
 - Every review mode, complete verdict coverage, revisions, retractions, and structural trade-off validation.
 - Standard and deep synthesis gates.
-- Contradiction blocking and resolution.
+- Contradiction blocking, explicit supported resolution, citation, and revalidation.
 - Deterministic next-action priority.
 - Bounded LLM and user output.
 
