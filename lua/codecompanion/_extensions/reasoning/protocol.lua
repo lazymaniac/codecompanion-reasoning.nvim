@@ -191,6 +191,223 @@ function M.frame(chat, args)
   return success(workspace, frame)
 end
 
+local function normalized(value)
+  return vim.trim(value):lower():gsub('%s+', ' ')
+end
+
+local function text_array_valid(value, minimum)
+  if not bounded_array(value, minimum or 0, Config.get().limits.max_array_items) then
+    return false
+  end
+  for _, item in ipairs(value) do
+    if not text_valid(item) then
+      return false
+    end
+  end
+  return true
+end
+
+local function active_reference(workspace, id)
+  local artifact = State.find(workspace, id)
+  if not artifact then
+    return nil, 'invalid_reference'
+  end
+  if artifact.status ~= 'active' then
+    return nil, 'inactive_reference'
+  end
+  return artifact
+end
+
+local function evidence_success(workspace, artifacts)
+  return {
+    status = 'success',
+    data = {
+      workspace_id = workspace.id,
+      artifact = vim.deepcopy(artifacts[#artifacts]),
+      artifacts = vim.deepcopy(artifacts),
+      progress = vim.deepcopy(workspace.counts_by_kind),
+      unmet_gates = M.final_gates(workspace, nil),
+      next_action = Guidance.next(workspace),
+    },
+  }
+end
+
+function M.evidence(chat, args)
+  local workspace = State.get(chat)
+  if not workspace then
+    return failure('workspace_missing', 'start a frame before recording evidence', {}, 'Call reasoning_frame')
+  end
+  if type(args) ~= 'table' or not bounded_array(args.items, 1, Config.get().limits.max_batch_items) then
+    return failure('evidence_invalid', 'items must be a non-empty bounded batch', {}, 'Call reasoning_evidence')
+  end
+
+  local frame = State.find(workspace, workspace.frame_id)
+  local perspectives = {}
+  for _, perspective in ipairs(frame.data.perspectives) do
+    perspectives[normalized(perspective.name)] = true
+  end
+  local frame_unknowns = {}
+  for _, unknown in ipairs(frame.data.unknowns) do
+    frame_unknowns[normalized(unknown)] = true
+  end
+
+  local known_statements = {}
+  for _, id in ipairs(workspace.artifact_order) do
+    local artifact = State.find(workspace, id)
+    if artifact.kind == 'evidence' then
+      known_statements[normalized(artifact.data.statement)] = artifact.id
+    end
+  end
+
+  local prepared = {}
+  local pending_statements = {}
+  local pending_supersessions = {}
+  for index, item in ipairs(args.items) do
+    if
+      type(item) ~= 'table'
+      or not vim.tbl_contains({ 'observation', 'claim', 'assumption' }, item.kind)
+      or not text_valid(item.statement)
+      or not text_valid(item.source)
+      or not vim.tbl_contains({ 'low', 'medium', 'high' }, item.confidence)
+      or not text_valid(item.falsifier)
+      or not text_valid(item.perspective)
+      or not text_array_valid(item.addresses_unknowns)
+      or not text_array_valid(item.supports)
+      or not text_array_valid(item.contradicts)
+      or not text_array_valid(item.qualifies)
+      or type(item.supersedes_id) ~= 'string'
+    then
+      return failure(
+        'evidence_invalid',
+        'evidence item ' .. index .. ' is invalid',
+        {},
+        'Correct reasoning_evidence fields'
+      )
+    end
+    local source = normalized(item.source)
+    if item.kind == 'assumption' and not source:match('^assumption:') then
+      return failure(
+        'evidence_invalid',
+        'assumption sources must begin with assumption:',
+        {},
+        'Label the assumption source'
+      )
+    end
+    if item.kind == 'observation' and vim.tbl_contains({ 'unknown', 'unspecified', 'none' }, source) then
+      return failure('evidence_invalid', 'observations require a concrete source', {}, 'Provide the observation source')
+    end
+    if not perspectives[normalized(item.perspective)] then
+      return failure(
+        'perspective_unknown',
+        'evidence references an unknown perspective',
+        {},
+        'Revise the frame or perspective'
+      )
+    end
+    local addressed = {}
+    for _, unknown in ipairs(item.addresses_unknowns) do
+      local key = normalized(unknown)
+      if addressed[key] or not frame_unknowns[key] then
+        return failure(
+          'evidence_invalid',
+          'addresses_unknowns must uniquely match active frame unknowns',
+          {},
+          'Use exact unknowns from reasoning_frame'
+        )
+      end
+      addressed[key] = true
+    end
+    for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
+      local seen = {}
+      for _, id in ipairs(item[field]) do
+        if seen[id] then
+          return failure(
+            'evidence_invalid',
+            field .. ' contains a duplicate ID',
+            { id },
+            'Remove the duplicate reference'
+          )
+        end
+        seen[id] = true
+        local _, code = active_reference(workspace, id)
+        if code then
+          return failure(code, 'evidence relation target is unavailable', { id }, 'Use an active artifact ID')
+        end
+      end
+    end
+    if item.supersedes_id ~= '' then
+      local target, code = active_reference(workspace, item.supersedes_id)
+      if code then
+        return failure(code, 'superseded evidence is unavailable', { item.supersedes_id }, 'Use an active evidence ID')
+      end
+      if target.kind ~= 'evidence' then
+        return failure(
+          'invalid_reference',
+          'supersedes_id must name evidence',
+          { item.supersedes_id },
+          'Use reasoning_evidence'
+        )
+      end
+      if pending_supersessions[item.supersedes_id] then
+        return failure(
+          'duplicate_artifact',
+          'one evidence artifact cannot have two replacements in the same batch',
+          { item.supersedes_id },
+          'Submit one replacement for the evidence ID'
+        )
+      end
+      pending_supersessions[item.supersedes_id] = true
+    end
+    local key = normalized(item.statement)
+    local duplicate_id = known_statements[key]
+    if pending_statements[key] then
+      return failure(
+        'duplicate_artifact',
+        'the evidence batch contains duplicate normalized statements',
+        duplicate_id and { duplicate_id } or {},
+        'Keep one statement or submit separate revisions'
+      )
+    end
+    if duplicate_id and item.supersedes_id ~= duplicate_id then
+      return failure(
+        'duplicate_artifact',
+        'an evidence artifact already has the same statement',
+        { duplicate_id },
+        'Supersede the active evidence or use a distinct statement'
+      )
+    end
+    pending_statements[key] = true
+    table.insert(prepared, vim.deepcopy(item))
+  end
+
+  if #workspace.artifact_order + #prepared > Config.get().limits.max_artifacts then
+    return failure(
+      'limit_exceeded',
+      'the complete evidence batch exceeds the artifact limit',
+      {},
+      'Replace the workspace or reduce the batch'
+    )
+  end
+
+  local artifacts = {}
+  for _, item in ipairs(prepared) do
+    local artifact = assert(State.add(workspace, 'evidence', item))
+    table.insert(artifacts, artifact)
+  end
+  for index, item in ipairs(prepared) do
+    local artifact = artifacts[index]
+    for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
+      for _, id in ipairs(item[field]) do
+        State.add_relation(artifact, field, id)
+      end
+    end
+    if item.supersedes_id ~= '' then
+      State.supersede(workspace, item.supersedes_id, artifact.id)
+    end
+  end
+  return evidence_success(workspace, artifacts)
+end
+
 function M.final_gates(workspace, synthesis)
   local gates = {}
   if not workspace or not workspace.frame_id then
