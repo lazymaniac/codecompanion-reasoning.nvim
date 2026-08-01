@@ -1,15 +1,15 @@
 -- Minimal init script for testing the reasoning extension
-local root = vim.fn.fnamemodify(debug.getinfo(1).source:match("@(.*)"), ":h:h")
-local deps_path = root .. "/deps"
+local root = vim.fn.fnamemodify(debug.getinfo(1).source:match('@(.*)'), ':h:h')
+local deps_path = root .. '/deps'
 
 -- Add test dependencies to runtime path
 local deps = {
-  "plenary.nvim",
-  "mini.nvim",
+  'plenary.nvim',
+  'mini.nvim',
 }
 
 for _, dep in ipairs(deps) do
-  local dep_path = deps_path .. "/" .. dep
+  local dep_path = deps_path .. '/' .. dep
   if vim.fn.isdirectory(dep_path) == 1 then
     vim.opt.runtimepath:append(dep_path)
   end
@@ -19,7 +19,7 @@ end
 vim.opt.runtimepath:append(root)
 
 -- Add the base CodeCompanion plugin if available (needed for integration hooks)
-local cc_path = os.getenv('CODECOMPANION_PATH') or (root .. '/../codecompanion.nvim')
+local cc_path = os.getenv('CODECOMPANION_PATH') or (deps_path .. '/codecompanion.nvim')
 if vim.fn.isdirectory(cc_path) == 1 then
   vim.opt.runtimepath:append(cc_path)
   -- Ensure Lua can require CodeCompanion modules directly
@@ -50,25 +50,20 @@ else
   MiniTest.setup({
     collect = {
       find_files = function()
-        local function is_tmp(path)
-          return string.find(path, 'tests/tmp_', 1, true) ~= nil
-            or string.find(path, 'tests/tmp', 1, true) ~= nil
+        local files = {}
+        for _, glob in ipairs({ '**/test_*.lua', '**/*_test.lua' }) do
+          vim.list_extend(files, vim.fn.globpath('tests', glob, true, true))
         end
-        local acc = {}
-        local function add(glob)
-          for _, f in ipairs(vim.fn.globpath('tests', glob, true, true)) do
-            if not is_tmp(f) then table.insert(acc, f) end
+        table.sort(files)
+
+        local unique, previous = {}, nil
+        for _, file in ipairs(files) do
+          if file ~= previous then
+            table.insert(unique, file)
+            previous = file
           end
         end
-        add('**/test_*.lua')
-        add('**/*_test.lua')
-        table.sort(acc)
-        -- Deduplicate
-        local out, last = {}, nil
-        for _, f in ipairs(acc) do
-          if f ~= last then table.insert(out, f); last = f end
-        end
-        return out
+        return unique
       end,
     },
     execute = {

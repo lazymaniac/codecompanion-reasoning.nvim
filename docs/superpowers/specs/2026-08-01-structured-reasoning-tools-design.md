@@ -76,7 +76,7 @@ The extension registers an `@reasoning` group but does not attach it to every ch
 
 ## Architecture
 
-The implementation has six responsibilities:
+The implementation has seven responsibilities:
 
 1. **Extension registration** adds the five tools and the `reasoning` group to `config.interactions.chat.tools`.
 2. **Configuration** validates extension options and provides immutable defaults.
@@ -84,6 +84,7 @@ The implementation has six responsibilities:
 4. **Protocol engine** validates artifacts, relationships, transitions, and final-synthesis gates.
 5. **Guidance engine** chooses one deterministic next action from the current unmet requirements.
 6. **Tool adapters** expose focused schemas and translate accepted results into CodeCompanion tool output.
+7. **Terminal boundary** stops host auto-submission after an accepted final, including YOLO approval mode, until an explicit frame revision or replacement reopens the workspace.
 
 No state value retains its chat key. When CodeCompanion releases a chat, the weak-key entry becomes collectable. A replacement frame explicitly discards the active workspace and starts a new workspace ID.
 
@@ -97,6 +98,7 @@ lua/codecompanion/_extensions/reasoning/
   protocol.lua
   guidance.lua
   output.lua
+  terminal.lua
   tools/
     frame.lua
     evidence.lua
@@ -426,6 +428,7 @@ Integration tests use the sibling CodeCompanion v19.22.0 source and its actual m
 - Schema resolution through `CodeCompanion.Tools.resolve`.
 - Commands through the current runner contract.
 - Success and error output through the current output-handler contract.
+- Post-final submission suppression through the current chat and YOLO approval contracts.
 - Two chat objects cannot observe each other's workspaces.
 
 Tests perform no network requests and do not require an LLM.
@@ -461,7 +464,7 @@ The rewrite is complete when:
 5. Standard and deep protocols enforce the documented gates and return recoverable errors.
 6. State is isolated per chat, bounded, and not persisted.
 7. Revisions, contradictions, supersession, and retraction are tested.
-8. Final synthesis cannot bypass required evidence, branching, review, or verification.
+8. Final synthesis cannot bypass required evidence, branching, review, verification, or terminal submission behavior.
 9. The complete deterministic test suite passes after formatting.
 10. The README accurately documents the breaking surface and contains no claims that exceed implemented enforcement.
 11. The opt-in model evaluation harness can run against an explicitly configured adapter without participating in CI.

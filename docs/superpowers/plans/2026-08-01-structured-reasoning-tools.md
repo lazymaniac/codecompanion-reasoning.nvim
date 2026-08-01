@@ -12,7 +12,7 @@
 
 ## Execution prerequisite
 
-Execute this plan in a clean sibling worktree at `/Users/sebastian/workspace/codecompanion-reasoning-rewrite`, created from the commit containing this plan. That location keeps the audited CodeCompanion checkout available at the Makefile's default `../codecompanion.nvim` path. Do not copy the disposable staged or unstaged changes from the original `main` worktree. The implementation branch begins with the approved design at `docs/superpowers/specs/2026-08-01-structured-reasoning-tools-design.md`.
+Execute this plan in a clean sibling worktree at `/Users/sebastian/workspace/codecompanion-reasoning-rewrite`, created from the commit containing this plan. Do not copy the disposable staged or unstaged changes from the original `main` worktree. The implementation branch begins with the approved design at `docs/superpowers/specs/2026-08-01-structured-reasoning-tools-design.md`.
 
 Before Task 1, bootstrap test-only dependencies once:
 
@@ -22,11 +22,11 @@ command -v stylua
 test -d ../codecompanion.nvim/.git
 test "$(git -C ../codecompanion.nvim rev-parse HEAD)" = "2b959b2bf5fdb13e3b333c078ba549996e477b7c"
 test "$(git -C ../codecompanion.nvim describe --tags --exact-match)" = "v19.22.0"
-make deps
+CODECOMPANION_PATH=../codecompanion.nvim make deps
 test -f deps/mini.nvim/lua/mini/test.lua
 ```
 
-`make deps` is the only step permitted to use the network. All deterministic test commands after this bootstrap reuse the populated dependency directories and run without model calls or network access. If the pinned sibling checkout is unavailable, stop and provide another checkout only after verifying both the exact commit and tag above.
+`make deps` is the only step permitted to use the network. A normal fresh checkout clones the pinned CodeCompanion v19.22.0 tag into `deps/codecompanion.nvim`; this implementation run instead sets `CODECOMPANION_PATH=../codecompanion.nvim` to use the separately audited commit above. All deterministic test commands after bootstrap reuse the populated dependencies and run without model calls or network access.
 
 ## File structure
 
@@ -38,13 +38,14 @@ Create or replace these runtime files:
 - `lua/codecompanion/_extensions/reasoning/protocol.lua` — validate and record all five artifact operations and evaluate final gates.
 - `lua/codecompanion/_extensions/reasoning/guidance.lua` — select one deterministic next action.
 - `lua/codecompanion/_extensions/reasoning/output.lua` — serialize success and error payloads for CodeCompanion.
+- `lua/codecompanion/_extensions/reasoning/terminal.lua` — suppress host auto-submission after an accepted final until explicit reframing.
 - `lua/codecompanion/_extensions/reasoning/tools/frame.lua` — expose `reasoning_frame`.
 - `lua/codecompanion/_extensions/reasoning/tools/evidence.lua` — expose `reasoning_evidence`.
 - `lua/codecompanion/_extensions/reasoning/tools/options.lua` — expose `reasoning_options`.
 - `lua/codecompanion/_extensions/reasoning/tools/review.lua` — expose `reasoning_review`.
 - `lua/codecompanion/_extensions/reasoning/tools/synthesis.lua` — expose `reasoning_synthesis`.
 
-Create matching tests under `tests/codecompanion/_extensions/reasoning/`. Keep the existing test bootstrap in `scripts/minimal_init.lua`; `tests/helpers.lua` may remain unchanged because the new tests do not depend on its legacy fixture helpers.
+Create matching tests under `tests/codecompanion/_extensions/reasoning/`. Keep and simplify the test bootstrap in `scripts/minimal_init.lua`; remove the unreferenced legacy fixture helpers in `tests/helpers.lua` during Task 9.
 
 Delete all legacy tools, session helpers, UI, commands, fixtures, entry-point wrappers, and project-memory files in Task 9 after the new integration suite passes.
 
@@ -3991,11 +3992,14 @@ git commit -m "feat(reasoning): enforce synthesis gates"
 
 **Files:**
 - Create: `lua/codecompanion/_extensions/reasoning/output.lua`
+- Create: `lua/codecompanion/_extensions/reasoning/terminal.lua`
 - Modify: all five files under `lua/codecompanion/_extensions/reasoning/tools/`
 - Modify: `lua/codecompanion/_extensions/reasoning/init.lua`
 - Create: `tests/codecompanion/_extensions/reasoning/output_test.lua`
 - Modify: `tests/codecompanion/_extensions/reasoning/init_test.lua`
 - Create: `tests/codecompanion/_extensions/reasoning/runtime_integration_test.lua`
+
+Implementation note: runtime integration found that a status-only terminal result does not stop CodeCompanion's YOLO auto-submit path, and a literal `none` call never reaches the protocol. The final implementation therefore installs a chat-local one-shot submit guard in `terminal.lua`; only a successful explicit frame `revise` or `replace` clears it.
 
 - [ ] **Step 1: Write failing output tests with a mock chat**
 
@@ -4541,7 +4545,7 @@ Run: `make test_file FILE=tests/codecompanion/_extensions/reasoning/runtime_inte
 
 Expected: all three PASS; the runner-backed test executes success and error paths, attaches the group, and proves chat isolation without model submission.
 
-Run: `stylua lua/codecompanion/_extensions/reasoning/init.lua lua/codecompanion/_extensions/reasoning/output.lua lua/codecompanion/_extensions/reasoning/tools tests/codecompanion/_extensions/reasoning/init_test.lua tests/codecompanion/_extensions/reasoning/output_test.lua tests/codecompanion/_extensions/reasoning/runtime_integration_test.lua -f stylua.toml`
+Run: `stylua lua/codecompanion/_extensions/reasoning/init.lua lua/codecompanion/_extensions/reasoning/output.lua lua/codecompanion/_extensions/reasoning/terminal.lua lua/codecompanion/_extensions/reasoning/tools tests/codecompanion/_extensions/reasoning/init_test.lua tests/codecompanion/_extensions/reasoning/output_test.lua tests/codecompanion/_extensions/reasoning/runtime_integration_test.lua -f stylua.toml`
 
 Run: `make test_file FILE=tests/codecompanion/_extensions/reasoning/output_test.lua`
 
@@ -4552,7 +4556,7 @@ Run: `make test_file FILE=tests/codecompanion/_extensions/reasoning/runtime_inte
 Expected: all three PASS after formatting.
 
 ```bash
-git add lua/codecompanion/_extensions/reasoning/init.lua lua/codecompanion/_extensions/reasoning/output.lua lua/codecompanion/_extensions/reasoning/tools tests/codecompanion/_extensions/reasoning/init_test.lua tests/codecompanion/_extensions/reasoning/output_test.lua tests/codecompanion/_extensions/reasoning/runtime_integration_test.lua
+git add lua/codecompanion/_extensions/reasoning/init.lua lua/codecompanion/_extensions/reasoning/output.lua lua/codecompanion/_extensions/reasoning/terminal.lua lua/codecompanion/_extensions/reasoning/protocol.lua lua/codecompanion/_extensions/reasoning/tools tests/codecompanion/_extensions/reasoning/init_test.lua tests/codecompanion/_extensions/reasoning/output_test.lua tests/codecompanion/_extensions/reasoning/runtime_integration_test.lua
 git commit -m "feat(reasoning): register native tool group"
 ```
 
@@ -4570,6 +4574,10 @@ git commit -m "feat(reasoning): register native tool group"
 - Delete: `.codecompanion/.project-knowledge-prompted`
 - Modify: `README.md`
 - Modify: `tests/codecompanion-reasoning_test.lua` by deleting it.
+- Delete: `tests/helpers.lua`
+- Modify: `.gitignore`
+- Modify: `Makefile`
+- Modify: `scripts/minimal_init.lua`
 
 - [ ] **Step 1: Capture the pre-cleanup inventory**
 
@@ -4579,7 +4587,7 @@ Run:
 rg --files lua/codecompanion/_extensions/reasoning | sort
 ```
 
-Expected: both the six new core modules and five new tools are present alongside the legacy helpers, UI, commands, and tool modules that Step 2 removes.
+Expected: both the seven support modules and five new tools are present alongside the legacy helpers, UI, commands, and tool modules that Step 2 removes.
 
 - [ ] **Step 2: Delete exact legacy paths**
 
@@ -4598,6 +4606,7 @@ git rm -r \
   tests/codecompanion/_extensions/reasoning/commands_test.lua \
   tests/codecompanion/_extensions/reasoning/helpers \
   tests/codecompanion/_extensions/reasoning/ui \
+  tests/helpers.lua \
   tests/tmp_init_ai \
   tests/tmp_sessions
 ```
@@ -4643,6 +4652,7 @@ lua/codecompanion/_extensions/reasoning/init.lua
 lua/codecompanion/_extensions/reasoning/output.lua
 lua/codecompanion/_extensions/reasoning/protocol.lua
 lua/codecompanion/_extensions/reasoning/state.lua
+lua/codecompanion/_extensions/reasoning/terminal.lua
 lua/codecompanion/_extensions/reasoning/tools/evidence.lua
 lua/codecompanion/_extensions/reasoning/tools/frame.lua
 lua/codecompanion/_extensions/reasoning/tools/options.lua
@@ -4890,7 +4900,7 @@ Use CodeCompanion's current built-in groups and tools for file operations, user 
 Run:
 
 ```bash
-! rg -n "session_manager|session_restorer|project_knowledge|list_files|ask_user|meta_agent|add_tools|chain_of_thoughts_agent|tree_of_thoughts_agent|graph_of_thoughts_agent|reflect_on_progress|codecompanion\.strategies" lua tests
+! rg -n "session_manager|session_restorer|project_knowledge|list_files|ask_user|meta_agent|add_tools|chain_of_thoughts_agent|tree_of_thoughts_agent|graph_of_thoughts_agent|reflect_on_progress|codecompanion\.strategies" lua
 rg -n "Breaking migration|chain_of_thoughts_agent|project_knowledge" README.md
 ```
 
@@ -4939,7 +4949,7 @@ Expected: all cases PASS, 0 failures, 0 notes indicating runtime errors.
 Run:
 
 ```bash
-! rg -n "codecompanion\.strategies|session_manager|session_restorer|project_knowledge|list_files|ask_user|meta_agent|add_tools|chain_of_thoughts_agent|tree_of_thoughts_agent|graph_of_thoughts_agent|reflect_on_progress" lua tests
+! rg -n "codecompanion\.strategies|session_manager|session_restorer|project_knowledge|list_files|ask_user|meta_agent|add_tools|chain_of_thoughts_agent|tree_of_thoughts_agent|graph_of_thoughts_agent|reflect_on_progress" lua
 ```
 
 Expected: no matches.
@@ -4950,7 +4960,7 @@ Run:
 rg --files lua/codecompanion/_extensions/reasoning | sort
 ```
 
-Expected: exactly the 11 runtime files listed in this plan's file-structure section.
+Expected: exactly the 12 runtime files listed in this plan's file-structure section.
 
 - [ ] **Step 4: Verify the final diff and commit history**
 

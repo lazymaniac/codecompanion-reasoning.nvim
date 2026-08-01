@@ -77,11 +77,11 @@ end
 T['does not keep a released chat alive'] = function()
   local chat = {}
   State.begin(chat)
-  eq(State._session_count(), 1)
+  eq(State._workspace_count(), 1)
   chat = nil
   collectgarbage('collect')
   collectgarbage('collect')
-  eq(State._session_count(), 0)
+  eq(State._workspace_count(), 0)
 end
 
 return T

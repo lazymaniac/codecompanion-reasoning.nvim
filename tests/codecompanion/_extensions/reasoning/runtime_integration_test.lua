@@ -4,6 +4,7 @@ local Extension = require('codecompanion._extensions.reasoning')
 local ToolRegistry = require('codecompanion.interactions.chat.tool_registry')
 local ToolRuntime = require('codecompanion.interactions.chat.tools')
 local Approvals = require('codecompanion.interactions.chat.tools.approvals')
+local Log = require('codecompanion.utils.log')
 local State = require('codecompanion._extensions.reasoning.state')
 
 local names = {
@@ -15,12 +16,14 @@ local names = {
 }
 
 local buffers = {}
+local original_log
 local original_tools
 local call_sequence = 0
 
 local T = MiniTest.new_set({
   hooks = {
     pre_case = function()
+      original_log = Log.get_root()
       original_tools = vim.deepcopy(CCConfig.interactions.chat.tools)
       State._reset()
       local opts = CCConfig.interactions.chat.tools.opts
@@ -32,6 +35,7 @@ local T = MiniTest.new_set({
       call_sequence = 0
     end,
     post_case = function()
+      Log.set_root(original_log)
       State._reset()
       CCConfig.interactions.chat.tools = original_tools
       for _, bufnr in ipairs(buffers) do
@@ -492,7 +496,9 @@ T['stops literal none loops in yolo mode until an explicit reframe'] = function(
   local submit_count = chat.submit_count
   eq(submit_count, 3)
 
+  Log.set_root(Log.new({ handlers = {} }))
   local invalid = invoke(chat, 'none', {})
+  Log.set_root(original_log)
   eq(invalid.tool, 'none')
   eq(invalid.for_llm:find('Tool `none` not found', 1, true) ~= nil, true)
   eq(chat.submit_count, submit_count)

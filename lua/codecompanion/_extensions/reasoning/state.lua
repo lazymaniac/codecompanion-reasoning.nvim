@@ -1,7 +1,7 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 
 local M = {}
-local sessions = setmetatable({}, { __mode = 'k' })
+local workspaces_by_chat = setmetatable({}, { __mode = 'k' })
 local prefixes = {
   frame = 'F',
   evidence = 'E',
@@ -41,21 +41,21 @@ end
 
 function M.begin(chat, replace)
   assert(type(chat) == 'table', 'chat must be a table')
-  local session = sessions[chat]
-  if session and session.active and not replace then
+  local entry = workspaces_by_chat[chat]
+  if entry and entry.active and not replace then
     return nil, 'workspace_exists'
   end
-  session = session or { next_workspace = 1 }
-  local workspace = new_workspace(session.next_workspace)
-  session.next_workspace = session.next_workspace + 1
-  session.active = workspace
-  sessions[chat] = session
+  entry = entry or { next_workspace = 1 }
+  local workspace = new_workspace(entry.next_workspace)
+  entry.next_workspace = entry.next_workspace + 1
+  entry.active = workspace
+  workspaces_by_chat[chat] = entry
   return workspace
 end
 
 function M.get(chat)
-  local session = sessions[chat]
-  return session and session.active or nil
+  local entry = workspaces_by_chat[chat]
+  return entry and entry.active or nil
 end
 
 function M.add(workspace, kind, data)
@@ -119,12 +119,12 @@ function M.retire(workspace, id)
 end
 
 function M._reset()
-  sessions = setmetatable({}, { __mode = 'k' })
+  workspaces_by_chat = setmetatable({}, { __mode = 'k' })
 end
 
-function M._session_count()
+function M._workspace_count()
   local count = 0
-  for _ in pairs(sessions) do
+  for _ in pairs(workspaces_by_chat) do
     count = count + 1
   end
   return count
