@@ -4,6 +4,7 @@ local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
+local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
 
 local T = MiniTest.new_set({
   hooks = {
@@ -358,6 +359,56 @@ T['requires distinct evidence perspectives in cross-perspective mode'] = functio
   local result = Review.cmds[1]({ chat = chat }, args, {})
   eq(result.data.code, 'review_incomplete')
   eq(State.get(chat).counts_by_kind.review, nil)
+end
+
+T['does not count declared frame perspectives as evidence coverage'] = function()
+  local chat = prepare()
+  local args = full_review()
+  args.mode = 'cross_perspective'
+  args.target_ids = { 'F1', 'E1' }
+  args.challenges[1].target_ids = { 'F1' }
+  args.challenges[2].target_ids = { 'E1' }
+  args.verdicts = {
+    { target_id = 'F1', status = 'keep', revision_instruction = '' },
+    { target_id = 'E1', status = 'keep', revision_instruction = '' },
+  }
+
+  local result = Review.cmds[1]({ chat = chat }, args, {})
+  eq(result.data.code, 'review_incomplete')
+  eq(State.get(chat).counts_by_kind.review, nil)
+end
+
+T['traces synthesis selections and support for perspective coverage'] = function()
+  local chat = prepare()
+  local checkpoint = Synthesis.cmds[1]({ chat = chat }, {
+    mode = 'checkpoint',
+    conclusion = 'The journal is currently strongest but needs review',
+    selected_option_ids = { 'O1' },
+    support_ids = { 'E2' },
+    review_ids = {},
+    criterion_results = {
+      { criterion = 'Durable', status = 'pending', evidence_ids = {}, explanation = 'Review is pending' },
+      { criterion = 'Bounded', status = 'pending', evidence_ids = {}, explanation = 'Review is pending' },
+    },
+    tradeoffs = {},
+    uncertainties = {},
+    blind_spots = {},
+    next_actions = {},
+    confidence = 'medium',
+  }, {})
+  eq(checkpoint.status, 'success')
+
+  local args = full_review()
+  args.mode = 'cross_perspective'
+  args.target_ids = { 'S1', 'O1' }
+  args.challenges[1].target_ids = { 'S1' }
+  args.challenges[2].target_ids = { 'O1' }
+  args.verdicts = {
+    { target_id = 'S1', status = 'keep', revision_instruction = '' },
+    { target_id = 'O1', status = 'keep', revision_instruction = '' },
+  }
+
+  eq(Review.cmds[1]({ chat = chat }, args, {}).status, 'success')
 end
 
 T['rejects frame retraction and routes correction to framing'] = function()

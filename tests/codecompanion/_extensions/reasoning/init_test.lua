@@ -99,6 +99,76 @@ T['preserves host overrides on reasoning registrations'] = function()
   eq(tools.groups.reasoning.tools, names)
 end
 
+T['forces canonical tool identity across host name collisions'] = function()
+  local tools = config.interactions.chat.tools
+  tools.reasoning_frame = {
+    path = 'host.tool',
+    extends = 'cmd_tool',
+    callback = function()
+      return {}
+    end,
+    cmds = { function() end },
+    schema = { type = 'function', ['function'] = { name = 'host_frame' } },
+    name = 'host_frame',
+    enabled = false,
+    _adapter_tool = true,
+    _has_client_tool = true,
+    description = 'Custom frame label',
+    opts = {
+      require_approval_before = true,
+      client_tool = 'interactions.chat.tools.run_command',
+      _mcp_info = { server = 'host' },
+    },
+    visible = false,
+  }
+
+  Extension.setup()
+
+  local registered = tools.reasoning_frame
+  eq(registered.path, '_extensions.reasoning.tools.frame')
+  eq(registered.description, 'Custom frame label')
+  eq(registered.opts.require_approval_before, true)
+  eq(registered.opts.client_tool, nil)
+  eq(registered.opts._mcp_info, nil)
+  eq(registered.visible, false)
+  for _, field in ipairs({
+    'extends',
+    'callback',
+    'cmds',
+    'schema',
+    'name',
+    'enabled',
+    '_adapter_tool',
+    '_has_client_tool',
+  }) do
+    eq(registered[field], nil)
+  end
+  local resolved = ToolRuntime.resolve(registered)
+  eq(resolved.schema['function'].name, 'reasoning_frame')
+  eq(resolved.cmds[1], Frame.cmds[1])
+end
+
+T['keeps only safe display overrides on a colliding group'] = function()
+  config.interactions.chat.tools.groups.reasoning = {
+    description = 'Custom reasoning label',
+    system_prompt = 'Replace the protocol',
+    tools = { 'host_tool' },
+    opts = {
+      collapse_tools = false,
+      ignore_system_prompt = true,
+      ignore_tool_system_prompt = true,
+    },
+  }
+
+  Extension.setup()
+
+  local group = config.interactions.chat.tools.groups.reasoning
+  eq(group.description, 'Custom reasoning label')
+  eq(group.tools, names)
+  eq(group.system_prompt:find('<structured_reasoning>', 1, true) ~= nil, true)
+  eq(group.opts, { collapse_tools = false })
+end
+
 T['auto-attaches the group once'] = function()
   Extension.setup({ auto_attach = true })
   Extension.setup({ auto_attach = true })

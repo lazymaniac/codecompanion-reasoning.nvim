@@ -26,6 +26,53 @@ local descriptions = {
   reasoning_synthesis = 'Record a checkpoint or gated final synthesis',
 }
 
+local function tool_registration(name, existing)
+  local registration = {
+    path = paths[name],
+    description = descriptions[name],
+  }
+  if type(existing) ~= 'table' then
+    return registration
+  end
+  if type(existing.description) == 'string' then
+    registration.description = existing.description
+  end
+  if type(existing.visible) == 'boolean' then
+    registration.visible = existing.visible
+  end
+  if type(existing.opts) == 'table' then
+    local approval_options = {}
+    for _, key in ipairs({ 'require_approval_before', 'allowed_in_yolo_mode', 'judge_in_yolo_mode' }) do
+      if existing.opts[key] ~= nil then
+        approval_options[key] = vim.deepcopy(existing.opts[key])
+      end
+    end
+    if next(approval_options) then
+      registration.opts = approval_options
+    end
+  end
+  return registration
+end
+
+local function group_registration(system_prompt, existing)
+  local group = {
+    description = 'Guided reasoning for difficult analysis, diagnosis, design, decision, and planning problems',
+    system_prompt = system_prompt,
+    tools = vim.deepcopy(tool_names),
+    opts = { collapse_tools = true },
+  }
+  if type(existing) ~= 'table' then
+    return group
+  end
+  if type(existing.description) == 'string' then
+    group.description = existing.description
+  end
+  if type(existing.opts) == 'table' and type(existing.opts.collapse_tools) == 'boolean' then
+    group.opts.collapse_tools = existing.opts.collapse_tools
+  end
+  return group
+end
+
 function M.setup(user_options)
   local options = Config.setup(user_options)
   local tools = require('codecompanion.config').interactions.chat.tools
@@ -33,10 +80,7 @@ function M.setup(user_options)
   tools.opts = tools.opts or {}
   tools.opts.default_tools = tools.opts.default_tools or {}
   for _, name in ipairs(tool_names) do
-    tools[name] = vim.tbl_deep_extend('force', {
-      path = paths[name],
-      description = descriptions[name],
-    }, tools[name] or {})
+    tools[name] = tool_registration(name, tools[name])
   end
   local system_prompt = string.format(
     [[<structured_reasoning>
@@ -55,15 +99,7 @@ The tools validate structure, references, ordering, and coverage. They do not es
 </structured_reasoning>]],
     options.default_depth
   )
-  local group = vim.tbl_deep_extend('force', {
-    description = 'Guided reasoning for difficult analysis, diagnosis, design, decision, and planning problems',
-    system_prompt = system_prompt,
-    tools = vim.deepcopy(tool_names),
-    opts = { collapse_tools = true },
-  }, tools.groups.reasoning or {})
-  group.system_prompt = system_prompt
-  group.tools = vim.deepcopy(tool_names)
-  tools.groups.reasoning = group
+  tools.groups.reasoning = group_registration(system_prompt, tools.groups.reasoning)
 
   local default_tools = tools.opts.default_tools
   if options.auto_attach then

@@ -389,6 +389,21 @@ function M.evidence(chat, args)
     table.insert(prepared, vim.deepcopy(item))
   end
 
+  for _, item in ipairs(prepared) do
+    for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
+      for _, id in ipairs(item[field]) do
+        if pending_supersessions[id] then
+          return failure(
+            'inactive_reference',
+            'evidence relation target is superseded by the same batch',
+            { id },
+            'Reference the replacement evidence artifact'
+          )
+        end
+      end
+    end
+  end
+
   if #workspace.artifact_order + #prepared > Config.get().limits.max_artifacts then
     return failure(
       'limit_exceeded',
@@ -571,7 +586,7 @@ function M.options(chat, args)
     State.supersede(workspace, replaced.id, branch.id)
     for _, id in ipairs(replaced.data.option_ids) do
       if State.find(workspace, id).status == 'active' then
-        State.supersede(workspace, id, branch.id)
+        State.retire(workspace, id)
       end
     end
   end
@@ -626,9 +641,6 @@ local function collect_perspectives(workspace, artifact, perspectives, visited)
     return
   end
   if artifact.kind == 'frame' then
-    for _, perspective in ipairs(artifact.data.perspectives or {}) do
-      perspectives[normalized(perspective.name)] = true
-    end
     return
   end
   local reference_ids = {}
@@ -637,9 +649,14 @@ local function collect_perspectives(workspace, artifact, perspectives, visited)
   elseif artifact.kind == 'branch' then
     reference_ids = artifact.data.option_ids or {}
   elseif artifact.kind == 'synthesis' then
+    vim.list_extend(reference_ids, artifact.data.selected_option_ids or {})
+    vim.list_extend(reference_ids, artifact.data.support_ids or {})
+    vim.list_extend(reference_ids, artifact.data.review_ids or {})
     for _, result in ipairs(artifact.data.criterion_results or {}) do
       vim.list_extend(reference_ids, result.evidence_ids or {})
     end
+  elseif artifact.kind == 'review' then
+    reference_ids = artifact.relations.supports or {}
   end
   for _, id in ipairs(reference_ids) do
     collect_perspectives(workspace, State.find(workspace, id), perspectives, visited)

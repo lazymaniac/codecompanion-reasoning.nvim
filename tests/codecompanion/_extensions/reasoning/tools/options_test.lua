@@ -133,7 +133,9 @@ T['replaces a complete branch set'] = function()
   eq(State.find(State.get(chat), 'B1').status, 'superseded')
   eq(State.find(State.get(chat), 'O1').status, 'superseded')
   eq(State.find(State.get(chat), 'O2').status, 'superseded')
-  eq(State.find(State.get(chat), 'B2').relations.supersedes, { 'B1', 'O1', 'O2' })
+  eq(State.find(State.get(chat), 'B2').relations.supersedes, { 'B1' })
+  eq(State.find(State.get(chat), 'O1').relations.supersedes, {})
+  eq(State.find(State.get(chat), 'O2').relations.supersedes, {})
 end
 
 T['requires explicit supersession when a branch set is active'] = function()

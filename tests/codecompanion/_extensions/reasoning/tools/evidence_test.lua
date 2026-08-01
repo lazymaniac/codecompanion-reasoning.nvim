@@ -179,6 +179,27 @@ T['rejects duplicate statements and supersession targets inside one batch'] = fu
   eq(State.get(chat).counts_by_kind.evidence, 1)
 end
 
+T['rejects relations to evidence superseded by the same batch atomically'] = function()
+  for _, replacement_first in ipairs({ false, true }) do
+    local chat = framed_chat()
+    Evidence.cmds[1]({ chat = chat }, { items = { evidence_item() } }, {})
+
+    local dependent = evidence_item('operations')
+    dependent.statement = 'A dependent statement'
+    dependent.supports = { 'E1' }
+    local replacement = evidence_item()
+    replacement.supersedes_id = 'E1'
+    local items = replacement_first and { replacement, dependent } or { dependent, replacement }
+
+    local result = Evidence.cmds[1]({ chat = chat }, { items = items }, {})
+    eq(result.status, 'error')
+    eq(result.data.code, 'inactive_reference')
+    eq(result.data.artifact_ids, { 'E1' })
+    eq(State.find(State.get(chat), 'E1').status, 'active')
+    eq(State.get(chat).counts_by_kind.evidence, 1)
+  end
+end
+
 T['requires explicit assumption and observation sources'] = function()
   local chat = framed_chat()
   local assumption = evidence_item()
