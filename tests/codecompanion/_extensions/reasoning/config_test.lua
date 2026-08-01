@@ -1,6 +1,15 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 
-local T = MiniTest.new_set()
+local T = MiniTest.new_set({
+  hooks = {
+    pre_case = function()
+      Config.setup()
+    end,
+    post_case = function()
+      Config.setup()
+    end,
+  },
+})
 local eq = MiniTest.expect.equality
 
 T['uses deep, bounded defaults'] = function()
@@ -38,6 +47,21 @@ T['rejects unknown options'] = function()
   MiniTest.expect.error(function()
     Config.setup({ limits = { max_nodes = 10 } })
   end, 'unknown limit')
+end
+
+T['resets custom options when setup receives no overrides'] = function()
+  Config.setup({ default_depth = 'standard', limits = { max_artifacts = 12 } })
+  local reset = Config.setup()
+  eq(reset.default_depth, 'deep')
+  eq(reset.limits.max_artifacts, 192)
+end
+
+T['keeps the previous valid configuration after a rejected update'] = function()
+  Config.setup({ default_depth = 'standard' })
+  MiniTest.expect.error(function()
+    Config.setup({ default_depth = 'extreme' })
+  end, 'default_depth')
+  eq(Config.get().default_depth, 'standard')
 end
 
 return T

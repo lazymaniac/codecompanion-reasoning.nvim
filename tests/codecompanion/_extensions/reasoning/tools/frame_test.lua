@@ -156,4 +156,9 @@ T['replace starts a fresh sequenced workspace'] = function()
   eq(result.data.artifact.id, 'F1')
 end
 
+T['keeps runtime configuration out of the cached depth schema'] = function()
+  local description = Frame.schema['function'].parameters.properties.depth.description
+  eq(description, 'Explicit protocol depth; the reasoning group prompt states the configured default.')
+end
+
 return T

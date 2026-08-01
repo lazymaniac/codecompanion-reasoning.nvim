@@ -1,3 +1,4 @@
+local Output = require('codecompanion._extensions.reasoning.output')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 
 return {
@@ -7,6 +8,7 @@ return {
       return Protocol.call('evidence', tools.chat, args)
     end,
   },
+  output = Output.handlers,
   schema = {
     type = 'function',
     ['function'] = {

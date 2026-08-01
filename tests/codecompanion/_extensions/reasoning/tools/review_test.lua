@@ -459,6 +459,10 @@ T['exposes minimum review cardinality in the strict schema'] = function()
   local properties = Review.schema['function'].parameters.properties
   eq(properties.target_ids.minItems, 1)
   eq(properties.challenges.minItems, 1)
+  eq(
+    properties.target_ids.description,
+    'Distinct active artifacts; challenges must collectively cover them and verdicts must cover each exactly once.'
+  )
 end
 
 return T

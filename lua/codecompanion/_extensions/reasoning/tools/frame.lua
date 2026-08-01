@@ -1,4 +1,4 @@
-local Config = require('codecompanion._extensions.reasoning.config')
+local Output = require('codecompanion._extensions.reasoning.output')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 
 return {
@@ -8,6 +8,7 @@ return {
       return Protocol.call('frame', tools.chat, args)
     end,
   },
+  output = Output.handlers,
   schema = {
     type = 'function',
     ['function'] = {
@@ -30,10 +31,7 @@ return {
           depth = {
             type = 'string',
             enum = { 'standard', 'deep' },
-            description = string.format(
-              'Protocol depth; configured guidance is %s, and this field remains required.',
-              Config.get().default_depth
-            ),
+            description = 'Explicit protocol depth; the reasoning group prompt states the configured default.',
           },
           constraints = { type = 'array', items = { type = 'string' } },
           success_criteria = { type = 'array', items = { type = 'string' } },

@@ -1,3 +1,4 @@
+local Output = require('codecompanion._extensions.reasoning.output')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 
 local string_array = { type = 'array', items = { type = 'string' } }
@@ -9,6 +10,7 @@ return {
       return Protocol.call('options', tools.chat, args)
     end,
   },
+  output = Output.handlers,
   schema = {
     type = 'function',
     ['function'] = {
@@ -41,9 +43,15 @@ return {
               properties = {
                 label = { type = 'string' },
                 summary = { type = 'string' },
-                evidence_ids = string_array,
+                evidence_ids = vim.tbl_extend('force', vim.deepcopy(string_array), {
+                  minItems = 1,
+                  description = 'One or more active E artifacts that ground this alternative.',
+                }),
                 assumptions = string_array,
-                predictions = string_array,
+                predictions = vim.tbl_extend('force', vim.deepcopy(string_array), {
+                  minItems = 1,
+                  description = 'At least one observable result expected if this alternative is correct.',
+                }),
                 benefits = string_array,
                 costs = string_array,
                 risks = string_array,

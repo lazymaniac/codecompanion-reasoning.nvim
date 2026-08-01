@@ -145,18 +145,30 @@ T['requires explicit supersession when a branch set is active'] = function()
   eq(State.get(chat).counts_by_kind.branch, 1)
 end
 
-T['accepts intentional empty option analysis arrays'] = function()
+T['allows optional analysis arrays but requires evidence and predictions'] = function()
   local chat = prepared_chat()
   local args = valid_args()
   for _, option in ipairs(args.options) do
-    option.evidence_ids = {}
     option.assumptions = {}
-    option.predictions = {}
     option.benefits = {}
     option.costs = {}
     option.risks = {}
   end
   eq(Options.cmds[1]({ chat = chat }, args, {}).status, 'success')
+
+  local no_evidence = valid_args()
+  no_evidence.options[1].evidence_ids = {}
+  local evidence_chat = prepared_chat()
+  local missing_evidence = Options.cmds[1]({ chat = evidence_chat }, no_evidence, {})
+  eq(missing_evidence.data.code, 'options_invalid')
+  eq(State.get(evidence_chat).counts_by_kind.branch, nil)
+
+  local no_prediction = valid_args()
+  no_prediction.options[1].predictions = {}
+  local prediction_chat = prepared_chat()
+  local missing_prediction = Options.cmds[1]({ chat = prediction_chat }, no_prediction, {})
+  eq(missing_prediction.data.code, 'options_invalid')
+  eq(State.get(prediction_chat).counts_by_kind.branch, nil)
 end
 
 T['rejects invalid criteria and reversibility atomically'] = function()
@@ -262,6 +274,9 @@ T['exposes branch cardinality in the strict schema'] = function()
   local properties = Options.schema['function'].parameters.properties
   eq({ properties.criteria.minItems, properties.criteria.maxItems }, { 1, 8 })
   eq({ properties.options.minItems, properties.options.maxItems }, { 2, 6 })
+  local option = properties.options.items.properties
+  eq(option.evidence_ids.minItems, 1)
+  eq(option.predictions.minItems, 1)
 end
 
 return T

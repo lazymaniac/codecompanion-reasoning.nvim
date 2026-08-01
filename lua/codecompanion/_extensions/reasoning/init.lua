@@ -1,132 +1,91 @@
----@class CodeCompanion.Extension.Reasoning
-local ReasoningExtension = {}
-
 local Config = require('codecompanion._extensions.reasoning.config')
-local ToolCatalog = require('codecompanion._extensions.reasoning.helpers.tool_catalog')
 
-local function register_tools()
-  local tools = {
-    'ask_user',
-    'chain_of_thoughts_agent',
-    'tree_of_thoughts_agent',
-    'graph_of_thoughts_agent',
-    'meta_agent',
-    'add_tools',
-    'list_files',
-    'project_knowledge',
-    'initialize_project_knowledge',
-    'reflect_on_progress',
-  }
-
-  local registered_tools = {}
-
-  for _, tool_name in ipairs(tools) do
-    local ok, tool = pcall(require, string.format('codecompanion._extensions.reasoning.tools.%s', tool_name))
-    if ok then
-      registered_tools[tool_name] = tool
-    else
-      vim.notify(string.format('Failed to load reasoning tool: %s', tool_name), vim.log.levels.WARN)
-    end
-  end
-
-  return registered_tools
-end
-
-function ReasoningExtension.setup(opts)
-  local merged_opts = Config.setup(opts)
-
-  local reasoning_tools = register_tools()
-
-  -- Initialize chat hooks for auto-save functionality
-  local chat_hooks_ok, chat_hooks = pcall(require, 'codecompanion._extensions.reasoning.helpers.chat_hooks')
-  if chat_hooks_ok then
-    chat_hooks.setup()
-  end
-
-  -- Initialize session manager with configuration
-  local session_manager_ok, session_manager =
-    pcall(require, 'codecompanion._extensions.reasoning.helpers.session_manager')
-  if session_manager_ok and merged_opts.chat_history then
-    session_manager.setup()
-  end
-
-  -- Setup user commands if enabled
-  local commands_ok, commands = pcall(require, 'codecompanion._extensions.reasoning.commands')
-  if commands_ok then
-    commands.setup()
-  end
-
-  local config_ok, config = pcall(require, 'codecompanion.config')
-  if not config_ok then
-    return {
-      tools = reasoning_tools,
-    }
-  end
-
-  -- System prompt: provide a function value for CodeCompanion to call.
-  -- This keeps the prompt source in one place (helpers/system_prompt.lua)
-  -- and appends dynamic context (tools catalog, project knowledge) if present.
-  local sp_ok, SystemPrompt = pcall(require, 'codecompanion._extensions.reasoning.helpers.system_prompt')
-  if sp_ok and SystemPrompt and type(SystemPrompt.get) == 'function' then
-    local prompt_fn = function()
-      local sections = { SystemPrompt.get() }
-
-      local ok_tools, catalog = pcall(ToolCatalog.build_available_tools_markdown)
-      if ok_tools and catalog and catalog ~= '' then
-        table.insert(sections, '---\n AVAILABLE TOOLS\n' .. catalog)
-      end
-
-      local root = vim.fn.getcwd()
-      local knowledge_path = root .. '/.codecompanion/project-knowledge.md'
-      if vim.fn.filereadable(knowledge_path) == 1 then
-        local ok, content = pcall(function()
-          local f = io.open(knowledge_path, 'r')
-          if not f then
-            return nil
-          end
-          local c = f:read('*all')
-          f:close()
-          return c
-        end)
-        if ok and content and content ~= '' then
-          table.insert(sections, '---\n PROJECT CONTEXT\n' .. content)
-        end
-      end
-
-      return table.concat(sections, '\n\n')
-    end
-    config.opts = config.opts or {}
-    config.strategies.chat.opts = config.strategies.chat.opts or {}
-    config.strategies.chat.opts.system_prompt = prompt_fn
-    if
-      config.strategies.chat.tools
-      and config.strategies.chat.tools.opts
-      and config.strategies.chat.tools.opts.system_prompt
-    then
-      config.strategies.chat.tools.opts.system_prompt.enabled = false
-    end
-  end
-
-  for name, tool in pairs(reasoning_tools) do
-    local tool_entry = {
-      id = 'reasoning:' .. name,
-      description = tool.schema['function'].description,
-      callback = tool,
-    }
-
-    config.strategies.chat.tools[name] = tool_entry
-  end
-
-  return {
-    tools = reasoning_tools,
-    config = config,
-    options = merged_opts,
-  }
-end
-
--- Export the tools for direct access if needed
-ReasoningExtension.exports = {
-  get_tools = register_tools,
+local M = {}
+local owned_default_tools = setmetatable({}, { __mode = 'k' })
+local tool_names = {
+  'reasoning_frame',
+  'reasoning_evidence',
+  'reasoning_options',
+  'reasoning_review',
+  'reasoning_synthesis',
 }
 
-return ReasoningExtension
+local paths = {
+  reasoning_frame = '_extensions.reasoning.tools.frame',
+  reasoning_evidence = '_extensions.reasoning.tools.evidence',
+  reasoning_options = '_extensions.reasoning.tools.options',
+  reasoning_review = '_extensions.reasoning.tools.review',
+  reasoning_synthesis = '_extensions.reasoning.tools.synthesis',
+}
+
+local descriptions = {
+  reasoning_frame = 'Frame a difficult problem before developing conclusions',
+  reasoning_evidence = 'Record sourced and falsifiable evidence or assumptions',
+  reasoning_options = 'Create competing solutions, hypotheses, or scenarios',
+  reasoning_review = 'Adversarially challenge and revise reasoning artifacts',
+  reasoning_synthesis = 'Record a checkpoint or gated final synthesis',
+}
+
+function M.setup(user_options)
+  local options = Config.setup(user_options)
+  local tools = require('codecompanion.config').interactions.chat.tools
+  tools.groups = tools.groups or {}
+  tools.opts = tools.opts or {}
+  tools.opts.default_tools = tools.opts.default_tools or {}
+  for _, name in ipairs(tool_names) do
+    tools[name] = vim.tbl_deep_extend('force', {
+      path = paths[name],
+      description = descriptions[name],
+    }, tools[name] or {})
+  end
+  local system_prompt = string.format(
+    [[<structured_reasoning>
+Use this protocol for difficult problems. Routine requests do not need the group.
+Treat each result's next_action.tool as the protocol state transition.
+Call exactly one reasoning tool at a time; never batch reasoning calls.
+Satisfy next_action.reason before making the next call. Never repeat unchanged rejected arguments.
+1. Start with reasoning_frame. Use %s depth unless the problem warrants another explicit depth.
+2. Record decision-relevant observations, claims, and labelled assumptions with reasoning_evidence. Every item needs a concrete source and an observable result that would falsify or materially revise it. Link evidence to exact framed unknowns when it addresses them.
+3. For decisions, diagnoses, designs, and plans, use reasoning_options to maintain genuinely competing solutions, hypotheses, or scenarios. Do not select an option in the same call that invents it.
+4. Use reasoning_review to defend the strongest case, attack it, expose hidden assumptions and blind spots, and record corrections. Use temporal stress tests when the frame requires reasoning across transitions. Resolve contradictions only with an explicit, supported qualification record.
+5. A submitted final synthesis must clear every structural gate. Checkpoint mode is optional; use it when a compact progress record or a gate preview would help.
+After every accepted or rejected call, follow its one non-terminal next_action.tool unless new user information changes the frame. If next_action.tool is none, stop calling reasoning tools and return the accepted conclusion to the user; never call a tool named none.
+Keep artifacts concise and externally inspectable. Never record or reveal private chain-of-thought.
+The tools validate structure, references, ordering, and coverage. They do not establish factual truth, guarantee independent perspectives, or replace external verification.
+</structured_reasoning>]],
+    options.default_depth
+  )
+  local group = vim.tbl_deep_extend('force', {
+    description = 'Guided reasoning for difficult analysis, diagnosis, design, decision, and planning problems',
+    system_prompt = system_prompt,
+    tools = vim.deepcopy(tool_names),
+    opts = { collapse_tools = true },
+  }, tools.groups.reasoning or {})
+  group.system_prompt = system_prompt
+  group.tools = vim.deepcopy(tool_names)
+  tools.groups.reasoning = group
+
+  local default_tools = tools.opts.default_tools
+  if options.auto_attach then
+    if not vim.tbl_contains(default_tools, 'reasoning') then
+      table.insert(default_tools, 'reasoning')
+      owned_default_tools[default_tools] = true
+    end
+  elseif owned_default_tools[default_tools] then
+    for index = #default_tools, 1, -1 do
+      if default_tools[index] == 'reasoning' then
+        table.remove(default_tools, index)
+        break
+      end
+    end
+    owned_default_tools[default_tools] = nil
+  end
+end
+
+M.exports = {
+  tool_names = function()
+    return vim.deepcopy(tool_names)
+  end,
+}
+
+return M

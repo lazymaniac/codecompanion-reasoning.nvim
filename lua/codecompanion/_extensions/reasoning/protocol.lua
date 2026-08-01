@@ -1,6 +1,7 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local State = require('codecompanion._extensions.reasoning.state')
+local Terminal = require('codecompanion._extensions.reasoning.terminal')
 local log = require('codecompanion.utils.log')
 
 local M = {}
@@ -505,9 +506,9 @@ function M.options(chat, args)
       type(option) ~= 'table'
       or not text_valid(option.label)
       or not text_valid(option.summary)
-      or not text_array_valid(option.evidence_ids)
+      or not text_array_valid(option.evidence_ids, 1)
       or not text_array_valid(option.assumptions)
-      or not text_array_valid(option.predictions)
+      or not text_array_valid(option.predictions, 1)
       or not text_array_valid(option.benefits)
       or not text_array_valid(option.costs)
       or not text_array_valid(option.risks)
@@ -1639,6 +1640,25 @@ M.success = success
 M.text_valid = text_valid
 M.bounded_array = bounded_array
 
+local function accepted_final(workspace)
+  if not workspace then
+    return nil
+  end
+  local latest_id = workspace.artifact_order[#workspace.artifact_order]
+  local latest = latest_id and State.find(workspace, latest_id) or nil
+  if
+    not latest
+    or latest.status ~= 'active'
+    or latest.kind ~= 'synthesis'
+    or latest.data.mode ~= 'final'
+    or latest.data.frame_id ~= workspace.frame_id
+  then
+    return nil
+  end
+  local gates = M.final_gates(workspace, latest.data)
+  return #gates == 0 and latest or nil
+end
+
 function M.call(operation, chat, args)
   local tools_by_operation = {
     frame = 'reasoning_frame',
@@ -1647,6 +1667,23 @@ function M.call(operation, chat, args)
     review = 'reasoning_review',
     synthesis = 'reasoning_synthesis',
   }
+  local explicit_reframe = operation == 'frame'
+    and type(args) == 'table'
+    and vim.tbl_contains({ 'revise', 'replace' }, args.action)
+  if not explicit_reframe then
+    local final = accepted_final(State.get(chat))
+    if final then
+      return failure(
+        'workspace_finalized',
+        'the accepted final synthesis is terminal until the frame is explicitly revised or replaced',
+        { final.id },
+        {
+          tool = 'none',
+          reason = 'Return the accepted conclusion; revise or replace the frame only for new user information',
+        }
+      )
+    end
+  end
   local handler = M[operation]
   if type(handler) ~= 'function' then
     log:error('[reasoning] unknown protocol operation: %s', tostring(operation))
@@ -1664,6 +1701,9 @@ function M.call(operation, chat, args)
       tool = tools_by_operation[operation],
       reason = 'Correct the call or report the plugin error',
     })
+  end
+  if explicit_reframe and result.status == 'success' then
+    Terminal.clear(chat)
   end
   if result.status == 'error' and type(result.data.next_action) == 'string' then
     local tools_by_code = {

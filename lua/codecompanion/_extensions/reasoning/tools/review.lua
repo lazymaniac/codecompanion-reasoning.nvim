@@ -1,3 +1,4 @@
+local Output = require('codecompanion._extensions.reasoning.output')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 
 local string_array = { type = 'array', items = { type = 'string' } }
@@ -9,6 +10,7 @@ return {
       return Protocol.call('review', tools.chat, args)
     end,
   },
+  output = Output.handlers,
   schema = {
     type = 'function',
     ['function'] = {
@@ -24,7 +26,7 @@ return {
           },
           target_ids = vim.tbl_extend('force', vim.deepcopy(string_array), {
             minItems = 1,
-            description = 'Distinct active artifact IDs that every challenge and verdict must cover.',
+            description = 'Distinct active artifacts; challenges must collectively cover them and verdicts must cover each exactly once.',
           }),
           defense = {
             type = 'object',

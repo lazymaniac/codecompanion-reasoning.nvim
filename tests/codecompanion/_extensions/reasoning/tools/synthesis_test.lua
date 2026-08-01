@@ -222,7 +222,10 @@ local function deep_workspace(opts)
     )
   end
   if not opts.no_branches then
-    eq(add_options(chat, not opts.unsupported_option).status, 'success')
+    eq(add_options(chat, true).status, 'success')
+    if opts.unsupported_option then
+      State.find(State.get(chat), 'O1').data.evidence_ids = {}
+    end
   end
   if not opts.no_review and not opts.no_branches then
     eq(add_review(chat, opts.open_revision).status, 'success')
@@ -658,6 +661,77 @@ T['checkpoint replacement resolves multiple synthesis revisions deterministicall
   eq(result.data.artifact.relations.supersedes, { 'S1', 'S2' })
   eq(State.find(State.get(chat), 'S1').status, 'superseded')
   eq(State.find(State.get(chat), 'S2').status, 'superseded')
+end
+
+T['rejects duplicate synthesis after an unchanged accepted final'] = function()
+  local chat = deep_workspace()
+  local accepted = Synthesis.cmds[1]({ chat = chat }, final_args(), {})
+  eq(accepted.status, 'success')
+  eq(accepted.data.next_action.tool, 'none')
+
+  local duplicate = Synthesis.cmds[1]({ chat = chat }, final_args(), {})
+  eq(duplicate.status, 'error')
+  eq(duplicate.data.code, 'workspace_finalized')
+  eq(duplicate.data.artifact_ids, { 'S1' })
+  eq(duplicate.data.next_action.tool, 'none')
+  eq(State.get(chat).counts_by_kind.synthesis, 1)
+end
+
+T['blocks every non-reframing tool after an accepted final'] = function()
+  local chat = deep_workspace()
+  eq(Synthesis.cmds[1]({ chat = chat }, final_args(), {}).status, 'success')
+
+  for _, case in ipairs({
+    { tool = Frame, args = { action = 'start' } },
+    { tool = Evidence, args = {} },
+    { tool = Options, args = {} },
+    { tool = Review, args = {} },
+    { tool = Synthesis, args = final_args() },
+  }) do
+    local result = case.tool.cmds[1]({ chat = chat }, case.args, {})
+    eq(result.status, 'error')
+    eq(result.data.code, 'workspace_finalized')
+    eq(result.data.artifact_ids, { 'S1' })
+    eq(result.data.next_action.tool, 'none')
+  end
+  eq(State.get(chat).counts_by_kind.synthesis, 1)
+end
+
+T['requires explicit frame revision or replacement to reopen a final'] = function()
+  for _, action in ipairs({ 'revise', 'replace' }) do
+    local chat = deep_workspace()
+    eq(Synthesis.cmds[1]({ chat = chat }, final_args(), {}).status, 'success')
+    local result = Frame.cmds[1]({ chat = chat }, {
+      action = action,
+      objective = 'Reconsider the durable cache after new user evidence',
+      problem_type = 'design',
+      depth = 'deep',
+      constraints = { 'No external service' },
+      success_criteria = { 'Survives process restart', 'Bounded memory' },
+      unknowns = { 'Whether the new evidence changes recovery behavior' },
+      perspectives = {
+        { name = 'correctness', purpose = 'Re-evaluate recovery failures' },
+        { name = 'operations', purpose = 'Re-evaluate lifecycle failures' },
+      },
+      temporal_required = false,
+      branching_required = true,
+      branching_rationale = 'New evidence may change the competing designs',
+    }, {})
+    eq(result.status, 'success')
+    eq(result.data.artifact.kind, 'frame')
+
+    local evidence = add_evidence(chat, 'New recovery evidence is available', 'correctness')
+    eq(evidence.status, 'success')
+  end
+end
+
+T['describes exact final references in the strict schema'] = function()
+  local properties = Synthesis.schema['function'].parameters.properties
+  eq(type(properties.selected_option_ids.description), 'string')
+  eq(type(properties.support_ids.description), 'string')
+  eq(type(properties.review_ids.description), 'string')
+  eq(type(properties.criterion_results.description), 'string')
+  eq(type(properties.criterion_results.items.properties.evidence_ids.description), 'string')
 end
 
 return T
