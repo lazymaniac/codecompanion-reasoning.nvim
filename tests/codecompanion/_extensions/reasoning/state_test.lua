@@ -32,11 +32,18 @@ T['tracks supersession and retraction'] = function()
   local workspace = State.begin({})
   local old = State.add(workspace, 'evidence', {})
   local replacement = State.add(workspace, 'evidence', {})
+  workspace.open_revisions[old.id] = 'R1'
   State.supersede(workspace, old.id, replacement.id)
   eq(old.status, 'superseded')
   eq(replacement.relations.supersedes[1], old.id)
+  eq(workspace.resolved_revisions.R1[old.id], {
+    resolution = 'superseded',
+    replacement_id = replacement.id,
+  })
+  workspace.open_revisions[replacement.id] = 'R2'
   State.retract(workspace, replacement.id)
   eq(replacement.status, 'retracted')
+  eq(workspace.resolved_revisions.R2[replacement.id], { resolution = 'retracted' })
 end
 
 T['retires a replaced aggregate member without a cross-kind relation'] = function()
@@ -47,6 +54,7 @@ T['retires a replaced aggregate member without a cross-kind relation'] = functio
   eq(option.status, 'superseded')
   eq(option.relations.supersedes, {})
   eq(workspace.open_revisions[option.id], nil)
+  eq(workspace.resolved_revisions.R1[option.id], { resolution = 'retired' })
 end
 
 T['rejects artifacts beyond the configured limit'] = function()

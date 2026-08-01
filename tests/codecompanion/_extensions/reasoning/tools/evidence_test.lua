@@ -90,6 +90,40 @@ T['records evidence and typed relations with stable IDs'] = function()
   eq(State.find(State.get(chat), 'E2').relations.qualifies, { 'E1' })
 end
 
+T['allows later evidence to reference earlier items in the same atomic batch'] = function()
+  local chat = framed_chat()
+  local first = evidence_item()
+  local second = evidence_item('operations')
+  second.statement = 'A journal survives process restart'
+  second.source = 'tests/recovery_spec.lua:28'
+  second.supports = { 'E1' }
+  second.contradicts = { 'E1' }
+  second.qualifies = { 'E1' }
+  local result = Evidence.cmds[1]({ chat = chat }, { items = { first, second } }, {})
+  eq(result.status, 'success')
+  eq({ result.data.artifacts[1].id, result.data.artifacts[2].id }, { 'E1', 'E2' })
+  eq(State.find(State.get(chat), 'E2').relations.supports, { 'E1' })
+  eq(State.find(State.get(chat), 'E2').relations.contradicts, { 'E1' })
+  eq(State.find(State.get(chat), 'E2').relations.qualifies, { 'E1' })
+end
+
+T['rejects self or forward references inside an evidence batch atomically'] = function()
+  local chat = framed_chat()
+  local first = evidence_item()
+  first.supports = { 'E2' }
+  local second = evidence_item('operations')
+  second.statement = 'A journal survives process restart'
+  second.source = 'tests/recovery_spec.lua:28'
+  local result = Evidence.cmds[1]({ chat = chat }, { items = { first, second } }, {})
+  eq(result.data.code, 'invalid_reference')
+  eq(State.get(chat).counts_by_kind.evidence, nil)
+
+  first.supports = { 'E1' }
+  result = Evidence.cmds[1]({ chat = chat }, { items = { first, second } }, {})
+  eq(result.data.code, 'invalid_reference')
+  eq(State.get(chat).counts_by_kind.evidence, nil)
+end
+
 T['rejects an unknown perspective without a partial write'] = function()
   local chat = framed_chat()
   local first = evidence_item('missing')

@@ -20,8 +20,23 @@ local function new_workspace(sequence)
     counts_by_kind = {},
     next_sequence = {},
     open_revisions = {},
+    resolved_revisions = {},
     resolved_contradictions = {},
   }
+end
+
+local function resolve_revision(workspace, target_id, resolution, replacement_id)
+  local review_id = workspace.open_revisions[target_id]
+  if not review_id then
+    return
+  end
+  workspace.resolved_revisions[review_id] = workspace.resolved_revisions[review_id] or {}
+  local record = { resolution = resolution }
+  if replacement_id then
+    record.replacement_id = replacement_id
+  end
+  workspace.resolved_revisions[review_id][target_id] = record
+  workspace.open_revisions[target_id] = nil
 end
 
 function M.begin(chat, replace)
@@ -86,21 +101,21 @@ function M.supersede(workspace, old_id, replacement_id)
   assert(old and replacement, 'supersession artifacts must exist')
   old.status = 'superseded'
   M.add_relation(replacement, 'supersedes', old_id)
-  workspace.open_revisions[old_id] = nil
+  resolve_revision(workspace, old_id, 'superseded', replacement_id)
 end
 
 function M.retract(workspace, id)
   local artifact = M.find(workspace, id)
   assert(artifact, 'retracted artifact must exist')
   artifact.status = 'retracted'
-  workspace.open_revisions[id] = nil
+  resolve_revision(workspace, id, 'retracted')
 end
 
 function M.retire(workspace, id)
   local artifact = M.find(workspace, id)
   assert(artifact, 'retired artifact must exist')
   artifact.status = 'superseded'
-  workspace.open_revisions[id] = nil
+  resolve_revision(workspace, id, 'retired')
 end
 
 function M._reset()
