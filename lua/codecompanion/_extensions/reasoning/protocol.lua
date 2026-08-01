@@ -1075,12 +1075,563 @@ function M.review(chat, args)
   return success(workspace, review)
 end
 
-function M.final_gates(workspace, synthesis)
-  local gates = {}
-  if not workspace or not workspace.frame_id then
-    table.insert(gates, 'frame_missing')
+local gate_order = {
+  'frame_missing',
+  'evidence_missing',
+  'perspective_coverage_missing',
+  'unknown_coverage_missing',
+  'branches_missing',
+  'selected_option_missing',
+  'selected_option_unsupported',
+  'support_inactive',
+  'review_missing',
+  'temporal_review_missing',
+  'full_review_missing',
+  'revision_unresolved',
+  'contradiction_unresolved',
+  'criterion_coverage_incomplete',
+  'criterion_not_verified',
+  'criterion_support_missing',
+}
+
+local function active_artifacts(workspace, kind)
+  local result = {}
+  for _, id in ipairs(workspace.artifact_order) do
+    local artifact = State.find(workspace, id)
+    if artifact.status == 'active' and (not kind or artifact.kind == kind) then
+      table.insert(result, artifact)
+    end
   end
-  return gates
+  return result
+end
+
+local function latest_active(workspace, kind, predicate)
+  for index = #workspace.artifact_order, 1, -1 do
+    local artifact = State.find(workspace, workspace.artifact_order[index])
+    if artifact.status == 'active' and artifact.kind == kind and (not predicate or predicate(artifact)) then
+      return artifact
+    end
+  end
+end
+
+local function contradiction_pairs(workspace)
+  local pairs_by_key = {}
+  for _, artifact in ipairs(active_artifacts(workspace)) do
+    for _, other_id in ipairs(artifact.relations.contradicts) do
+      local other = State.find(workspace, other_id)
+      if other and other.status == 'active' then
+        local key = contradiction_key(artifact.id, other_id)
+        pairs_by_key[key] = { artifact.id, other_id }
+      end
+    end
+  end
+  return pairs_by_key
+end
+
+local function id_set(values)
+  local result = {}
+  for _, value in ipairs(values or {}) do
+    result[value] = true
+  end
+  return result
+end
+
+local function synthesis_material(workspace, data)
+  local result = {}
+  for _, id in ipairs(data.selected_option_ids or {}) do
+    result[id] = true
+    local option = State.find(workspace, id)
+    for _, evidence_id in ipairs((option and option.data.evidence_ids) or {}) do
+      result[evidence_id] = true
+    end
+  end
+  for _, id in ipairs(data.support_ids or {}) do
+    result[id] = true
+  end
+  for _, criterion in ipairs(data.criterion_results or {}) do
+    for _, id in ipairs(criterion.evidence_ids or {}) do
+      result[id] = true
+    end
+  end
+  return result
+end
+
+local function review_support_active(workspace, review)
+  for _, id in ipairs(review.relations.supports or {}) do
+    local evidence = State.find(workspace, id)
+    if not evidence or evidence.status ~= 'active' or evidence.kind ~= 'evidence' then
+      return false
+    end
+  end
+  return true
+end
+
+function M.final_gates(workspace, synthesis)
+  local failed = {}
+  local blocker_set = {}
+  local function add(name, ids)
+    failed[name] = true
+    if type(ids) == 'string' then
+      blocker_set[ids] = true
+    else
+      for _, id in ipairs(ids or {}) do
+        blocker_set[id] = true
+      end
+    end
+  end
+
+  local frame = workspace and State.find(workspace, workspace.frame_id) or nil
+  if not frame or frame.status ~= 'active' then
+    add('frame_missing')
+  else
+    local evidence = active_artifacts(workspace, 'evidence')
+    if #evidence == 0 then
+      add('evidence_missing')
+    end
+
+    local selected_ids = synthesis and synthesis.selected_option_ids or {}
+    local support_ids = synthesis and synthesis.support_ids or {}
+    local review_ids = synthesis and synthesis.review_ids or {}
+    local criterion_results = synthesis and synthesis.criterion_results or {}
+    local relevant = id_set(selected_ids)
+    local review_eligible = id_set(selected_ids)
+    relevant[frame.id] = true
+    for _, id in ipairs(support_ids) do
+      relevant[id] = true
+      review_eligible[id] = true
+    end
+    for _, result in ipairs(criterion_results) do
+      for _, id in ipairs(result.evidence_ids or {}) do
+        relevant[id] = true
+        review_eligible[id] = true
+      end
+    end
+
+    local branch = latest_active(workspace, 'branch', function(artifact)
+      return artifact.data.frame_id == frame.id
+    end)
+    if frame.data.branching_required and not branch then
+      local stale = latest_active(workspace, 'branch')
+      add('branches_missing', stale and { stale.id } or {})
+    end
+    local branch_options = branch and id_set(branch.data.option_ids) or {}
+    if branch and (frame.data.branching_required or #selected_ids > 0) then
+      relevant[branch.id] = true
+    end
+    if frame.data.branching_required and #selected_ids == 0 then
+      add('selected_option_missing')
+    end
+    for _, id in ipairs(selected_ids) do
+      local option = State.find(workspace, id)
+      if not option or option.status ~= 'active' or option.kind ~= 'option' or not branch_options[id] then
+        add('selected_option_missing', { id })
+      else
+        local evidence_ids = option.data.evidence_ids or {}
+        local supported = #evidence_ids > 0
+        local option_blockers = { id }
+        for _, evidence_id in ipairs(evidence_ids) do
+          local artifact = State.find(workspace, evidence_id)
+          supported = supported and artifact ~= nil and artifact.status == 'active' and artifact.kind == 'evidence'
+          if not artifact or artifact.status ~= 'active' or artifact.kind ~= 'evidence' then
+            table.insert(option_blockers, evidence_id)
+          end
+          relevant[evidence_id] = true
+          review_eligible[evidence_id] = true
+        end
+        if not supported or #option.data.predictions == 0 then
+          add('selected_option_unsupported', option_blockers)
+        end
+      end
+    end
+    for _, id in ipairs(support_ids) do
+      local artifact = State.find(workspace, id)
+      if not artifact or artifact.status ~= 'active' or artifact.kind ~= 'evidence' then
+        add('support_inactive', { id })
+      end
+    end
+    if not synthesis then
+      if branch then
+        for _, option_id in ipairs(branch.data.option_ids or {}) do
+          local option = State.find(workspace, option_id)
+          if option and option.status == 'active' then
+            review_eligible[option_id] = true
+            for _, evidence_id in ipairs(option.data.evidence_ids or {}) do
+              local artifact = State.find(workspace, evidence_id)
+              if artifact and artifact.status == 'active' and artifact.kind == 'evidence' then
+                review_eligible[evidence_id] = true
+              end
+            end
+          end
+        end
+      else
+        for _, artifact in ipairs(evidence) do
+          review_eligible[artifact.id] = true
+        end
+      end
+    end
+
+    if frame.data.depth == 'deep' then
+      local covered = {}
+      for _, artifact in ipairs(evidence) do
+        if not synthesis or relevant[artifact.id] then
+          covered[normalized(artifact.data.perspective)] = true
+        end
+      end
+      if vim.tbl_count(covered) < 2 then
+        add('perspective_coverage_missing')
+      end
+    end
+
+    local unknowns = {}
+    for _, unknown in ipairs(frame.data.unknowns) do
+      unknowns[normalized(unknown)] = true
+    end
+    for _, artifact in ipairs(evidence) do
+      if not synthesis or relevant[artifact.id] then
+        for _, unknown in ipairs(artifact.data.addresses_unknowns or {}) do
+          unknowns[normalized(unknown)] = nil
+        end
+      end
+    end
+    if next(unknowns) ~= nil then
+      add('unknown_coverage_missing')
+    end
+
+    local pairs_by_key = contradiction_pairs(workspace)
+    local relevant_contradiction = false
+    for _, pair in pairs(pairs_by_key) do
+      relevant_contradiction = relevant_contradiction or not synthesis or relevant[pair[1]] or relevant[pair[2]]
+    end
+    local reviews = {}
+    local available_reviews = {}
+    local function review_current_and_sound(review)
+      return review.data.frame_id == frame.id and review_support_active(workspace, review)
+    end
+    for _, review in ipairs(active_artifacts(workspace, 'review')) do
+      if review_current_and_sound(review) then
+        table.insert(available_reviews, review)
+      end
+    end
+    if synthesis then
+      for _, id in ipairs(review_ids) do
+        local review = State.find(workspace, id)
+        if review and review.status == 'active' and review.kind == 'review' and review_current_and_sound(review) then
+          table.insert(reviews, review)
+        elseif review then
+          blocker_set[review.id] = true
+        end
+      end
+    else
+      for _, review in ipairs(available_reviews) do
+        table.insert(reviews, review)
+      end
+    end
+    local reviews_by_id = {}
+    for _, review in ipairs(reviews) do
+      reviews_by_id[review.id] = review
+    end
+    local checkpoint = latest_active(workspace, 'synthesis', function(artifact)
+      return artifact.data.frame_id == frame.id and artifact.data.mode == 'checkpoint'
+    end)
+    local checkpoint_covers = checkpoint ~= nil
+    local checkpoint_material = checkpoint and synthesis_material(workspace, checkpoint.data) or {}
+    for id in pairs(review_eligible) do
+      if not checkpoint_material[id] then
+        checkpoint_covers = false
+      end
+    end
+    if checkpoint_covers then
+      review_eligible[checkpoint.id] = true
+    end
+    local function review_relevant(review)
+      for _, id in ipairs(review.data.target_ids or {}) do
+        if review_eligible[id] then
+          return true
+        end
+      end
+      return false
+    end
+    local has_relevant_review = false
+    for _, review in ipairs(reviews) do
+      has_relevant_review = has_relevant_review or review_relevant(review)
+    end
+    if (branch or relevant_contradiction) and not has_relevant_review then
+      add('review_missing')
+      for _, review in ipairs(available_reviews) do
+        if review_relevant(review) then
+          blocker_set[review.id] = true
+        end
+      end
+    end
+    if frame.data.temporal_required then
+      local stress_tested = false
+      for _, review in ipairs(reviews) do
+        stress_tested = stress_tested or (#(review.data.stress_tests or {}) > 0 and review_relevant(review))
+      end
+      if not stress_tested then
+        add('temporal_review_missing')
+        for _, review in ipairs(available_reviews) do
+          if #(review.data.stress_tests or {}) > 0 and review_relevant(review) then
+            blocker_set[review.id] = true
+          end
+        end
+      end
+    end
+
+    if frame.data.depth == 'deep' then
+      if checkpoint_covers then
+        relevant[checkpoint.id] = true
+      end
+      local full_review = false
+      for _, review in ipairs(reviews) do
+        if review.data.mode == 'full' and review_relevant(review) then
+          full_review = true
+        end
+      end
+      if not full_review then
+        add('full_review_missing')
+        for _, review in ipairs(available_reviews) do
+          if review.data.mode == 'full' and review_relevant(review) then
+            blocker_set[review.id] = true
+          end
+        end
+      end
+    end
+
+    for id in pairs(workspace.open_revisions) do
+      if not synthesis or relevant[id] then
+        add('revision_unresolved', { id })
+      end
+    end
+    local function contradiction_resolution_valid(key)
+      local review = reviews_by_id[workspace.resolved_contradictions[key]]
+      if not review then
+        return false
+      end
+      for _, resolution in ipairs(review.data.contradiction_resolutions or {}) do
+        if contradiction_key(resolution.left_id, resolution.right_id) == key then
+          local evidence_valid = #(resolution.evidence_ids or {}) > 0
+          for _, id in ipairs(resolution.evidence_ids or {}) do
+            local artifact = State.find(workspace, id)
+            evidence_valid = evidence_valid
+              and artifact ~= nil
+              and artifact.status == 'active'
+              and artifact.kind == 'evidence'
+          end
+          if evidence_valid then
+            return true
+          end
+        end
+      end
+      return false
+    end
+    for key, pair in pairs(pairs_by_key) do
+      if (not synthesis or relevant[pair[1]] or relevant[pair[2]]) and not contradiction_resolution_valid(key) then
+        local ids = { pair[1], pair[2] }
+        local review_id = workspace.resolved_contradictions[key]
+        if review_id and not reviews_by_id[review_id] then
+          table.insert(ids, review_id)
+        end
+        add('contradiction_unresolved', ids)
+      end
+    end
+
+    local expected_criteria = {}
+    for _, criterion in ipairs(frame.data.success_criteria) do
+      expected_criteria[normalized(criterion)] = criterion
+    end
+    local observed_criteria = {}
+    for _, result in ipairs(criterion_results) do
+      local key = normalized(result.criterion)
+      if not expected_criteria[key] or observed_criteria[key] then
+        add('criterion_coverage_incomplete')
+      end
+      observed_criteria[key] = true
+      if result.status == 'failed' or result.status == 'pending' then
+        add('criterion_not_verified')
+      elseif result.status == 'not_applicable' and not text_valid(result.explanation) then
+        add('criterion_not_verified')
+      elseif result.status == 'passed' then
+        if #result.evidence_ids == 0 then
+          add('criterion_support_missing')
+        end
+        for _, id in ipairs(result.evidence_ids) do
+          local artifact = State.find(workspace, id)
+          if not artifact or artifact.status ~= 'active' or artifact.kind ~= 'evidence' then
+            add('criterion_support_missing', { id })
+          end
+        end
+      end
+    end
+    for key in pairs(expected_criteria) do
+      if not observed_criteria[key] then
+        add('criterion_coverage_incomplete')
+      end
+    end
+  end
+
+  local ordered = {}
+  for _, name in ipairs(gate_order) do
+    if failed[name] then
+      table.insert(ordered, name)
+    end
+  end
+  local blocker_ids = {}
+  for _, id in ipairs((workspace and workspace.artifact_order) or {}) do
+    if blocker_set[id] then
+      table.insert(blocker_ids, id)
+    end
+  end
+  return ordered, blocker_ids
+end
+
+local function synthesis_references_valid(workspace, ids, kind)
+  for _, id in ipairs(ids) do
+    local artifact, code = active_reference(workspace, id)
+    if code then
+      return nil, code, id
+    end
+    if artifact.kind ~= kind then
+      return nil, 'invalid_reference', id
+    end
+  end
+  return true
+end
+
+local function unique_strings(values, normalize_values)
+  local seen = {}
+  for _, value in ipairs(values) do
+    local key = normalize_values and normalized(value) or value
+    if seen[key] then
+      return false
+    end
+    seen[key] = true
+  end
+  return true
+end
+
+function M.synthesis(chat, args)
+  local workspace = State.get(chat)
+  if not workspace then
+    return failure('workspace_missing', 'start a frame before synthesis', {}, 'Call reasoning_frame')
+  end
+  if
+    type(args) ~= 'table'
+    or not vim.tbl_contains({ 'checkpoint', 'final' }, args.mode)
+    or not text_valid(args.conclusion)
+    or not text_array_valid(args.selected_option_ids)
+    or not text_array_valid(args.support_ids)
+    or not text_array_valid(args.review_ids)
+    or not unique_strings(args.selected_option_ids)
+    or not unique_strings(args.support_ids)
+    or not unique_strings(args.review_ids)
+    or not bounded_array(args.criterion_results, 0, Config.get().limits.max_array_items)
+    or not text_array_valid(args.tradeoffs)
+    or not unique_strings(args.tradeoffs, true)
+    or not text_array_valid(args.uncertainties)
+    or not unique_strings(args.uncertainties, true)
+    or not text_array_valid(args.blind_spots)
+    or not unique_strings(args.blind_spots, true)
+    or not text_array_valid(args.next_actions)
+    or not unique_strings(args.next_actions, true)
+    or not vim.tbl_contains({ 'low', 'medium', 'high' }, args.confidence)
+  then
+    return failure('synthesis_invalid', 'synthesis fields are invalid', {}, 'Correct reasoning_synthesis fields')
+  end
+  for index, result in ipairs(args.criterion_results) do
+    if
+      type(result) ~= 'table'
+      or not text_valid(result.criterion)
+      or not vim.tbl_contains({ 'passed', 'failed', 'pending', 'not_applicable' }, result.status)
+      or not text_array_valid(result.evidence_ids)
+      or not unique_strings(result.evidence_ids)
+      or not text_valid(result.explanation)
+    then
+      return failure(
+        'synthesis_invalid',
+        'criterion result ' .. index .. ' is invalid',
+        {},
+        'Correct criterion_results'
+      )
+    end
+  end
+  for _, reference in ipairs({
+    { args.selected_option_ids, 'option' },
+    { args.support_ids, 'evidence' },
+    { args.review_ids, 'review' },
+  }) do
+    local ok, code, id = synthesis_references_valid(workspace, reference[1], reference[2])
+    if not ok then
+      return failure(code, 'synthesis reference is unavailable', { id }, 'Use active typed artifact IDs')
+    end
+  end
+  for _, result in ipairs(args.criterion_results) do
+    local ok, code, id = synthesis_references_valid(workspace, result.evidence_ids, 'evidence')
+    if not ok then
+      return failure(code, 'criterion evidence is unavailable', { id }, 'Use active evidence IDs')
+    end
+  end
+
+  local gates, blocker_ids = M.final_gates(workspace, args)
+  if args.mode == 'final' and #gates > 0 then
+    local rejected = failure(
+      'synthesis_gate_failed',
+      'final synthesis is blocked by: ' .. table.concat(gates, ', '),
+      blocker_ids,
+      Guidance.next(workspace, args)
+    )
+    rejected.data.unmet_gates = gates
+    return rejected
+  end
+  if #workspace.artifact_order >= Config.get().limits.max_artifacts then
+    return failure('limit_exceeded', 'the synthesis exceeds the artifact limit', {}, 'Replace the workspace')
+  end
+
+  local synthesis_data = vim.deepcopy(args)
+  synthesis_data.frame_id = workspace.frame_id
+  local synthesis_artifact = assert(State.add(workspace, 'synthesis', synthesis_data))
+  State.add_relation(synthesis_artifact, 'depends_on', workspace.frame_id)
+  local recorded_support = {}
+  for _, id in ipairs(args.support_ids) do
+    if not recorded_support[id] then
+      State.add_relation(synthesis_artifact, 'supports', id)
+      recorded_support[id] = true
+    end
+  end
+  for _, result in ipairs(args.criterion_results) do
+    for _, id in ipairs(result.evidence_ids) do
+      if not recorded_support[id] then
+        State.add_relation(synthesis_artifact, 'supports', id)
+        recorded_support[id] = true
+      end
+    end
+  end
+  for _, id in ipairs(args.selected_option_ids) do
+    State.add_relation(synthesis_artifact, 'depends_on', id)
+  end
+  for _, id in ipairs(args.review_ids) do
+    State.add_relation(synthesis_artifact, 'depends_on', id)
+  end
+  local revised = {}
+  for _, target_id in ipairs(workspace.artifact_order) do
+    local target = State.find(workspace, target_id)
+    if workspace.open_revisions[target_id] and target and target.status == 'active' and target.kind == 'synthesis' then
+      table.insert(revised, target_id)
+    end
+  end
+  for _, target_id in ipairs(revised) do
+    State.supersede(workspace, target_id, synthesis_artifact.id)
+  end
+  return {
+    status = 'success',
+    data = {
+      workspace_id = workspace.id,
+      artifact = vim.deepcopy(synthesis_artifact),
+      progress = vim.deepcopy(workspace.counts_by_kind),
+      unmet_gates = args.mode == 'final' and {} or M.final_gates(workspace, args),
+      next_action = Guidance.next(workspace, args),
+    },
+  }
 end
 
 M.failure = failure
