@@ -103,18 +103,34 @@ function M.frame(chat, args)
       string.format('Provide perspectives and retry with action=%s', args.action)
     )
   end
+  if maximum_perspectives < minimum_perspectives then
+    return failure(
+      'limit_exceeded',
+      string.format(
+        'max_array_items=%d cannot satisfy the %s perspective minimum=%d',
+        maximum_perspectives,
+        args.depth,
+        minimum_perspectives
+      ),
+      {},
+      string.format('Use standard depth or configure max_array_items to at least %d', minimum_perspectives)
+    )
+  end
   local perspective_count = #args.perspectives
   if perspective_count < minimum_perspectives then
+    local perspective_noun = minimum_perspectives == 1 and 'perspective' or 'perspectives'
+    local addition = minimum_perspectives == 1 and 'a perspective' or 'perspectives'
     return failure(
       'frame_incomplete',
       string.format(
-        '%s frames require at least %d perspectives; received %d',
+        '%s frames require at least %d %s; received %d',
         args.depth,
         minimum_perspectives,
+        perspective_noun,
         perspective_count
       ),
       {},
-      string.format('Add perspectives and retry with action=%s', args.action)
+      string.format('Add %s and retry with action=%s', addition, args.action)
     )
   end
   if perspective_count > maximum_perspectives then
