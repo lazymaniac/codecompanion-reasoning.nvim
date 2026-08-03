@@ -185,7 +185,7 @@ Inputs:
 - `constraints`: known boundaries that proposed conclusions must respect.
 - `success_criteria`: observable conditions for a satisfactory result.
 - `unknowns`: unresolved questions that matter to the outcome.
-- `perspectives`: two to four objects containing a unique `name` and `purpose` in deep mode; one to four in standard mode.
+- `perspectives`: objects containing a unique `name` and `purpose`; deep mode requires at least two and standard mode at least one, subject only to the configured `max_array_items` safety bound.
 - `temporal_required`: whether the problem explicitly requires reasoning across transitions or evolution over time.
 - `branching_required`: whether competing options, hypotheses, or scenarios must be developed.
 - `branching_rationale`: why branching is or is not appropriate.
@@ -304,7 +304,7 @@ Standard depth requires:
 
 Deep depth requires all standard gates plus:
 
-- Two to four perspectives in the frame.
+- At least two perspectives in the frame, subject to the configured `max_array_items` safety bound.
 - Active evidence, claims, or assumptions covering at least two perspectives.
 - At least two options or hypotheses when branching is required.
 - At least one `full` review targeting the selected option, a major supporting claim, or the most recent checkpoint.
