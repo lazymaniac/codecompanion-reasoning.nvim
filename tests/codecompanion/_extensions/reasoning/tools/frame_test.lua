@@ -32,6 +32,19 @@ local function valid_args(action)
   }
 end
 
+local function resize_perspectives(args, count)
+  while #args.perspectives > count do
+    table.remove(args.perspectives)
+  end
+  for index = #args.perspectives + 1, count do
+    table.insert(args.perspectives, {
+      name = 'perspective-' .. index,
+      purpose = 'Inspect concern ' .. index,
+    })
+  end
+  return args
+end
+
 T['starts a deep frame and recommends evidence'] = function()
   local chat = {}
   local result = Frame.cmds[1]({ chat = chat }, valid_args(), {})
@@ -40,12 +53,34 @@ T['starts a deep frame and recommends evidence'] = function()
   eq(result.data.next_action.tool, 'reasoning_evidence')
 end
 
-T['rejects a deep frame with one perspective'] = function()
-  local args = valid_args()
-  args.perspectives = { args.perspectives[1] }
+T['accepts a deep frame with more than four perspectives'] = function()
+  local args = resize_perspectives(valid_args(), 5)
   local result = Frame.cmds[1]({ chat = {} }, args, {})
+
+  eq(result.status, 'success')
+end
+
+T['explains the deep perspective lower bound'] = function()
+  local args = resize_perspectives(valid_args(), 1)
+  local result = Frame.cmds[1]({ chat = {} }, args, {})
+
   eq(result.status, 'error')
   eq(result.data.code, 'frame_incomplete')
+  eq(result.data.message, 'deep frames require at least 2 perspectives; received 1')
+  eq(result.data.next_action.tool, 'reasoning_frame')
+  eq(result.data.next_action.reason, 'Add perspectives and retry with action=start')
+end
+
+T['explains the configured perspective safety bound'] = function()
+  Config.setup({ limits = { max_array_items = 4 } })
+  local args = resize_perspectives(valid_args(), 5)
+  local result = Frame.cmds[1]({ chat = {} }, args, {})
+
+  eq(result.status, 'error')
+  eq(result.data.code, 'frame_incomplete')
+  eq(result.data.message, 'perspectives exceed max_array_items=4; received 5')
+  eq(result.data.next_action.tool, 'reasoning_frame')
+  eq(result.data.next_action.reason, 'Reduce perspectives to 4 or fewer and retry with action=start')
 end
 
 T['requires branching for design problems'] = function()
@@ -156,9 +191,15 @@ T['replace starts a fresh sequenced workspace'] = function()
   eq(result.data.artifact.id, 'F1')
 end
 
-T['keeps runtime configuration out of the cached depth schema'] = function()
-  local description = Frame.schema['function'].parameters.properties.depth.description
-  eq(description, 'Explicit protocol depth; the reasoning group prompt states the configured default.')
+T['advertises perspective lower bounds without caching the configured maximum'] = function()
+  local properties = Frame.schema['function'].parameters.properties
+  eq(properties.depth.description, 'Explicit protocol depth; the reasoning group prompt states the configured default.')
+  eq(properties.perspectives.minItems, 1)
+  eq(properties.perspectives.maxItems, nil)
+  eq(
+    properties.perspectives.description,
+    'At least one perspective is required; deep frames require at least two. The configured max_array_items safety bound applies at runtime.'
+  )
 end
 
 return T

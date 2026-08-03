@@ -94,12 +94,35 @@ function M.frame(chat, args)
     return failure('frame_incomplete', 'depth must be standard or deep', {}, 'Call reasoning_frame with a valid depth')
   end
   local minimum_perspectives = args.depth == 'deep' and 2 or 1
-  if not bounded_array(args.perspectives, minimum_perspectives, math.min(4, Config.get().limits.max_array_items)) then
+  local maximum_perspectives = Config.get().limits.max_array_items
+  if type(args.perspectives) ~= 'table' then
     return failure(
       'frame_incomplete',
-      'perspectives do not satisfy the selected depth',
+      'perspectives must be an array',
       {},
-      'Add distinct perspectives'
+      string.format('Provide perspectives and retry with action=%s', args.action)
+    )
+  end
+  local perspective_count = #args.perspectives
+  if perspective_count < minimum_perspectives then
+    return failure(
+      'frame_incomplete',
+      string.format(
+        '%s frames require at least %d perspectives; received %d',
+        args.depth,
+        minimum_perspectives,
+        perspective_count
+      ),
+      {},
+      string.format('Add perspectives and retry with action=%s', args.action)
+    )
+  end
+  if perspective_count > maximum_perspectives then
+    return failure(
+      'frame_incomplete',
+      string.format('perspectives exceed max_array_items=%d; received %d', maximum_perspectives, perspective_count),
+      {},
+      string.format('Reduce perspectives to %d or fewer and retry with action=%s', maximum_perspectives, args.action)
     )
   end
   local perspective_names = {}

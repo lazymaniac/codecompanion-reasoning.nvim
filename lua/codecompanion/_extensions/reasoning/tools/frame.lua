@@ -38,6 +38,8 @@ return {
           unknowns = { type = 'array', items = { type = 'string' } },
           perspectives = {
             type = 'array',
+            minItems = 1,
+            description = 'At least one perspective is required; deep frames require at least two. The configured max_array_items safety bound applies at runtime.',
             items = {
               type = 'object',
               properties = { name = { type = 'string' }, purpose = { type = 'string' } },
