@@ -64,4 +64,13 @@ T['keeps the previous valid configuration after a rejected update'] = function()
   eq(Config.get().default_depth, 'standard')
 end
 
+T['rejects impossible array maxima transactionally'] = function()
+  Config.setup({ limits = { max_array_items = 5 } })
+  MiniTest.expect.error(function()
+    Config.setup({ limits = { max_array_items = 1 } })
+  end, 'max_array_items must be at least 2')
+  eq(Config.get().limits.max_array_items, 5)
+  eq(Config.setup({ limits = { max_array_items = 2 } }).limits.max_array_items, 2)
+end
+
 return T

@@ -1,14 +1,9 @@
 local Config = require('codecompanion._extensions.reasoning.config')
+local Constants = require('codecompanion._extensions.reasoning.constants')
+local Schema = require('codecompanion._extensions.reasoning.schema')
 
 local M = {}
 local owned_default_tools = setmetatable({}, { __mode = 'k' })
-local tool_names = {
-  'reasoning_frame',
-  'reasoning_evidence',
-  'reasoning_options',
-  'reasoning_review',
-  'reasoning_synthesis',
-}
 
 local paths = {
   reasoning_frame = '_extensions.reasoning.tools.frame',
@@ -26,9 +21,16 @@ local descriptions = {
   reasoning_synthesis = 'Record a checkpoint or gated final synthesis',
 }
 
+local function tool_callback(name)
+  return function()
+    local template = require('codecompanion.' .. paths[name])
+    return Schema.resolve(name, template)
+  end
+end
+
 local function tool_registration(name, existing)
   local registration = {
-    path = paths[name],
+    callback = tool_callback(name),
     description = descriptions[name],
   }
   if type(existing) ~= 'table' then
@@ -58,7 +60,7 @@ local function group_registration(system_prompt, existing)
   local group = {
     description = 'Guided reasoning for difficult analysis, diagnosis, design, decision, and planning problems',
     system_prompt = system_prompt,
-    tools = vim.deepcopy(tool_names),
+    tools = vim.deepcopy(Constants.tool_names),
     opts = { collapse_tools = true },
   }
   if type(existing) ~= 'table' then
@@ -79,21 +81,26 @@ function M.setup(user_options)
   tools.groups = tools.groups or {}
   tools.opts = tools.opts or {}
   tools.opts.default_tools = tools.opts.default_tools or {}
-  for _, name in ipairs(tool_names) do
+  for _, name in ipairs(Constants.tool_names) do
     tools[name] = tool_registration(name, tools[name])
   end
   local system_prompt = string.format(
     [[<structured_reasoning>
 Use this protocol for difficult problems. Routine requests do not need the group.
-Treat each result's next_action.tool as the protocol state transition.
-Call exactly one reasoning tool at a time; never batch reasoning calls.
-Satisfy next_action.reason before making the next call. Never repeat unchanged rejected arguments.
-1. Start with reasoning_frame. Use %s depth unless the problem warrants another explicit depth.
-2. Record decision-relevant observations, claims, and labelled assumptions with reasoning_evidence. Every item needs a concrete source and an observable result that would falsify or materially revise it. Link evidence to exact framed unknowns when it addresses them.
-3. For decisions, diagnoses, designs, and plans, use reasoning_options to maintain genuinely competing solutions, hypotheses, or scenarios. Do not select an option in the same call that invents it.
-4. Use reasoning_review to defend the strongest case, attack it, expose hidden assumptions and blind spots, and record corrections. Use temporal stress tests when the frame requires reasoning across transitions. Resolve contradictions only with an explicit, supported qualification record.
-5. A submitted final synthesis must clear every structural gate. Checkpoint mode is optional; use it when a compact progress record or a gate preview would help.
-After every accepted or rejected call, follow its one non-terminal next_action.tool unless new user information changes the frame. If next_action.tool is none, stop calling reasoning tools and return the accepted conclusion to the user; never call a tool named none.
+Runtime rules:
+1. Attaching the complete reasoning group commits this conversation to the structured final-answer path.
+2. External project tools are unrestricted and budget-neutral. Between reasoning calls, search, read files, inspect symbols and history, run commands and tests, and call other non-reasoning tools as needed; those calls do not advance protocol state.
+3. The first reasoning call must be reasoning_frame with action=start. Use %s depth unless the problem warrants another explicit depth.
+4. Never write the final answer directly as model prose; only the deterministic completion path may publish it.
+5. A rejected call is retryable and returns committed=false. Correct the reported field and retry the authoritative next_action.tool.
+6. Rejected artifact IDs do not exist and must never be cited or reused.
+7. New user information requires reasoning_frame with action=revise or action=replace before downstream reasoning continues.
+8. The deterministic final answer may use only accepted artifacts and their validated references.
+Treat each accepted result's next_action.tool as the protocol state transition. Call exactly one reasoning tool at a time; never batch reasoning calls. Satisfy next_action.reason before making the next reasoning call. Never repeat unchanged rejected arguments.
+Record decision-relevant observations, claims, and labelled assumptions with reasoning_evidence. Every item needs a concrete source and an observable result that would falsify or materially revise it. Link evidence to exact framed unknowns when it addresses them.
+For decisions, diagnoses, designs, and plans, use reasoning_options to maintain genuinely competing solutions, hypotheses, or scenarios. Do not select an option in the same call that invents it.
+Use reasoning_review to defend the strongest case, attack it, expose hidden assumptions and blind spots, and record corrections. Use temporal stress tests when the frame requires reasoning across transitions. Resolve contradictions only with an explicit, supported qualification record.
+A submitted final synthesis must clear every structural gate. Checkpoint mode is optional; use it when a compact progress record or gate preview would help. If next_action.tool is none, stop; no further model action is permitted and never call a tool named none.
 Keep artifacts concise and externally inspectable. Never record or reveal private chain-of-thought.
 The tools validate structure, references, ordering, and coverage. They do not establish factual truth, guarantee independent perspectives, or replace external verification.
 </structured_reasoning>]],
@@ -120,7 +127,7 @@ end
 
 M.exports = {
   tool_names = function()
-    return vim.deepcopy(tool_names)
+    return vim.deepcopy(Constants.tool_names)
   end,
 }
 

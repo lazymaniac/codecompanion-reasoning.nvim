@@ -445,7 +445,7 @@ T['deep final succeeds after every gate is met'] = function()
   eq(result.data.unmet_gates, {})
   eq(result.data.next_action, {
     tool = 'none',
-    reason = 'Final synthesis accepted; return the conclusion to the user',
+    reason = 'Final synthesis accepted; no further model action is permitted',
   })
   eq(result.data.artifact.relations.supports, { 'E1', 'E2' })
   eq(result.data.artifact.relations.depends_on, { 'F1', 'O1', 'R1' })

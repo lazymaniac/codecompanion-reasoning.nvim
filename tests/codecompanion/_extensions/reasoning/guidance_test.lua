@@ -219,7 +219,7 @@ T['returns a terminal action after an accepted final synthesis'] = function()
   add(ws, artifact('S1', 'synthesis', vim.tbl_extend('force', verified_synthesis('final'), { frame_id = 'F1' })))
   eq(Guidance.next(ws), {
     tool = 'none',
-    reason = 'Final synthesis accepted; return the conclusion to the user',
+    reason = 'Final synthesis accepted; no further model action is permitted',
   })
 
   add(ws, evidence('E3', 'correctness'))

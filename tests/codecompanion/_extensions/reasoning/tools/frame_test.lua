@@ -83,19 +83,6 @@ T['explains the configured perspective safety bound'] = function()
   eq(result.data.next_action.reason, 'Reduce perspectives to 4 or fewer and retry with action=start')
 end
 
-T['explains an impossible deep perspective configuration'] = function()
-  Config.setup({ limits = { max_array_items = 1 } })
-  local args = resize_perspectives(valid_args(), 1)
-  args.success_criteria = { args.success_criteria[1] }
-  local result = Frame.cmds[1]({ chat = {} }, args, {})
-
-  eq(result.status, 'error')
-  eq(result.data.code, 'limit_exceeded')
-  eq(result.data.message, 'max_array_items=1 cannot satisfy the deep perspective minimum=2')
-  eq(result.data.next_action.tool, 'reasoning_frame')
-  eq(result.data.next_action.reason, 'Use standard depth or configure max_array_items to at least 2')
-end
-
 T['explains the standard perspective lower bound'] = function()
   local args = resize_perspectives(valid_args(), 0)
   args.depth = 'standard'
@@ -183,16 +170,16 @@ T['counts configured text limits in characters, not bytes'] = function()
 end
 
 T['applies the configured array cap to perspectives'] = function()
-  Config.setup({ limits = { max_array_items = 1 } })
+  Config.setup({ limits = { max_array_items = 2 } })
   local args = valid_args()
   args.problem_type = 'analysis'
   args.depth = 'standard'
-  args.success_criteria = { 'Durable' }
   args.branching_required = false
   args.branching_rationale = 'One bounded claim is being analyzed'
+  resize_perspectives(args, 3)
   local chat = {}
   eq(Frame.cmds[1]({ chat = chat }, args, {}).data.code, 'frame_incomplete')
-  args.perspectives = { args.perspectives[1] }
+  resize_perspectives(args, 2)
   eq(Frame.cmds[1]({ chat = chat }, args, {}).status, 'success')
 end
 

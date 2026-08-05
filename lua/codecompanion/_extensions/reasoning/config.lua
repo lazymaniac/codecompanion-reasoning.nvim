@@ -43,6 +43,9 @@ local function validate(candidate)
       error(name .. ' must be a positive integer')
     end
   end
+  if candidate.limits.max_array_items < 2 then
+    error('max_array_items must be at least 2')
+  end
 end
 
 function M.setup(user_options)

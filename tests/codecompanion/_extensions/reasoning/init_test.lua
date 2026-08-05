@@ -59,11 +59,6 @@ T['loads through CodeCompanion setup and resolves all schemas'] = function()
     },
   })
   local tools = config.interactions.chat.tools
-  eq(tools.reasoning_frame.path, '_extensions.reasoning.tools.frame')
-  eq(tools.reasoning_evidence.path, '_extensions.reasoning.tools.evidence')
-  eq(tools.reasoning_options.path, '_extensions.reasoning.tools.options')
-  eq(tools.reasoning_review.path, '_extensions.reasoning.tools.review')
-  eq(tools.reasoning_synthesis.path, '_extensions.reasoning.tools.synthesis')
   eq(tools.groups.reasoning.tools, names)
   eq(config.interactions.chat.opts.system_prompt, host_prompt)
   eq(tools.host_tool.path, 'host.tool')
@@ -73,6 +68,8 @@ T['loads through CodeCompanion setup and resolves all schemas'] = function()
   eq(tools.opts.system_prompt.replace_main_system_prompt, true)
 
   for _, name in ipairs(names) do
+    eq(type(tools[name].callback), 'function')
+    eq(tools[name].path, nil)
     local resolved = ToolRuntime.resolve(tools[name])
     eq(type(resolved.cmds[1]), 'function')
     eq(resolved.schema['function'].name, name)
@@ -91,7 +88,8 @@ T['preserves host overrides on reasoning registrations'] = function()
     opts = { collapse_tools = false },
   }
   Extension.setup()
-  eq(tools.reasoning_frame.path, '_extensions.reasoning.tools.frame')
+  eq(type(tools.reasoning_frame.callback), 'function')
+  eq(tools.reasoning_frame.path, nil)
   eq(tools.reasoning_frame.opts.require_approval_before, true)
   eq(tools.reasoning_frame.visible, false)
   eq(tools.groups.reasoning.description, 'Custom reasoning label')
@@ -101,12 +99,13 @@ end
 
 T['forces canonical tool identity across host name collisions'] = function()
   local tools = config.interactions.chat.tools
+  local hostile_callback = function()
+    return {}
+  end
   tools.reasoning_frame = {
     path = 'host.tool',
     extends = 'cmd_tool',
-    callback = function()
-      return {}
-    end,
+    callback = hostile_callback,
     cmds = { function() end },
     schema = { type = 'function', ['function'] = { name = 'host_frame' } },
     name = 'host_frame',
@@ -116,6 +115,8 @@ T['forces canonical tool identity across host name collisions'] = function()
     description = 'Custom frame label',
     opts = {
       require_approval_before = true,
+      allowed_in_yolo_mode = false,
+      judge_in_yolo_mode = true,
       client_tool = 'interactions.chat.tools.run_command',
       _mcp_info = { server = 'host' },
     },
@@ -125,15 +126,18 @@ T['forces canonical tool identity across host name collisions'] = function()
   Extension.setup()
 
   local registered = tools.reasoning_frame
-  eq(registered.path, '_extensions.reasoning.tools.frame')
+  eq(registered.path, nil)
+  eq(type(registered.callback), 'function')
+  eq(registered.callback == hostile_callback, false)
   eq(registered.description, 'Custom frame label')
   eq(registered.opts.require_approval_before, true)
+  eq(registered.opts.allowed_in_yolo_mode, false)
+  eq(registered.opts.judge_in_yolo_mode, true)
   eq(registered.opts.client_tool, nil)
   eq(registered.opts._mcp_info, nil)
   eq(registered.visible, false)
   for _, field in ipairs({
     'extends',
-    'callback',
     'cmds',
     'schema',
     'name',
@@ -209,17 +213,24 @@ T['uses the current function command contract'] = function()
   eq(result.data.code, 'frame_incomplete')
 end
 
-T['defines none as terminal without replacing the host system prompt'] = function()
+T['defines the complete structured runtime contract without replacing the host system prompt'] = function()
   Extension.setup()
   local prompt = config.interactions.chat.tools.groups.reasoning.system_prompt
   eq(type(prompt), 'string')
-  eq(prompt:find('exactly one reasoning tool at a time', 1, true) ~= nil, true)
-  eq(prompt:find('never batch reasoning calls', 1, true) ~= nil, true)
-  eq(prompt:find('Satisfy next_action.reason', 1, true) ~= nil, true)
-  eq(prompt:find('Never repeat unchanged rejected arguments', 1, true) ~= nil, true)
-  eq(prompt:find('next_action.tool is none', 1, true) ~= nil, true)
-  eq(prompt:find('stop calling reasoning tools', 1, true) ~= nil, true)
-  eq(prompt:find('Checkpoint mode is optional', 1, true) ~= nil, true)
+  for _, rule in ipairs({
+    'Attaching the complete reasoning group commits this conversation to the structured final-answer path',
+    'External project tools are unrestricted and budget-neutral',
+    'The first reasoning call must be reasoning_frame with action=start',
+    'Never write the final answer directly as model prose',
+    'A rejected call is retryable and returns committed=false',
+    'Rejected artifact IDs do not exist',
+    'New user information requires reasoning_frame with action=revise or action=replace',
+    'The deterministic final answer may use only accepted artifacts',
+  }) do
+    eq(prompt:find(rule, 1, true) ~= nil, true)
+  end
+  eq(prompt:find('search, read files, inspect symbols and history, run commands and tests', 1, true) ~= nil, true)
+  eq(prompt:find('return the accepted conclusion', 1, true), nil)
   eq(prompt:find('private chain-of-thought', 1, true) ~= nil, true)
   eq(config.interactions.chat.opts.system_prompt, original_config.interactions.chat.opts.system_prompt)
 end

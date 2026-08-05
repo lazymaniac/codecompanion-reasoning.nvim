@@ -500,7 +500,7 @@ function M.next(workspace, synthesis)
     and latest_artifact.data.mode == 'final'
     and latest_artifact.data.frame_id == frame.id
   then
-    return { tool = 'none', reason = 'Final synthesis accepted; return the conclusion to the user' }
+    return { tool = 'none', reason = 'Final synthesis accepted; no further model action is permitted' }
   end
   return { tool = 'reasoning_synthesis', reason = 'All structural gates are ready for final synthesis' }
 end
