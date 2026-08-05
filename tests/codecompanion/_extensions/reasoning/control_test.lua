@@ -9,6 +9,7 @@ local Terminal = require('codecompanion._extensions.reasoning.terminal')
 local host_adapters = require('codecompanion.adapters')
 local host_config = require('codecompanion.config')
 local host_hash = require('codecompanion.utils.hash')
+local host_parser = require('codecompanion.interactions.chat.parser')
 
 local T
 local eq = MiniTest.expect.equality
@@ -16,6 +17,7 @@ local created_buffers = {}
 local original_global_adapter
 local original_test_adapter
 local original_host_config
+local original_parser_messages
 local canonical_tool_configs
 
 local function callback_methods()
@@ -103,6 +105,11 @@ local function new_chat(opts)
       if self:dispatch_cancellable('on_before_submit', { adapter = self.adapter }) then
         return self:restore()
       end
+    end
+    if self.fixture_host_submit_side_effects and not submit_opts.auto_submit then
+      self:add_message({ role = 'user', content = 'submitted recovery input' })
+      self.header_line = self.header_line + 10
+      self.fixture_locked = true
     end
     if self.fixture_submit_error then
       error('fixture submit failed')
@@ -399,8 +406,9 @@ local function new_chat(opts)
     end
     self:dispatch('on_closed')
   end
-  methods.restore = function()
+  methods.restore = function(self)
     calls.restore = calls.restore + 1
+    self.fixture_locked = false
   end
 
   local tools_methods = {
@@ -500,6 +508,7 @@ local function new_chat(opts)
     callbacks = {},
     cycle = 1,
     current_request = nil,
+    header_line = 1,
     id = 'fixture-chat',
     messages = {},
     MESSAGE_TYPES = {
@@ -654,6 +663,27 @@ local function drain_scheduled()
   end, 1)
 end
 
+local function resume_command_exists(chat)
+  return vim.api.nvim_buf_get_commands(chat.bufnr, {})[Constants.resume_command] ~= nil
+end
+
+local function invoke_resume_command(chat)
+  vim.api.nvim_buf_call(chat.bufnr, function()
+    vim.cmd(Constants.resume_command)
+  end)
+end
+
+local function set_resume_input(chat, content, calls)
+  host_parser.messages = function(parser_chat, header_line)
+    if calls then
+      calls.parser_messages = (calls.parser_messages or 0) + 1
+    end
+    eq(parser_chat, chat)
+    eq(header_line, chat.header_line)
+    return content == nil and nil or { content = content }
+  end
+end
+
 local function record_protocol_result(chat, call, result)
   chat.tool_orchestrator = nil
   chat:add_tool_output({
@@ -685,6 +715,7 @@ T = MiniTest.new_set({
       Control._reset()
       State._reset()
       original_host_config = vim.deepcopy(host_config.config)
+      original_parser_messages = host_parser.messages
       Extension.setup()
       canonical_tool_configs = {}
       for _, name in ipairs(Constants.tool_names) do
@@ -700,6 +731,7 @@ T = MiniTest.new_set({
       vim.g.codecompanion_adapter = original_global_adapter
       host_config.adapters.reasoning_control_test_acp = original_test_adapter
       host_config.config = original_host_config
+      host_parser.messages = original_parser_messages
       canonical_tool_configs = nil
       for _, bufnr in ipairs(created_buffers) do
         if vim.api.nvim_buf_is_valid(bufnr) then
@@ -1321,7 +1353,7 @@ T['halts safely after preserved submit errors and exposes total placeholders'] =
   eq(state.resume_phase, 'armed')
   eq(state.consecutive_violations, 0)
   eq({ Control.stage_final(chat, {}, {}) }, { nil, 'not available in this lifecycle build' })
-  eq({ Control.resume(chat) }, { nil, 'not available in this lifecycle build' })
+  eq(Control.resume(chat), false)
 end
 
 T['suppresses model prose while preserving tool system and user traffic'] = function()
@@ -2674,6 +2706,249 @@ T['halts structured internal result codes without spending retry budget'] = func
   eq(reframe_state.phase, 'halted')
   eq(reframe_state.resume_phase, 'reframing')
   eq(reframe_state.consecutive_violations, 0)
+end
+
+T['installs one weak buffer-local resume command and deletes it on teardown'] = function()
+  local chat = attach_all(new_chat())
+  Control.reconcile(chat)
+  eq(resume_command_exists(chat), true)
+  Control.reconcile(chat)
+  eq(resume_command_exists(chat), true)
+  eq(Control.uninstall(chat), true)
+  eq(resume_command_exists(chat), false)
+
+  local closing = attach_all(new_chat())
+  Control.reconcile(closing)
+  eq(resume_command_exists(closing), true)
+  closing:close()
+  eq(resume_command_exists(closing), false)
+end
+
+T['fails closed when the explicit resume command cannot be installed'] = function()
+  local chat, calls = new_chat()
+  attach_all(chat)
+  local create_command = vim.api.nvim_buf_create_user_command
+  vim.api.nvim_buf_create_user_command = function()
+    error('fixture command creation failed')
+  end
+  local ok, state = pcall(Control.reconcile, chat)
+  vim.api.nvim_buf_create_user_command = create_command
+
+  eq(ok, true)
+  eq(state.boundary_issue, 'resume_command')
+  eq(Control.phase(chat), 'blocked')
+  Control.reconcile(chat)
+  eq(state.boundary_issue, 'resume_command')
+  eq(Control.resume(chat), false)
+  eq(#calls.notices, 1)
+end
+
+T['blocks bare terminal submits and rejects invalid explicit recovery preconditions'] = function()
+  for _, phase in ipairs({ 'halted', 'finalized' }) do
+    local chat, calls = controlled_chat(phase)
+    chat._btw = 'queued follow-up'
+    local callback_count = 0
+    chat:submit({
+      callback = function()
+        callback_count = callback_count + 1
+      end,
+    })
+    chat:submit()
+    eq(callback_count, 1)
+    eq(calls.submit, 0)
+    eq(calls.restore, 1)
+    eq(chat._btw, 'queued follow-up')
+  end
+
+  local blank, blank_calls = controlled_chat('halted')
+  for _, content in ipairs({ false, '', '   ' }) do
+    set_resume_input(blank, content == false and nil or content, blank_calls)
+    eq(Control.resume(blank), false)
+  end
+  eq(blank_calls.submit, 0)
+
+  local active, active_calls = controlled_chat('active')
+  set_resume_input(active, 'new facts', active_calls)
+  eq(Control.resume(active), false)
+
+  local requested, requested_calls = controlled_chat('halted')
+  set_resume_input(requested, 'new facts', requested_calls)
+  requested.current_request = {}
+  eq(Control.resume(requested), false)
+  requested.current_request = nil
+  requested.tool_orchestrator = {}
+  eq(Control.resume(requested), false)
+
+  local stale_handle, stale_calls, stale_state = controlled_chat('halted')
+  set_resume_input(stale_handle, 'new facts', stale_calls)
+  stale_state.request_handle = {}
+  eq(Control.resume(stale_handle), false)
+  stale_state.request_handle = nil
+  stale_state.pending_stop_token = { valid = true }
+  eq(Control.resume(stale_handle), false)
+  stale_state.pending_stop_token = nil
+  stale_state.resume_attempt = { valid = true }
+  eq(Control.resume(stale_handle), false)
+
+  local missing, missing_calls = controlled_chat('halted')
+  set_resume_input(missing, 'new facts', missing_calls)
+  missing.tool_registry.in_use.reasoning_review = nil
+  eq(Control.resume(missing), false)
+
+  local acp, acp_calls = controlled_chat('halted')
+  set_resume_input(acp, 'new facts', acp_calls)
+  acp.adapter = { type = 'acp', name = 'resume_acp' }
+  eq(Control.resume(acp), false)
+end
+
+T['commits halted and finalized resume only after exact request construction'] = function()
+  local halted, halted_calls, halted_state = controlled_chat('halted')
+  local workspace = State.get(halted)
+  halted_state.resume_phase = 'active'
+  halted_state.consecutive_violations = 3
+  local old_lease = { valid = true, epoch = halted_state.epoch, generation = halted_state.request_generation }
+  halted_state.fallback_lease = old_lease
+  set_resume_input(halted, 'new evidence from the project', halted_calls)
+  eq(Control.resume(halted), true)
+  eq(State.get(halted), workspace)
+  eq(halted_state.phase, 'active')
+  eq(halted_state.consecutive_violations, 0)
+  eq(halted_state.fallback_lease, nil)
+  eq(old_lease.valid, false)
+  eq(halted_state.resume_attempt, nil)
+  eq(halted_state.active_request_token ~= nil, true)
+  eq(halted_calls.submit, 1)
+  eq(halted_calls.http, 1)
+
+  local finalized, finalized_calls, finalized_state = controlled_chat('finalized')
+  local observed_phase
+  finalized.fixture_before_submit = function()
+    observed_phase = finalized_state.phase
+  end
+  set_resume_input(finalized, 'the requirements changed', finalized_calls)
+  invoke_resume_command(finalized)
+  eq(observed_phase, 'reframing')
+  eq(finalized_state.phase, 'reframing')
+  eq(finalized_state.resume_attempt, nil)
+  eq(finalized_calls.submit, 1)
+  eq(finalized_calls.http, 1)
+end
+
+T['accepts synchronous completion and rolls back phantom resume generations'] = function()
+  local synchronous, sync_calls, sync_state = controlled_chat('halted')
+  sync_state.resume_phase = 'active'
+  synchronous.fixture_skip_ready = true
+  synchronous.fixture_sync_send = function(request)
+    request.on_done()
+  end
+  set_resume_input(synchronous, 'continue with the correction', sync_calls)
+  eq(Control.resume(synchronous), true)
+  eq(sync_state.phase, 'active')
+  eq(sync_state.resume_attempt, nil)
+  eq(sync_state.active_request_token, nil)
+  eq(sync_state.completion_classified, true)
+  eq(sync_state.consecutive_violations, 1)
+
+  local phantom, phantom_calls, phantom_state = controlled_chat('halted')
+  phantom_state.resume_phase = 'active'
+  phantom_state.consecutive_violations = 2
+  phantom.fixture_skip_http = true
+  phantom.fixture_host_submit_side_effects = true
+  phantom.header_line = 7
+  local original_messages = vim.deepcopy(phantom.messages)
+  set_resume_input(phantom, 'retry after fixing input', phantom_calls)
+  eq(Control.resume(phantom), false)
+  eq(phantom_state.phase, 'halted')
+  eq(phantom_state.consecutive_violations, 2)
+  eq(phantom_state.fallback_lease, nil)
+  eq(phantom_state.construction_lease, nil)
+  eq(phantom_state.completion_classified, true)
+  eq(phantom_state.resume_attempt, nil)
+  eq(phantom_calls.submit, 1)
+  eq(phantom_calls.http, 0)
+  eq(phantom.header_line, 7)
+  eq(phantom.messages, original_messages)
+  eq(phantom.fixture_locked, false)
+  eq(phantom_calls.restore, 1)
+
+  phantom.fixture_skip_http = false
+  eq(Control.resume(phantom), true)
+  eq(phantom_state.phase, 'active')
+  eq(phantom_calls.submit, 2)
+  eq(phantom_calls.http, 1)
+end
+
+T['preserves internal halts from failed resume and drops their retained callbacks'] = function()
+  for _, mode in ipairs({ 'submit', 'http', 'retained' }) do
+    local chat, calls, state = controlled_chat('halted')
+    state.resume_phase = 'active'
+    state.consecutive_violations = 3
+    chat.fixture_host_submit_side_effects = true
+    chat.header_line = 9
+    local original_messages = vim.deepcopy(chat.messages)
+    if mode == 'submit' then
+      chat.fixture_submit_error = true
+    elseif mode == 'http' then
+      chat.fixture_http_throw = true
+    else
+      chat.fixture_sync_send = function()
+        error('request failed after callback capture')
+      end
+    end
+    set_resume_input(chat, 'recover explicitly', calls)
+    eq(Control.resume(chat), false)
+    eq(state.phase, 'halted')
+    eq(state.resume_phase, 'active')
+    eq(state.consecutive_violations, 0)
+    eq(state.resume_attempt, nil)
+    eq(state.active_request_token, nil)
+    eq(state.construction_lease, nil)
+    eq(chat.header_line, 9)
+    eq(chat.messages, original_messages)
+    eq(chat.fixture_locked, false)
+    eq(calls.restore, 1)
+    if mode == 'retained' then
+      local request = calls.requests[1]
+      local before = { parse = calls.parse_chat, done = calls.done }
+      request.on_chunk({ status = 'success', output = { content = 'late failure output' } })
+      request.on_done()
+      eq(calls.parse_chat, before.parse)
+      eq(calls.done, before.done)
+    end
+  end
+end
+
+T['invalidates pre-resume fallback and requires reframe after final output'] = function()
+  local chat, calls, state = controlled_chat('finalized')
+  local old_lease = { valid = true, epoch = state.epoch, generation = state.request_generation }
+  state.fallback_lease = old_lease
+  chat:dispatch('on_ready')
+  set_resume_input(chat, 'new constraints invalidate the final', calls)
+  eq(Control.resume(chat), true)
+  drain_scheduled()
+  eq(calls.submit, 1)
+  eq(old_lease.valid, false)
+  eq(state.phase, 'reframing')
+
+  local request = calls.requests[1]
+  local external = formatted_call('reframe-read', 'read_file', { path = 'README.md' })
+  request.on_chunk({ status = 'success', tool_calls = { external } })
+  request.on_done()
+  eq(state.phase, 'reframing')
+  chat:add_tool_output({ name = 'read_file', function_call = external }, 'investigation result', '')
+  chat.tool_orchestrator = nil
+
+  local invalid = formatted_call('reframe-evidence', 'reasoning_evidence', {})
+  chat.tools:execute(chat, { invalid })
+  eq(state.phase, 'reframing')
+  eq(state.call_tokens[invalid].status, 'synthetic')
+
+  state.request_generation = state.request_generation + 1
+  state.observed_call_ids[state.request_generation] = {}
+  chat.tool_orchestrator = nil
+  local revise = formatted_call('reframe-revise', 'reasoning_frame', frame_args('revise'))
+  eq(execute_protocol_call(chat, revise, 'reframing').status, 'success')
+  eq(state.phase, 'active')
 end
 
 return T

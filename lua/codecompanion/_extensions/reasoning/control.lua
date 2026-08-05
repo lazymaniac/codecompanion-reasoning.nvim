@@ -53,6 +53,8 @@ local function new_state(chat, phase)
     processing_done = false,
     boundary_issue = nil,
     halt_notified = false,
+    resume_command = nil,
+    resume_command_installed = false,
     methods = {},
     callbacks = {},
   }
@@ -60,6 +62,32 @@ end
 
 local function chat_for(state)
   return state.chat_ref[1]
+end
+
+local function delete_resume_command(state)
+  if not state then
+    return
+  end
+  local command = state.resume_command or {}
+  local bufnr = command.bufnr
+  if state.resume_command_installed and type(bufnr) == 'number' and vim.api.nvim_buf_is_valid(bufnr) then
+    pcall(vim.api.nvim_buf_del_user_command, bufnr, command.name or Constants.resume_command)
+  end
+  state.resume_command_installed = false
+  state.resume_command = nil
+end
+
+local function resume_command_present(state)
+  local command = state and state.resume_command or nil
+  if not state or not state.resume_command_installed or type(command) ~= 'table' then
+    return false
+  end
+  local bufnr = command.bufnr
+  if type(bufnr) ~= 'number' or not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+  local ok, commands = pcall(vim.api.nvim_buf_get_commands, bufnr, {})
+  return ok and type(commands) == 'table' and commands[command.name] ~= nil
 end
 
 local function capture_method(target, key)
@@ -1072,6 +1100,35 @@ local function blocked_submit(chat, opts)
   end
 end
 
+local function snapshot_resume_submission(chat)
+  local messages = type(chat.messages) == 'table' and chat.messages or nil
+  local boundary = {}
+  for index, message in ipairs(messages or {}) do
+    boundary[index] = message
+  end
+  return {
+    header_line = chat.header_line,
+    messages = messages,
+    boundary = boundary,
+  }
+end
+
+local function restore_resume_submission(chat, snapshot)
+  chat.header_line = snapshot.header_line
+  if snapshot.messages then
+    for index = #snapshot.messages, 1, -1 do
+      snapshot.messages[index] = nil
+    end
+    for index, message in ipairs(snapshot.boundary) do
+      snapshot.messages[index] = message
+    end
+    chat.messages = snapshot.messages
+  end
+  if type(chat.restore) == 'function' then
+    pcall(chat.restore, chat)
+  end
+end
+
 local recoverable_phase = {
   armed = true,
   active = true,
@@ -1449,6 +1506,22 @@ local function install(chat, phase)
   end
   state.methods.execute = capture_method(chat.tools, 'execute')
   controllers[chat] = state
+  local resume_command = {
+    bufnr = chat.bufnr,
+    name = Constants.resume_command,
+  }
+  resume_command.callback = function()
+    local current = chat_for(state)
+    if current then
+      M.resume(current)
+    end
+  end
+  state.resume_command = resume_command
+  state.resume_command_installed =
+    pcall(vim.api.nvim_buf_create_user_command, resume_command.bufnr, resume_command.name, resume_command.callback, {
+      desc = 'Resume the fail-closed reasoning protocol',
+      force = true,
+    })
 
   local submit = state.methods.submit
   install_wrapper(submit, function(target, opts, ...)
@@ -1500,12 +1573,16 @@ local function install(chat, phase)
     end
     local lease = state.construction_lease
     if lease and lease.epoch == prior_epoch and not lease.consumed then
-      lease.consumed = true
-      state.construction_lease = nil
-      if not state.closed and state.phase ~= 'dormant' then
-        fail_request_construction(state, nil, prior_phase)
-      else
-        state.completion_classified = true
+      local attempt = state.resume_attempt
+      local resume_phantom = attempt and attempt.epoch == lease.epoch and attempt.generation == lease.generation
+      if not resume_phantom then
+        lease.consumed = true
+        state.construction_lease = nil
+        if not state.closed and state.phase ~= 'dormant' then
+          fail_request_construction(state, nil, prior_phase)
+        else
+          state.completion_classified = true
+        end
       end
     end
     state.submit_prior_violations = nil
@@ -1784,6 +1861,7 @@ local function install(chat, phase)
       return
     end
     state.closed = true
+    delete_resume_command(state)
     local host_will_stop = target.current_request ~= nil
     invalidate_runtime(state, target, {
       preserve_host_request = host_will_stop,
@@ -1942,6 +2020,14 @@ local function install(chat, phase)
   end
   state.callbacks.on_cancelled = on_cancelled
   chat:add_callback('on_cancelled', on_cancelled)
+  if not state.resume_command_installed then
+    block_boundary(
+      chat,
+      state,
+      'resume_command',
+      'Structured reasoning is blocked because its explicit recovery command could not be installed; recreate this chat.'
+    )
+  end
   return state
 end
 
@@ -2063,6 +2149,15 @@ function M.reconcile(chat)
     )
     return state
   end
+  if not resume_command_present(state) then
+    block_boundary(
+      chat,
+      state,
+      'resume_command',
+      'Structured reasoning is blocked because its explicit recovery command is unavailable; recreate this chat.'
+    )
+    return state
+  end
   state.boundary_issue = nil
 
   if state.phase == 'dormant' and complete and live_tools_match(chat, state) then
@@ -2121,8 +2216,144 @@ function M.stage_final()
   return nil, 'not available in this lifecycle build'
 end
 
-function M.resume()
-  return nil, 'not available in this lifecycle build'
+function M.resume(chat)
+  local state = type(chat) == 'table' and controllers[chat] or nil
+  if not state or state.closed then
+    return false
+  end
+  M.reconcile(chat)
+  if
+    (state.phase ~= 'halted' and state.phase ~= 'finalized')
+    or state.unsupported_adapter
+    or state.boundary_issue ~= nil
+    or not chat.adapter
+    or chat.adapter.type ~= 'http'
+    or configured_target_is_acp(chat)
+    or not complete_tool_set(chat)
+    or not live_tools_match(chat, state)
+    or not wrappers_intact(state)
+    or chat.current_request ~= nil
+    or state.active_request_token ~= nil
+    or state.request_handle ~= nil
+    or state.pending_stop_token ~= nil
+    or state.construction_lease ~= nil
+    or state.resume_attempt ~= nil
+    or chat.tool_orchestrator ~= nil
+  then
+    return false
+  end
+
+  local ok_parser, pending = pcall(function()
+    local parser = require('codecompanion.interactions.chat.parser')
+    return parser.messages(chat, chat.header_line)
+  end)
+  local has_input = ok_parser and pending and type(pending.content) == 'string' and vim.trim(pending.content) ~= ''
+  if not has_input then
+    return false
+  end
+
+  local previous = {
+    phase = state.phase,
+    resume_phase = state.resume_phase,
+    count = state.consecutive_violations,
+    lease = state.fallback_lease,
+    halt_notified = state.halt_notified,
+  }
+  local target = state.phase == 'finalized' and 'reframing' or state.resume_phase
+  if not recoverable_phase[target] then
+    return false
+  end
+
+  invalidate_marker(previous.lease)
+  invalidate_marker(state.pending_stop_token)
+  state.pending_stop_token = nil
+  state.epoch = state.epoch + 1
+  state.fallback_lease = nil
+  state.consecutive_violations = 0
+  state.phase = target
+  state.halt_notified = false
+  local attempt = {
+    valid = true,
+    confirmed = false,
+    constructed = false,
+    generation = nil,
+    request_token = nil,
+    epoch = state.epoch,
+  }
+  state.resume_attempt = attempt
+  if type(chat.remove_tagged_message) == 'function' then
+    pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+  end
+  local submission_snapshot = snapshot_resume_submission(chat)
+
+  local ok = pcall(chat.submit, chat, {})
+  local token = attempt.request_token
+  local confirmed = ok
+    and state.resume_attempt == attempt
+    and attempt.confirmed
+    and attempt.constructed
+    and token ~= nil
+    and token.valid ~= false
+    and not token.invalidated
+    and state.epoch == attempt.epoch
+    and ((state.active_request_token == token and chat.current_request ~= nil) or token.settled == true)
+  state.request_handle = confirmed and chat.current_request or nil
+  if state.resume_attempt == attempt then
+    state.resume_attempt = nil
+  end
+  attempt.valid = false
+  if confirmed then
+    return true
+  end
+
+  local preserve_internal_halt = state.phase == 'halted' and state.epoch ~= attempt.epoch
+  local preserve_reset = state.closed or state.phase == 'dormant'
+  if token and state.active_request_token == token then
+    local partial = chat.current_request or token.handle
+    token.invalidated = true
+    state.active_request_token = nil
+    chat.current_request = nil
+    state.request_handle = nil
+    if partial and type(partial.cancel) == 'function' then
+      pcall(partial.cancel, partial)
+    end
+  elseif token then
+    token.invalidated = true
+  end
+  if state.pending_stop_token and state.pending_stop_token.token == token then
+    invalidate_marker(state.pending_stop_token)
+    state.pending_stop_token = nil
+  end
+  local construction = state.construction_lease
+  if construction and construction.epoch == attempt.epoch and construction.generation == attempt.generation then
+    construction.consumed = true
+    construction.valid = false
+    state.construction_lease = nil
+  end
+  if attempt.generation == state.request_generation then
+    state.completion_classified = true
+  end
+  if state.epoch == attempt.epoch then
+    state.epoch = state.epoch + 1
+  end
+  if not preserve_reset then
+    restore_resume_submission(chat, submission_snapshot)
+  end
+  if preserve_internal_halt or preserve_reset then
+    return false
+  end
+
+  state.phase = previous.phase
+  state.resume_phase = previous.resume_phase
+  state.consecutive_violations = previous.count
+  state.fallback_lease = nil
+  state.halt_notified = previous.halt_notified
+  emit_status(
+    chat,
+    state,
+    ok and 'Reasoning resume did not construct a request.' or 'Reasoning resume failed internally.'
+  )
+  return false
 end
 
 function M.clear(chat)
@@ -2145,6 +2376,7 @@ function M.uninstall(chat)
     return false
   end
   Terminal.clear(chat)
+  delete_resume_command(state)
   if type(chat.remove_callback) == 'function' then
     for event, callback in pairs(state.callbacks) do
       chat:remove_callback(event, callback)
