@@ -1,6 +1,7 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Guidance = require('codecompanion._extensions.reasoning.guidance')
+local Render = require('codecompanion._extensions.reasoning.render')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
 local Transition = require('codecompanion._extensions.reasoning.transition')
@@ -23,17 +24,21 @@ local function failure(code, message, artifact_ids, next_action, diagnostic)
   return { status = 'error', data = data }
 end
 
-local function success(workspace, artifact)
+local function success_payload(workspace, artifact, unmet_gates, next_action)
   return {
     status = 'success',
     data = {
       workspace_id = workspace.id,
       artifact = vim.deepcopy(artifact),
       progress = vim.deepcopy(workspace.counts_by_kind),
-      unmet_gates = M.final_gates(workspace, nil),
-      next_action = Guidance.next(workspace),
+      unmet_gates = unmet_gates or M.final_gates(workspace, nil),
+      next_action = next_action or Guidance.next(workspace),
     },
   }
+end
+
+local function success(workspace, artifact)
+  return success_payload(workspace, artifact)
 end
 
 local function text_valid(value)
@@ -2168,7 +2173,7 @@ local function synthesis_shape_diagnostic(args)
     or Validation.enum(args.confidence, 'confidence', { low = true, medium = true, high = true })
 end
 
-function M.synthesis(chat, args)
+function M.synthesis(chat, args, lifecycle_phase)
   local workspace = State.get(chat)
   if not workspace then
     return failure('workspace_missing', 'start a frame before synthesis', {}, 'Call reasoning_frame')
@@ -2239,49 +2244,105 @@ function M.synthesis(chat, args)
     )
   end
 
-  local synthesis_data = vim.deepcopy(args)
-  synthesis_data.frame_id = workspace.frame_id
-  local synthesis_artifact = assert(State.add(workspace, 'synthesis', synthesis_data))
-  State.add_relation(workspace, synthesis_artifact, 'depends_on', workspace.frame_id)
+  local relations = {
+    supports = {},
+    contradicts = {},
+    qualifies = {},
+    depends_on = { workspace.frame_id },
+    tests = {},
+    supersedes = {},
+  }
   local recorded_support = {}
   for _, id in ipairs(args.support_ids) do
     if not recorded_support[id] then
-      State.add_relation(workspace, synthesis_artifact, 'supports', id)
+      table.insert(relations.supports, id)
       recorded_support[id] = true
     end
   end
   for _, result in ipairs(args.criterion_results) do
     for _, id in ipairs(result.evidence_ids) do
       if not recorded_support[id] then
-        State.add_relation(workspace, synthesis_artifact, 'supports', id)
+        table.insert(relations.supports, id)
         recorded_support[id] = true
       end
     end
   end
   for _, id in ipairs(args.selected_option_ids) do
-    State.add_relation(workspace, synthesis_artifact, 'depends_on', id)
+    table.insert(relations.depends_on, id)
   end
   for _, id in ipairs(args.review_ids) do
-    State.add_relation(workspace, synthesis_artifact, 'depends_on', id)
+    table.insert(relations.depends_on, id)
   end
-  local revised = {}
   for _, target_id in ipairs(workspace.artifact_order) do
     local target = State.find(workspace, target_id)
     if workspace.open_revisions[target_id] and target and target.status == 'active' and target.kind == 'synthesis' then
-      table.insert(revised, target_id)
+      table.insert(relations.supersedes, target_id)
     end
   end
-  for _, target_id in ipairs(revised) do
-    State.supersede(workspace, target_id, synthesis_artifact.id)
+
+  local synthesis_data = vim.deepcopy(args)
+  synthesis_data.frame_id = workspace.frame_id
+  if args.mode == 'checkpoint' then
+    local synthesis_artifact = assert(State.add(workspace, 'synthesis', synthesis_data))
+    for _, relation in ipairs({ 'supports', 'contradicts', 'qualifies', 'depends_on', 'tests' }) do
+      for _, target_id in ipairs(relations[relation]) do
+        State.add_relation(workspace, synthesis_artifact, relation, target_id)
+      end
+    end
+    for _, target_id in ipairs(relations.supersedes) do
+      State.supersede(workspace, target_id, synthesis_artifact.id)
+    end
+    return success_payload(
+      workspace,
+      synthesis_artifact,
+      M.final_gates(workspace, args),
+      Guidance.next(workspace, args)
+    )
   end
+
+  local stage, prepare_code = State.prepare_final(chat, synthesis_data, relations)
+  if not stage then
+    return failure(prepare_code, 'the final synthesis could not be prepared', {}, Guidance.next(workspace, args))
+  end
+  local rendered, markdown = xpcall(function()
+    return Render.render(workspace, stage.candidate.data)
+  end, debug.traceback)
+  if not rendered or type(markdown) ~= 'string' or vim.trim(markdown) == '' then
+    if not rendered then
+      log:error('[reasoning] final rendering failed: %s', markdown)
+    end
+    State.discard_final(stage)
+    return failure(
+      'render_internal',
+      'the deterministic final could not be rendered',
+      {},
+      { tool = 'reasoning_synthesis', reason = 'Resume after inspecting the plugin failure' }
+    )
+  end
+
+  local terminal = {
+    tool = 'none',
+    reason = 'Final synthesis accepted; no further model action is permitted',
+  }
+  if lifecycle_phase == nil then
+    local committed, commit_code = State.commit_final(chat, stage)
+    if not committed then
+      return failure(commit_code, 'the final synthesis transaction conflicted', {}, Guidance.next(workspace, args))
+    end
+    return success_payload(workspace, committed, {}, terminal)
+  end
+
+  local projected_progress = vim.deepcopy(workspace.counts_by_kind)
+  projected_progress.synthesis = (projected_progress.synthesis or 0) + 1
   return {
     status = 'success',
     data = {
       workspace_id = workspace.id,
-      artifact = vim.deepcopy(synthesis_artifact),
-      progress = vim.deepcopy(workspace.counts_by_kind),
-      unmet_gates = args.mode == 'final' and {} or M.final_gates(workspace, args),
-      next_action = Guidance.next(workspace, args),
+      artifact = vim.deepcopy(stage.candidate),
+      progress = projected_progress,
+      unmet_gates = {},
+      next_action = terminal,
+      _reasoning_final = { stage = stage, markdown = markdown },
     },
   }
 end
@@ -2371,7 +2432,7 @@ function M.call(operation, chat, args, lifecycle_phase)
     )
   end
   local ok, result = xpcall(function()
-    return handler(chat, args)
+    return handler(chat, args, lifecycle_phase)
   end, debug.traceback)
   if not ok then
     log:error('[reasoning] %s failed: %s', operation, result)

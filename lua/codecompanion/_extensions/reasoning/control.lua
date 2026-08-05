@@ -191,7 +191,8 @@ end
 
 local function discard_stage(state)
   if state.staged_final then
-    State.discard_final(state.staged_final)
+    local final = state.staged_final
+    State.discard_final(final.stage or final)
     state.staged_final = nil
   end
 end
@@ -309,6 +310,7 @@ local function callbacks_allowed(chat, state)
     or chat.adapter.type ~= 'http'
     or not live_tools_match(chat, state)
     or not wrappers_intact(state)
+    or not resume_command_present(state)
   then
     return false
   end
@@ -390,6 +392,7 @@ local function bind_call_markers(state, chat, calls)
         generation = state.request_generation,
         phase = state.phase,
         request_token = state.active_request_token,
+        adapter = chat.adapter,
         operation = operation,
         call_id = type(call.id) == 'string' and call.id ~= '' and call.id or nil,
         response_call_id = type(call.call_id) == 'string' and call.call_id ~= '' and call.call_id or nil,
@@ -596,58 +599,155 @@ local function result_matches_call(message, marker)
     return false
   end
   local tools = type(message.tools) == 'table' and message.tools or {}
-  return message.tool_call_id == marker.call_id
-    or tools.id == marker.call_id
-    or tools.call_id == marker.call_id
-    or (marker.response_call_id ~= nil and tools.call_id == marker.response_call_id)
+  if marker.response_call_id ~= nil then
+    return tools.id == marker.call_id and tools.call_id == marker.response_call_id
+  end
+  return message.tool_call_id == marker.call_id or tools.id == marker.call_id or tools.call_id == marker.call_id
+end
+
+local function result_identity(message)
+  return {
+    role = message and message.role or nil,
+    tool_call_id = message and message.tool_call_id or nil,
+    tool_name = message and message.tool_name or nil,
+    tools = type(message) == 'table' and vim.deepcopy(message.tools) or nil,
+  }
+end
+
+local function overwrite_table(target, snapshot)
+  if type(target) ~= 'table' or type(snapshot) ~= 'table' then
+    return false
+  end
+  local restored = vim.deepcopy(snapshot)
+  for key in pairs(target) do
+    target[key] = nil
+  end
+  for key, value in pairs(restored) do
+    target[key] = value
+  end
+  return vim.deep_equal(target, snapshot)
 end
 
 local function snapshot_recorded_result(chat, marker)
-  local snapshot = { refs = {}, existing = nil, content = nil }
-  for _, message in ipairs(chat.messages or {}) do
+  local messages = type(chat.messages) == 'table' and chat.messages or {}
+  local snapshot = {
+    messages = messages,
+    value = vim.deepcopy(messages),
+    refs = {},
+    order = {},
+    values = {},
+    contents = {},
+    existing = nil,
+    content = nil,
+    identity = nil,
+  }
+  for index, message in ipairs(messages) do
     snapshot.refs[message] = true
-    local tools = type(message) == 'table' and type(message.tools) == 'table' and message.tools or nil
-    if not snapshot.existing and marker.call_id and tools and tools.call_id == marker.call_id then
+    snapshot.order[index] = message
+    snapshot.values[index] = vim.deepcopy(message)
+    snapshot.contents[message] = message.content
+    if not snapshot.existing and result_matches_call(message, marker) then
       snapshot.existing = message
       snapshot.content = message.content
+      snapshot.identity = result_identity(message)
     end
   end
   return snapshot
 end
 
-local function recorded_result_entry(chat, marker, snapshot)
-  if snapshot.existing then
-    local present = false
-    for _, message in ipairs(chat.messages or {}) do
-      present = present or message == snapshot.existing
-    end
-    local before = snapshot.content
-    local after = snapshot.existing.content
-    local prefix = type(before) == 'string' and (before == '' and '' or before .. '\n\n') or nil
-    if not present or type(after) ~= 'string' or not prefix or after:sub(1, #prefix) ~= prefix then
-      return { message = present and snapshot.existing or nil, prefix = prefix or '' }, 'append_prefix_changed'
-    end
-    return {
-      message = snapshot.existing,
-      prefix = prefix,
-      delta = after:sub(#prefix + 1),
-    }
+local function recorded_history_intact(chat, snapshot)
+  if chat.messages ~= snapshot.messages or #chat.messages < #snapshot.order then
+    return false
   end
-
-  local found
-  for index = #(chat.messages or {}), 1, -1 do
-    local message = chat.messages[index]
-    if not snapshot.refs[message] and result_matches_call(message, marker) then
-      if found then
-        return found, 'multiple_results'
-      end
-      found = { message = message, prefix = '', delta = message.content }
+  for index, message in ipairs(snapshot.order) do
+    if chat.messages[index] ~= message then
+      return false
     end
+    if message ~= snapshot.existing and not vim.deep_equal(message, snapshot.values[index]) then
+      return false
+    end
+  end
+  return true
+end
+
+local function restore_recorded_history(chat, snapshot)
+  if not overwrite_table(snapshot.messages, snapshot.value) then
+    return false
+  end
+  for index, message in ipairs(snapshot.order) do
+    if type(message) == 'table' and not overwrite_table(message, snapshot.values[index]) then
+      return false
+    end
+    snapshot.messages[index] = message
+  end
+  chat.messages = snapshot.messages
+  return vim.deep_equal(chat.messages, snapshot.value)
+end
+
+local function recorded_result_entry(chat, marker, snapshot)
+  local candidates = {}
+  local correlated = {}
+  local existing_present = snapshot.existing == nil
+  local existing_changed = snapshot.existing == nil
+  for _, message in ipairs(chat.messages or {}) do
+    if message == snapshot.existing then
+      existing_present = true
+    end
+    local prior = snapshot.contents[message]
+    local changed = not snapshot.refs[message] or message.content ~= prior
+    if changed then
+      local entry = {
+        message = message,
+        prefix = '',
+        delta = message.content,
+        is_new = not snapshot.refs[message],
+        prior = prior,
+        reused = message == snapshot.existing,
+        identity_before = message == snapshot.existing and snapshot.identity or nil,
+      }
+      existing_changed = existing_changed or message == snapshot.existing
+      if type(message.content) ~= 'string' then
+        entry.error = 'result_content_invalid'
+      elseif snapshot.refs[message] then
+        local prefix = type(prior) == 'string' and (prior == '' and '' or prior .. '\n\n') or nil
+        entry.prefix = prefix or ''
+        if not prefix or message.content:sub(1, #prefix) ~= prefix then
+          entry.error = 'append_prefix_changed'
+        else
+          entry.delta = message.content:sub(#prefix + 1)
+        end
+      end
+      table.insert(candidates, entry)
+      if result_matches_call(message, marker) then
+        table.insert(correlated, entry)
+      end
+    end
+  end
+  local found = correlated[1] or (#candidates == 1 and candidates[1] or nil)
+  if not recorded_history_intact(chat, snapshot) then
+    return found, 'history_boundary_changed', candidates
+  end
+  if not existing_present or not existing_changed then
+    local before = snapshot.content
+    local prefix = type(before) == 'string' and (before == '' and '' or before .. '\n\n') or ''
+    return { message = existing_present and snapshot.existing or nil, prefix = prefix },
+      'append_prefix_changed',
+      candidates
+  end
+  if #candidates > 1 then
+    return correlated[1], 'multiple_results', candidates
+  elseif #correlated == 1 then
+    found = correlated[1]
+  elseif #candidates == 1 then
+    found = candidates[1]
   end
   if not found or type(found.delta) ~= 'string' then
-    return found, 'result_missing'
+    return found, 'result_missing', candidates
   end
-  return found
+  if found.error then
+    return found, found.error, candidates
+  end
+  return found, nil, candidates
 end
 
 local function stamp_result(chat, message)
@@ -657,12 +757,14 @@ local function stamp_result(chat, message)
 end
 
 local function fallback_result_message(chat, marker, encoded)
+  local adapter = type(chat.adapter) == 'table' and chat.adapter or {}
+  local tool_role = type(adapter.roles) == 'table' and adapter.roles.tool or 'tool'
   local call = {
     id = marker.call_id,
     call_id = marker.response_call_id,
     ['function'] = { name = marker.tool_name },
   }
-  local ok, message = pcall(Adapters.call_handler, chat.adapter, 'format_response', call, encoded)
+  local ok, message = pcall(Adapters.call_handler, adapter, 'format_response', call, encoded)
   if
     not ok
     or type(message) ~= 'table'
@@ -670,7 +772,7 @@ local function fallback_result_message(chat, marker, encoded)
     or not result_matches_call(message, marker)
   then
     message = {
-      role = chat.adapter.roles and chat.adapter.roles.tool or 'tool',
+      role = tool_role,
       tools = {
         id = marker.call_id,
         call_id = marker.response_call_id or marker.call_id,
@@ -681,7 +783,7 @@ local function fallback_result_message(chat, marker, encoded)
       opts = { visible = false },
     }
   end
-  message.role = message.role or (chat.adapter.roles and chat.adapter.roles.tool) or 'tool'
+  message.role = message.role or tool_role
   message.content = encoded
   message.opts = vim.tbl_extend('force', message.opts or {}, { visible = false })
   stamp_result(chat, message)
@@ -696,9 +798,34 @@ local function rewrite_recorded_result(state, marker, entry, payload)
   end
   local encoded = assert(vim.json.encode(payload))
   if entry and entry.message then
-    entry.message.content = (entry.prefix or '') .. encoded
-    stamp_result(chat, entry.message)
-    return entry.message
+    local message = entry.message
+    message.role = type(chat.adapter) == 'table' and type(chat.adapter.roles) == 'table' and chat.adapter.roles.tool
+      or 'tool'
+    local has_identity = false
+    if type(message.tools) == 'table' then
+      message.tools.id = marker.call_id
+      message.tools.call_id = marker.response_call_id or marker.call_id
+      message.tools.name = marker.tool_name
+      has_identity = true
+    end
+    if message.tool_call_id ~= nil then
+      message.tool_call_id = marker.call_id
+      has_identity = true
+    end
+    if message.tool_name ~= nil then
+      message.tool_name = marker.tool_name
+      has_identity = true
+    end
+    if not has_identity then
+      message.tools = {
+        id = marker.call_id,
+        call_id = marker.response_call_id or marker.call_id,
+        name = marker.tool_name,
+      }
+    end
+    message.content = (entry.prefix or '') .. encoded
+    stamp_result(chat, message)
+    return message
   end
   return fallback_result_message(chat, marker, encoded)
 end
@@ -900,6 +1027,514 @@ local function classify_recorded_result(state, marker, entry)
     'recorded reasoning output did not match committed protocol state',
     State.get(chat) and 'active' or state.phase
   )
+end
+
+local function recorded_result_correlation_valid(chat, message, marker, entry)
+  if type(chat) ~= 'table' or type(message) ~= 'table' then
+    return false
+  end
+  local expected_role = type(chat.adapter) == 'table'
+      and type(chat.adapter.roles) == 'table'
+      and chat.adapter.roles.tool
+    or 'tool'
+  if message.role ~= expected_role then
+    return false
+  end
+  if entry and entry.reused and not vim.deep_equal(result_identity(message), entry.identity_before) then
+    return false
+  end
+  local tools = type(message.tools) == 'table' and message.tools or {}
+  local has_id = false
+  if message.tool_call_id ~= nil and message.tool_call_id ~= marker.call_id then
+    return false
+  elseif message.tool_call_id ~= nil then
+    has_id = true
+  end
+  if marker.response_call_id ~= nil then
+    if tools.id ~= marker.call_id or tools.call_id ~= marker.response_call_id then
+      return false
+    end
+    has_id = true
+  else
+    if tools.id ~= nil and tools.id ~= marker.call_id then
+      return false
+    elseif tools.id ~= nil then
+      has_id = true
+    end
+    if tools.call_id ~= nil and tools.call_id ~= marker.call_id then
+      return false
+    elseif tools.call_id ~= nil then
+      has_id = true
+    end
+  end
+  local stale_merged_name = entry and entry.reused and has_id
+  if tools.name ~= nil and tools.name ~= marker.tool_name and not stale_merged_name then
+    return false
+  end
+  if message.tool_name ~= nil and message.tool_name ~= marker.tool_name and not stale_merged_name then
+    return false
+  end
+  local canonical_ollama = marker.response_call_id == nil
+    and not has_id
+    and message.tool_call_id == nil
+    and message.tool_name == marker.tool_name
+    and next(tools) == nil
+  return has_id or canonical_ollama
+end
+
+local function expected_final_payload(staged)
+  local workspace = staged.workspace_prepared or staged.workspace
+  local progress = vim.deepcopy(workspace.counts_by_kind)
+  progress.synthesis = (progress.synthesis or 0) + 1
+  return {
+    workspace_id = workspace.id,
+    artifact = vim.deepcopy(staged.candidate or staged.stage.candidate),
+    progress = progress,
+    unmet_gates = {},
+    next_action = {
+      tool = 'none',
+      reason = 'Final synthesis accepted; no further model action is permitted',
+    },
+  }
+end
+
+local function candidate_contains_final(candidate)
+  if not candidate or type(candidate.delta) ~= 'string' then
+    return false
+  end
+  local ok, payload = pcall(vim.json.decode, candidate.delta)
+  if not ok or type(payload) ~= 'table' then
+    return false
+  end
+  local artifact = payload.artifact
+  return (type(payload.next_action) == 'table' and payload.next_action.tool == 'none')
+    or (
+      type(artifact) == 'table'
+      and artifact.kind == 'synthesis'
+      and type(artifact.data) == 'table'
+      and artifact.data.mode == 'final'
+    )
+end
+
+local function remove_candidate(chat, candidate)
+  if not candidate or not candidate.message then
+    return
+  end
+  if candidate.is_new then
+    for index = #chat.messages, 1, -1 do
+      if chat.messages[index] == candidate.message then
+        table.remove(chat.messages, index)
+        return
+      end
+    end
+    return
+  end
+  candidate.message.content = candidate.prior
+  if candidate.identity_before then
+    candidate.message.role = candidate.identity_before.role
+    candidate.message.tool_call_id = candidate.identity_before.tool_call_id
+    candidate.message.tool_name = candidate.identity_before.tool_name
+    candidate.message.tools = vim.deepcopy(candidate.identity_before.tools)
+  end
+  stamp_result(chat, candidate.message)
+end
+
+local function select_final_entry(chat, entry, candidates)
+  local selected = entry
+  if not selected then
+    for index = #(candidates or {}), 1, -1 do
+      if candidate_contains_final(candidates[index]) then
+        selected = candidates[index]
+        break
+      end
+    end
+  end
+  for _, candidate in ipairs(candidates or {}) do
+    if candidate ~= selected then
+      remove_candidate(chat, candidate)
+    end
+  end
+  return selected
+end
+
+local function fail_staged_final(state, staged, marker, entry, candidates, message)
+  local chat = chat_for(state)
+  if not chat then
+    return
+  end
+  entry = select_final_entry(chat, entry, candidates)
+  if staged and staged.stage and staged.stage.state == 'prepared' then
+    State.discard_final(staged.stage)
+  end
+  if state.staged_final == staged then
+    state.staged_final = nil
+  end
+  return internal_result(state, marker, entry, message, 'active')
+end
+
+local function settle_invalidated_final(state, staged, marker, entry, candidates)
+  local chat = chat_for(state)
+  if not chat then
+    return
+  end
+  entry = select_final_entry(chat, entry, candidates)
+  if staged and staged.stage and staged.stage.state == 'prepared' then
+    State.discard_final(staged.stage)
+  end
+  if state.staged_final == staged then
+    state.staged_final = nil
+  end
+  marker.status = 'classified'
+  local workspace = State.get(chat)
+  local transition_ok, transition = pcall(Protocol.transition, workspace, state.phase)
+  if not transition_ok or type(transition) ~= 'table' then
+    transition = workspace and { tool = 'none', reason = 'Wait for explicit user recovery' }
+      or { tool = 'reasoning_frame', reason = 'Start a new reasoning workspace' }
+  end
+  local payload = Protocol.failure(
+    'internal_error',
+    'reasoning finalization was invalidated while its host result was recorded',
+    {},
+    transition
+  ).data
+  rewrite_recorded_result(state, marker, entry, payload)
+end
+
+local function final_boundary_current(state, staged, marker)
+  local chat = chat_for(state)
+  local call = staged and staged.call or nil
+  return type(chat) == 'table'
+    and callbacks_allowed(chat, state)
+    and state.phase == 'finalizing'
+    and state.staged_final == staged
+    and staged.epoch == state.epoch
+    and staged.generation == state.request_generation
+    and staged.marker == marker
+    and staged.adapter == chat.adapter
+    and marker.adapter == staged.adapter
+    and marker.status == 'executing'
+    and marker.valid ~= false
+    and not marker.invalidated
+    and marker.epoch == staged.epoch
+    and marker.generation == staged.generation
+    and marker.phase == 'active'
+    and marker.operation == 'synthesis'
+    and marker.tool_name == 'reasoning_synthesis'
+    and marker.workspace == staged.workspace
+    and marker.revision == staged.revision
+    and type(call) == 'table'
+    and state.call_tokens[call] == marker
+    and vim.deep_equal(call, staged.call_snapshot)
+    and call.id == staged.call_id
+    and (call.call_id or nil) == staged.response_call_id
+    and type(call['function']) == 'table'
+    and call['function'].name == marker.tool_name
+    and vim.deep_equal(staged.stage.candidate, staged.candidate)
+    and staged.markdown_hash == Hash.hash({ content = staged.markdown })
+end
+
+local function staged_final_matches(state, staged, call, marker, entry)
+  local chat = chat_for(state)
+  local message = entry and entry.message or nil
+  if
+    not final_boundary_current(state, staged, marker)
+    or call ~= staged.call
+    or State.get(chat) ~= staged.workspace
+    or staged.workspace.revision ~= staged.revision
+    or not vim.deep_equal(staged.workspace, staged.workspace_prepared)
+    or staged.stage.workspace ~= staged.workspace
+    or staged.stage.revision ~= staged.revision
+    or staged.stage.state ~= 'prepared'
+    or staged.stage.reserved_id ~= staged.reserved_id
+    or staged.stage.candidate.id ~= staged.reserved_id
+    or not recorded_result_correlation_valid(chat, message, marker, entry)
+    or type(message._meta) ~= 'table'
+    or message._meta.id ~= Hash.hash({ role = message.role, content = message.content })
+  then
+    return false
+  end
+  local occurrences = 0
+  for _, candidate in ipairs(chat.messages or {}) do
+    if candidate == message then
+      occurrences = occurrences + 1
+    end
+  end
+  if occurrences ~= 1 then
+    return false
+  end
+  local decoded_ok, payload = pcall(vim.json.decode, entry.delta)
+  return decoded_ok and vim.deep_equal(payload, expected_final_payload(staged))
+end
+
+local function capture_final_history(chat, entry)
+  if type(chat.messages) ~= 'table' or not entry or type(entry.message) ~= 'table' then
+    return
+  end
+  local snapshot = {
+    messages = chat.messages,
+    value = vim.deepcopy(chat.messages),
+    refs = {},
+    count = #chat.messages,
+  }
+  local occurrences = 0
+  for index, message in ipairs(chat.messages) do
+    snapshot.refs[index] = message
+    if message == entry.message then
+      occurrences = occurrences + 1
+    end
+  end
+  return occurrences == 1 and snapshot or nil
+end
+
+local function final_history_current(chat, snapshot, emitted)
+  if type(snapshot) ~= 'table' or chat.messages ~= snapshot.messages then
+    return false
+  end
+  local expected = vim.deepcopy(snapshot.value)
+  if emitted then
+    expected[snapshot.count + 1] = vim.deepcopy(emitted.value)
+  end
+  if not vim.deep_equal(chat.messages, expected) then
+    return false
+  end
+  for index, message in ipairs(snapshot.refs) do
+    if chat.messages[index] ~= message then
+      return false
+    end
+  end
+  return not emitted or chat.messages[snapshot.count + 1] == emitted.ref
+end
+
+local function restore_final_history(chat, snapshot)
+  if type(snapshot) ~= 'table' or type(snapshot.messages) ~= 'table' then
+    return false
+  end
+  if not overwrite_table(snapshot.messages, snapshot.value) then
+    return false
+  end
+  for index, message in ipairs(snapshot.refs) do
+    local value = snapshot.value[index]
+    if type(message) == 'table' and type(value) == 'table' then
+      if not overwrite_table(message, value) then
+        return false
+      end
+      snapshot.messages[index] = message
+    end
+  end
+  chat.messages = snapshot.messages
+  return final_history_current(chat, snapshot)
+end
+
+local function capture_final_buffer(chat)
+  if type(chat.bufnr) ~= 'number' or not vim.api.nvim_buf_is_valid(chat.bufnr) then
+    return
+  end
+  local lines_ok, lines = pcall(vim.api.nvim_buf_get_lines, chat.bufnr, 0, -1, false)
+  local option_ok, modifiable = pcall(function()
+    return vim.bo[chat.bufnr].modifiable
+  end)
+  if not lines_ok or not option_ok then
+    return
+  end
+  return { bufnr = chat.bufnr, lines = lines, modifiable = modifiable }
+end
+
+local function restore_final_buffer(snapshot)
+  if type(snapshot) ~= 'table' or type(snapshot.bufnr) ~= 'number' or not vim.api.nvim_buf_is_valid(snapshot.bufnr) then
+    return false, 'buffer_invalid'
+  end
+  local restored, restore_error = xpcall(function()
+    if not vim.bo[snapshot.bufnr].modifiable then
+      vim.bo[snapshot.bufnr].modifiable = true
+    end
+    vim.api.nvim_buf_set_lines(snapshot.bufnr, 0, -1, false, snapshot.lines)
+    assert(
+      vim.deep_equal(vim.api.nvim_buf_get_lines(snapshot.bufnr, 0, -1, false), snapshot.lines),
+      'buffer lines did not restore exactly'
+    )
+    vim.bo[snapshot.bufnr].modifiable = snapshot.modifiable
+    assert(vim.bo[snapshot.bufnr].modifiable == snapshot.modifiable, 'buffer lock did not restore exactly')
+  end, debug.traceback)
+  if not restored then
+    pcall(function()
+      vim.bo[snapshot.bufnr].modifiable = snapshot.modifiable
+    end)
+    return false, restore_error
+  end
+  return true
+end
+
+local function restore_final_emission(chat, history, buffer)
+  local history_ok = restore_final_history(chat, history)
+  local buffer_ok, buffer_error = restore_final_buffer(buffer)
+  return history_ok and buffer_ok, history_ok and buffer_error or 'history_restore_failed'
+end
+
+local function rollback_final_workspace(chat, staged)
+  local workspace = staged and staged.workspace or nil
+  local stage = staged and staged.stage or nil
+  if type(workspace) ~= 'table' or type(stage) ~= 'table' or type(staged.workspace_before) ~= 'table' then
+    return false
+  end
+  if stage.state == 'committed' and State.get(chat) == workspace then
+    pcall(State.rollback_final, chat, stage)
+  end
+  if
+    not vim.deep_equal(workspace, staged.workspace_before) and not overwrite_table(workspace, staged.workspace_before)
+  then
+    return false
+  end
+  if not vim.deep_equal(workspace, staged.workspace_before) then
+    return false
+  end
+  stage.committed_artifact = nil
+  stage.rollback = nil
+  stage.state = 'rolled_back'
+  return true
+end
+
+local function committed_final_current(state, staged, marker)
+  local chat = chat_for(state)
+  local workspace = staged and staged.workspace or nil
+  local stage = staged and staged.stage or nil
+  return final_boundary_current(state, staged, marker)
+    and type(stage) == 'table'
+    and stage.state == 'committed'
+    and State.get(chat) == workspace
+    and workspace.revision == stage.revision + 1
+    and workspace.artifact_order[#workspace.artifact_order] == staged.reserved_id
+    and workspace.artifacts_by_id[staged.reserved_id] == stage.committed_artifact
+    and type(staged.workspace_committed) == 'table'
+    and vim.deep_equal(workspace, staged.workspace_committed)
+end
+
+local function lifecycle_consumed_final(state, staged, marker)
+  return state.closed
+    or state.unsupported_adapter
+    or state.phase ~= 'finalizing'
+    or state.staged_final ~= staged
+    or staged.epoch ~= state.epoch
+    or staged.generation ~= state.request_generation
+    or staged.marker ~= marker
+    or marker.valid == false
+    or marker.invalidated
+end
+
+local function host_clear_consumed_final(state, chat, history)
+  return not state.closed
+    and not state.unsupported_adapter
+    and state.phase == 'dormant'
+    and State.get(chat) == nil
+    and type(history) == 'table'
+    and chat.messages ~= history.messages
+end
+
+local function commit_and_emit_final(state, staged, marker, entry, candidates)
+  local chat = chat_for(state)
+  local snapshots_ok, snapshots = xpcall(function()
+    local history = assert(capture_final_history(chat, entry), 'final history could not be snapshotted')
+    local buffer = assert(capture_final_buffer(chat), 'final buffer could not be snapshotted')
+    return {
+      history = history,
+      buffer = buffer,
+      workspace = vim.deepcopy(staged.workspace),
+    }
+  end, debug.traceback)
+  if not snapshots_ok then
+    log:error('[reasoning control] final snapshot failed: %s', snapshots)
+    return fail_staged_final(
+      state,
+      staged,
+      marker,
+      entry,
+      candidates,
+      'reasoning final output could not be snapshotted'
+    )
+  end
+  staged.workspace_before = snapshots.workspace
+
+  local committed_ok, committed, commit_code = xpcall(function()
+    return State.commit_final(chat, staged.stage)
+  end, debug.traceback)
+  if not committed_ok or not committed or not vim.deep_equal(committed, staged.stage.candidate) then
+    if staged.stage.state == 'committed' then
+      rollback_final_workspace(chat, staged)
+    end
+    if not committed_ok then
+      log:error('[reasoning control] final commit failed: %s', committed)
+    end
+    return fail_staged_final(
+      state,
+      staged,
+      marker,
+      entry,
+      candidates,
+      'reasoning final transaction failed: ' .. tostring(commit_code or 'internal')
+    )
+  end
+  staged.workspace_committed = vim.deepcopy(staged.workspace)
+
+  local role = require('codecompanion.config').constants.LLM_ROLE
+  local emitted, emission_error = xpcall(function()
+    chat:add_message({ role = role, content = staged.markdown }, { visible = true })
+    assert(committed_final_current(state, staged, marker), 'final lifecycle changed during history emission')
+    local emitted_message = chat.messages[snapshots.history.count + 1]
+    assert(type(emitted_message) == 'table', 'final history emission is missing')
+    assert(emitted_message.role == role, 'final history role changed')
+    assert(emitted_message.content == staged.markdown, 'final history content changed')
+    local emitted_snapshot = { ref = emitted_message, value = vim.deepcopy(emitted_message) }
+    assert(final_history_current(chat, snapshots.history, emitted_snapshot), 'final history changed during emission')
+
+    local line = state.methods.add_buf_message.original(chat, {
+      role = role,
+      content = staged.markdown,
+    }, {
+      type = chat.MESSAGE_TYPES.LLM_MESSAGE,
+    })
+    assert(line ~= nil, 'final buffer emission returned nil')
+    assert(committed_final_current(state, staged, marker), 'final lifecycle changed during buffer emission')
+    assert(
+      final_history_current(chat, snapshots.history, emitted_snapshot),
+      'final history changed during buffer emission'
+    )
+    assert(State.finalize_final(chat, staged.stage), 'final transaction could not be sealed')
+  end, debug.traceback)
+  if not emitted then
+    log:error('[reasoning control] final emission failed: %s', emission_error)
+    local cleared = host_clear_consumed_final(state, chat, snapshots.history)
+    local invalidated = lifecycle_consumed_final(state, staged, marker)
+    if not cleared then
+      local restored, restore_error = restore_final_emission(chat, snapshots.history, snapshots.buffer)
+      if not restored then
+        log:error('[reasoning control] final emission restoration failed: %s', restore_error)
+      end
+    end
+    if not rollback_final_workspace(chat, staged) then
+      log:error('[reasoning control] final workspace restoration failed')
+      if State.get(chat) == staged.workspace then
+        State.clear(chat)
+      end
+    end
+    if cleared then
+      if state.staged_final == staged then
+        state.staged_final = nil
+      end
+      return
+    end
+    if invalidated then
+      return settle_invalidated_final(state, staged, marker, entry, candidates)
+    end
+    return fail_staged_final(state, staged, marker, entry, candidates, 'reasoning final emission failed internally')
+  end
+
+  staged.workspace_before = nil
+  staged.workspace_committed = nil
+  state.staged_final = nil
+  marker.status = 'classified'
+  state.consecutive_violations = 0
+  invalidate_marker(state.fallback_lease)
+  state.fallback_lease = nil
+  state.phase = 'finalized'
 end
 
 local function settle_rejected_batch(state, tools, chat, calls, payload, count_violation)
@@ -1711,7 +2346,9 @@ local function install(chat, phase)
         (
           suppressing_phase[state.phase]
           and (kind == target.MESSAGE_TYPES.LLM_MESSAGE or kind == target.MESSAGE_TYPES.REASONING_MESSAGE)
-        ) or (scope and scope.settling and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
+        )
+        or (state.phase == 'finalizing' and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
+        or (scope and scope.settling and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
       )
     then
       return
@@ -1758,6 +2395,10 @@ local function install(chat, phase)
     if marker and (marker.status == 'synthetic' or marker.status == 'classified') then
       return
     end
+    local staged = state.staged_final
+    if staged and staged.recording then
+      return
+    end
     if
       marker
       and (marker.valid == false or marker.epoch ~= state.epoch or marker.generation ~= state.request_generation)
@@ -1773,10 +2414,51 @@ local function install(chat, phase)
     end
 
     local snapshot = snapshot_recorded_result(target, marker)
+    local final_recording = staged and staged.marker == marker
+    if final_recording then
+      staged.recording = true
+    end
     local extra = packed(...)
     local ok, values = xpcall(function()
       return packed(add_tool_output.original(target, tool, unpack(extra, 1, extra.n)))
     end, debug.traceback)
+    if final_recording then
+      staged.recording = false
+      local entry, result_error, candidates = recorded_result_entry(target, marker, snapshot)
+      if state.staged_final ~= staged then
+        if not ok then
+          log:error('[reasoning control] invalidated final tool-result recording failed: %s', values)
+        end
+        return settle_invalidated_final(state, staged, marker, entry, candidates)
+      end
+      if result_error == 'history_boundary_changed' then
+        if not restore_recorded_history(target, snapshot) then
+          log:error('[reasoning control] pre-final history restoration failed')
+        end
+        entry = nil
+        candidates = {}
+      elseif entry and entry.message then
+        stamp_result(target, entry.message)
+      end
+      if not ok or result_error or not staged_final_matches(state, staged, call, marker, entry) then
+        if not ok then
+          log:error('[reasoning control] final tool-result recording failed: %s', values)
+        end
+        return fail_staged_final(
+          state,
+          staged,
+          marker,
+          entry,
+          candidates,
+          not ok and 'reasoning final result recording failed'
+            or (
+              result_error and 'reasoning final result append integrity failed'
+              or 'reasoning final result did not match its prepared transaction'
+            )
+        )
+      end
+      return commit_and_emit_final(state, staged, marker, entry, candidates)
+    end
     if marker.status == 'external' then
       if not ok then
         log:error('[reasoning control] external tool-result recording failed: %s', values)
@@ -1784,7 +2466,16 @@ local function install(chat, phase)
         return
       end
       local entry, result_error = recorded_result_entry(target, marker, snapshot)
-      if entry and not result_error and entry.message then
+      if result_error == 'history_boundary_changed' then
+        if not restore_recorded_history(target, snapshot) then
+          log:error('[reasoning control] external result history restoration failed')
+        end
+        halt_internal(state, 'Structured reasoning halted after external result history changed.', state.phase)
+        return
+      elseif result_error then
+        halt_internal(state, 'Structured reasoning halted after external result integrity failed.', state.phase)
+        return
+      elseif entry and entry.message then
         stamp_result(target, entry.message)
       end
       marker.status = 'classified'
@@ -1792,6 +2483,12 @@ local function install(chat, phase)
     end
 
     local entry, result_error = recorded_result_entry(target, marker, snapshot)
+    if result_error == 'history_boundary_changed' then
+      if not restore_recorded_history(target, snapshot) then
+        log:error('[reasoning control] reasoning result history restoration failed')
+      end
+      entry = nil
+    end
     if not ok or result_error then
       if not ok then
         log:error('[reasoning control] tool-result recording failed: %s', values)
@@ -1811,7 +2508,7 @@ local function install(chat, phase)
       or (call.call_id or nil) ~= marker.response_call_id
       or type(call['function']) ~= 'table'
       or call['function'].name ~= marker.tool_name
-      or not result_matches_call(entry.message, marker)
+      or not recorded_result_correlation_valid(target, entry.message, marker, entry)
     then
       internal_result(state, marker, entry, 'reasoning call/result correlation changed before classification')
       return
@@ -2212,8 +2909,110 @@ function M.legacy_terminal_allowed(chat)
     and state.phase == 'dormant'
 end
 
-function M.stage_final()
-  return nil, 'not available in this lifecycle build'
+function M.stage_final(chat, tool, finalization)
+  local state = type(chat) == 'table' and controllers[chat] or nil
+  local call = type(tool) == 'table' and tool.function_call or nil
+  local marker = state and type(call) == 'table' and state.call_tokens[call] or nil
+  local stage = type(finalization) == 'table' and finalization.stage or nil
+  if
+    not state
+    or state.closed
+    or state.unsupported_adapter
+    or state.boundary_issue ~= nil
+    or state.phase ~= 'active'
+    or state.staged_final ~= nil
+    or not callbacks_allowed(chat, state)
+    or not chat.adapter
+    or chat.adapter.type ~= 'http'
+    or type(tool) ~= 'table'
+    or tool.name ~= 'reasoning_synthesis'
+    or type(call) ~= 'table'
+    or type(call.id) ~= 'string'
+    or call.id == ''
+    or type(call['function']) ~= 'table'
+    or call['function'].name ~= tool.name
+    or not marker
+    or marker.valid == false
+    or marker.invalidated
+    or marker.status ~= 'executing'
+    or marker.epoch ~= state.epoch
+    or marker.generation ~= state.request_generation
+    or marker.operation ~= 'synthesis'
+    or marker.adapter ~= chat.adapter
+    or marker.tool_name ~= tool.name
+    or marker.call_id ~= call.id
+    or marker.response_call_id ~= (call.call_id or nil)
+    or type(stage) ~= 'table'
+    or stage.state ~= 'prepared'
+    or type(stage.workspace) ~= 'table'
+    or stage.workspace ~= State.get(chat)
+    or marker.workspace ~= stage.workspace
+    or marker.revision ~= stage.revision
+    or stage.revision ~= stage.workspace.revision
+    or type(stage.candidate) ~= 'table'
+    or stage.candidate.kind ~= 'synthesis'
+    or stage.candidate.status ~= 'active'
+    or type(stage.candidate.data) ~= 'table'
+    or stage.candidate.data.mode ~= 'final'
+    or stage.workspace_id ~= stage.workspace.id
+    or stage.reserved_id ~= stage.candidate.id
+    or type(finalization.markdown) ~= 'string'
+    or vim.trim(finalization.markdown) == ''
+  then
+    return nil, 'reasoning final stage is unavailable'
+  end
+
+  local staged = {
+    generation = state.request_generation,
+    epoch = state.epoch,
+    call_id = call.id,
+    response_call_id = call.call_id,
+    call = call,
+    call_snapshot = vim.deepcopy(call),
+    marker = marker,
+    adapter = chat.adapter,
+    workspace = stage.workspace,
+    revision = stage.revision,
+    reserved_id = stage.reserved_id,
+    stage = stage,
+    candidate = vim.deepcopy(stage.candidate),
+    workspace_prepared = vim.deepcopy(stage.workspace),
+    markdown = finalization.markdown,
+    markdown_hash = Hash.hash({ content = finalization.markdown }),
+    recording = false,
+  }
+  state.staged_final = staged
+  state.phase = 'finalizing'
+  invalidate_marker(state.fallback_lease)
+  state.fallback_lease = nil
+  if type(chat.remove_tagged_message) == 'function' then
+    pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+  end
+  local subscribers = chat.subscribers
+  local stopped = type(subscribers) == 'table'
+    and type(subscribers.stop) == 'function'
+    and pcall(subscribers.stop, subscribers)
+  local boundary_ok = stopped
+    and final_boundary_current(state, staged, marker)
+    and State.get(chat) == staged.workspace
+    and staged.workspace.revision == staged.revision
+    and vim.deep_equal(staged.workspace, staged.workspace_prepared)
+    and staged.stage.workspace == staged.workspace
+    and staged.stage.revision == staged.revision
+    and staged.stage.state == 'prepared'
+    and staged.stage.reserved_id == staged.reserved_id
+    and staged.stage.candidate.id == staged.reserved_id
+  if not boundary_ok then
+    if state.staged_final == staged then
+      State.discard_final(staged.stage)
+      state.staged_final = nil
+      if state.phase == 'finalizing' then
+        halt_internal(state, 'Structured reasoning halted because final-stage ownership changed.', 'active')
+      end
+    end
+    return nil, 'reasoning final stage could not stop automatic submission'
+  end
+  return true
 end
 
 function M.resume(chat)

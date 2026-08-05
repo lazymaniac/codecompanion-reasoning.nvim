@@ -74,7 +74,7 @@ local function final_workspace_fixture()
     blind_spots = {},
     next_actions = {},
     confidence = 'high',
-  }, 'active')
+  }, nil)
   eq(final.status, 'success')
   return chat
 end

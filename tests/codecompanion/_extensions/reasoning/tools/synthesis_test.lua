@@ -3,15 +3,23 @@ local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
+local Render = require('codecompanion._extensions.reasoning.render')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
 local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
+
+local original_render = Render.render
+local original_prepare_final = State.prepare_final
 
 local T = MiniTest.new_set({
   hooks = {
     pre_case = function()
       Config.setup()
       State._reset()
+    end,
+    post_case = function()
+      Render.render = original_render
+      State.prepare_final = original_prepare_final
     end,
   },
 })
@@ -449,6 +457,140 @@ T['deep final succeeds after every gate is met'] = function()
   })
   eq(result.data.artifact.relations.supports, { 'E1', 'E2' })
   eq(result.data.artifact.relations.depends_on, { 'F1', 'O1', 'R1' })
+end
+
+T['controlled final prepares rendered synthesis without allocating state'] = function()
+  local chat = deep_workspace()
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    sequence = workspace.next_sequence.synthesis,
+    count = workspace.counts_by_kind.synthesis,
+    order = vim.deepcopy(workspace.artifact_order),
+  }
+
+  local result = Protocol.call('synthesis', chat, final_args(), 'active')
+
+  eq(result.status, 'success')
+  eq(result.data.artifact.id, 'S1')
+  eq(result.data._reasoning_final.stage.candidate.id, 'S1')
+  eq(result.data._reasoning_final.stage.candidate.relations.supports, { 'E1', 'E2' })
+  eq(result.data._reasoning_final.stage.candidate.relations.depends_on, { 'F1', 'O1', 'R1' })
+  eq(result.data._reasoning_final.stage.candidate.relations.supersedes, {})
+  eq(type(result.data._reasoning_final.markdown), 'string')
+  eq(result.data.progress.synthesis, (before.count or 0) + 1)
+  eq(workspace.revision, before.revision)
+  eq(workspace.next_sequence.synthesis, before.sequence)
+  eq(workspace.counts_by_kind.synthesis, before.count)
+  eq(workspace.artifact_order, before.order)
+  eq(State.find(workspace, 'S1'), nil)
+
+  eq(State.discard_final(result.data._reasoning_final.stage), true)
+  eq(workspace.revision, before.revision)
+  eq(workspace.next_sequence.synthesis, before.sequence)
+  eq(State.find(workspace, 'S1'), nil)
+end
+
+T['prepared final conflicts after workspace mutation and consumes no reserved ID'] = function()
+  local chat = deep_workspace()
+  local workspace = State.get(chat)
+  local result = Protocol.call('synthesis', chat, final_args(), 'active')
+  local stage = result.data._reasoning_final.stage
+  State.retract(workspace, 'E2')
+
+  local committed, code = State.commit_final(chat, stage)
+  eq(committed, nil)
+  eq(code, 'transaction_conflict')
+  eq(stage.state, 'conflicted')
+  eq(workspace.next_sequence.synthesis, nil)
+  eq(State.find(workspace, 'S1'), nil)
+end
+
+T['standalone final reports a transaction conflict when rendering mutates workspace'] = function()
+  local chat = deep_workspace()
+  local workspace = State.get(chat)
+  local captured_stage
+  State.prepare_final = function(...)
+    local stage, code = original_prepare_final(...)
+    captured_stage = stage
+    return stage, code
+  end
+  Render.render = function(render_workspace, candidate)
+    local markdown = original_render(render_workspace, candidate)
+    State.retract(render_workspace, 'E2')
+    return markdown
+  end
+
+  local result = Protocol.call('synthesis', chat, final_args(), nil)
+
+  eq(result.status, 'error')
+  eq(result.data.code, 'transaction_conflict')
+  eq(result.data.committed, false)
+  eq(captured_stage.state, 'conflicted')
+  eq(workspace.next_sequence.synthesis, nil)
+  eq(State.find(workspace, 'S1'), nil)
+end
+
+T['renderer failures are stable and allocate no controlled or standalone final'] = function()
+  for _, replacement in ipairs({
+    function()
+      error('fixture renderer failure')
+    end,
+    function()
+      return nil
+    end,
+    function()
+      return '   '
+    end,
+  }) do
+    State._reset()
+    Render.render = replacement
+    for _, phase in ipairs({ 'active', false }) do
+      local chat = deep_workspace()
+      local workspace = State.get(chat)
+      local before_revision = workspace.revision
+      local captured_stage
+      State.prepare_final = function(...)
+        local stage, code = original_prepare_final(...)
+        captured_stage = stage
+        return stage, code
+      end
+      local result = Protocol.call('synthesis', chat, final_args(), phase == false and nil or phase)
+      eq(result.status, 'error')
+      eq(result.data.code, 'render_internal')
+      eq(result.data.message, 'the deterministic final could not be rendered')
+      eq(result.data.committed, false)
+      eq(result.data._reasoning_final, nil)
+      eq(captured_stage.state, 'discarded')
+      eq(workspace.revision, before_revision)
+      eq(workspace.next_sequence.synthesis, nil)
+      eq(State.find(workspace, 'S1'), nil)
+    end
+  end
+end
+
+T['controlled checkpoint still commits immediately without a final stage'] = function()
+  local chat = deep_workspace()
+  local args = final_args()
+  args.mode = 'checkpoint'
+  local result = Protocol.call('synthesis', chat, args, 'active')
+
+  eq(result.status, 'success')
+  eq(result.data.artifact.id, 'S1')
+  eq(result.data._reasoning_final, nil)
+  eq(State.find(State.get(chat), 'S1').data.mode, 'checkpoint')
+  eq(State.get(chat).counts_by_kind.synthesis, 1)
+end
+
+T['standalone final renders and commits without exposing its internal stage'] = function()
+  local chat = deep_workspace()
+  local result = Protocol.call('synthesis', chat, final_args(), nil)
+
+  eq(result.status, 'success')
+  eq(result.data.artifact.id, 'S1')
+  eq(result.data._reasoning_final, nil)
+  eq(State.find(State.get(chat), 'S1').data.conclusion, final_args().conclusion)
+  eq(State.get(chat).counts_by_kind.synthesis, 1)
 end
 
 T['standard analysis succeeds with one perspective and no branch'] = function()

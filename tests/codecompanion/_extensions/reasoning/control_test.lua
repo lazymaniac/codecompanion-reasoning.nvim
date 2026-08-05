@@ -18,6 +18,8 @@ local original_global_adapter
 local original_test_adapter
 local original_host_config
 local original_parser_messages
+local original_commit_final = State.commit_final
+local original_rollback_final = State.rollback_final
 local canonical_tool_configs
 
 local function callback_methods()
@@ -247,6 +249,13 @@ local function new_chat(opts)
     message._meta = message._meta or (message_opts and vim.deepcopy(message_opts._meta))
     message.visible = message.visible ~= nil and message.visible or (message_opts and message_opts.visible)
     table.insert(self.messages, message)
+    record('history_message')
+    if self.fixture_final_history_invalidate and data.role == host_config.constants.LLM_ROLE then
+      self.fixture_final_history_invalidate(self)
+    end
+    if self.fixture_history_error then
+      error('fixture history emission failed')
+    end
     return message
   end
   methods.remove_tagged_message = function(self, tag)
@@ -349,8 +358,28 @@ local function new_chat(opts)
       self:done(nil, nil, nil, nil, { status = 'stopped' })
     end)
   end
-  methods.add_buf_message = function(_, data, message_opts)
+  methods.add_buf_message = function(self, data, message_opts)
     table.insert(calls.notices, { data = data, opts = message_opts })
+    record('buffer_message')
+    local final_output = message_opts and message_opts.type == self.MESSAGE_TYPES.LLM_MESSAGE
+    if self.fixture_buffer_partial_lock and final_output then
+      vim.bo[self.bufnr].modifiable = true
+      vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, { 'partial accepted output' })
+      vim.bo[self.bufnr].modifiable = false
+      error('fixture locked partial buffer emission failed')
+    end
+    if self.fixture_buffer_write and final_output then
+      vim.api.nvim_buf_set_lines(self.bufnr, -1, -1, false, vim.split(data.content or '', '\n', { plain = true }))
+    end
+    if self.fixture_final_buffer_invalidate and final_output then
+      self.fixture_final_buffer_invalidate(self)
+    end
+    if self.fixture_buffer_nil and final_output then
+      return nil
+    end
+    if self.fixture_buffer_error and final_output then
+      error('fixture buffer emission failed')
+    end
     return #calls.notices
   end
   methods.add_tool_output = function(self, tool, for_llm, for_user)
@@ -384,6 +413,7 @@ local function new_chat(opts)
     else
       table.insert(self.messages, output)
     end
+    record('tool_result_recorded')
     if args.for_user ~= '' then
       self:add_buf_message({ role = 'assistant', content = args.for_user or args.for_llm }, {
         type = self.MESSAGE_TYPES.TOOL_MESSAGE,
@@ -394,6 +424,11 @@ local function new_chat(opts)
     calls.clear = calls.clear + 1
     self.messages = {}
     self.tool_registry.in_use = {}
+    if self.fixture_clear_render and vim.api.nvim_buf_is_valid(self.bufnr) then
+      vim.bo[self.bufnr].modifiable = true
+      vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, { 'host cleared render' })
+      vim.bo[self.bufnr].modifiable = false
+    end
   end
   methods.close = function(self)
     calls.close = calls.close + 1
@@ -652,6 +687,49 @@ local function controlled_chat(phase)
   return chat, calls, Control._get(chat)
 end
 
+local function final_args()
+  return {
+    mode = 'final',
+    conclusion = 'Use the verified implementation boundary',
+    selected_option_ids = {},
+    support_ids = { 'E1' },
+    review_ids = {},
+    criterion_results = {},
+    tradeoffs = { 'Strict recovery requires explicit user action' },
+    uncertainties = {},
+    blind_spots = {},
+    next_actions = { 'Keep the lifecycle controller installed' },
+    confidence = 'high',
+  }
+end
+
+local function final_ready_chat()
+  local chat, calls, state = controlled_chat('active')
+  assert(State.add(State.get(chat), 'evidence', {
+    kind = 'observation',
+    statement = 'The controlled boundary rejects unauthenticated completion',
+    source = 'tests/control_test.lua',
+    confidence = 'high',
+    falsifier = 'An unauthenticated completion mutates state',
+    perspective = 'correctness',
+    addresses_unknowns = {},
+  }))
+  return chat, calls, state
+end
+
+local function prepare_final_output(chat, id, call_id)
+  local call = formatted_call(id or 'final-call', 'reasoning_synthesis', final_args())
+  call.call_id = call_id
+  chat.tools:execute(chat, { call })
+  local result = Protocol.call('synthesis', chat, vim.deepcopy(call['function'].arguments), 'active')
+  local tool = { name = 'reasoning_synthesis', function_call = call }
+  return result, tool, call
+end
+
+local function record_final_output(chat, result, tool)
+  return Output.success(tool, { result.data }, { tools = chat.tools })
+end
+
 local function submit_request(chat, calls)
   chat:submit({ auto_submit = true })
   return calls.requests[#calls.requests]
@@ -732,6 +810,8 @@ T = MiniTest.new_set({
       host_config.adapters.reasoning_control_test_acp = original_test_adapter
       host_config.config = original_host_config
       host_parser.messages = original_parser_messages
+      State.commit_final = original_commit_final
+      State.rollback_final = original_rollback_final
       canonical_tool_configs = nil
       for _, bufnr in ipairs(created_buffers) do
         if vim.api.nvim_buf_is_valid(bufnr) then
@@ -1104,6 +1184,38 @@ T['clears legacy terminal guards on complete HTTP ACP and dormant rearm'] = func
   eq(Control.phase(dormant), 'armed')
 end
 
+T['does not install a legacy guard when recording completes the controlled tool set'] = function()
+  local chat = new_chat()
+  for index = 1, #Constants.tool_names - 1 do
+    chat.tool_registry.in_use[Constants.tool_names[index]] = true
+  end
+  local workspace = start_workspace(chat, false)
+  assert(State.add(workspace, 'evidence', {
+    kind = 'observation',
+    statement = 'The standalone final is supported',
+    source = 'tests/control_test.lua',
+    confidence = 'high',
+    falsifier = 'The supporting observation is withdrawn',
+    perspective = 'correctness',
+    addresses_unknowns = {},
+  }))
+  local result = Protocol.call('synthesis', chat, final_args(), nil)
+  eq(result.status, 'success')
+  eq(result.data.artifact.id, 'S1')
+  chat.tools.chat = chat
+  chat:add_callback('on_tool_output', function(value)
+    attach_all(value)
+    Control.reconcile(value)
+  end)
+  local call = formatted_call('standalone-final', 'reasoning_synthesis', final_args())
+
+  record_final_output(chat, result, { name = 'reasoning_synthesis', function_call = call })
+
+  eq(Control.phase(chat), 'finalized')
+  eq(rawget(chat, '_codecompanion_reasoning_terminal_guard'), nil)
+  eq(Control._get(chat).boundary_issue, nil)
+end
+
 T['keeps controlled terminal output on the existing submit wrapper'] = function()
   local chat = attach_all(new_chat())
   Control.reconcile(chat)
@@ -1352,7 +1464,7 @@ T['halts safely after preserved submit errors and exposes total placeholders'] =
   eq(state.phase, 'halted')
   eq(state.resume_phase, 'armed')
   eq(state.consecutive_violations, 0)
-  eq({ Control.stage_final(chat, {}, {}) }, { nil, 'not available in this lifecycle build' })
+  eq({ Control.stage_final(chat, {}, {}) }, { nil, 'reasoning final stage is unavailable' })
   eq(Control.resume(chat), false)
 end
 
@@ -1368,11 +1480,13 @@ T['suppresses model prose while preserving tool system and user traffic'] = func
     }) do
       chat:add_buf_message({ role = 'assistant', content = item.content }, { type = item.type })
     end
+    local expected = phase == 'finalizing' and { 'system status', 'user text' }
+      or { 'tool result', 'system status', 'user text' }
     eq(
       vim.tbl_map(function(item)
         return item.data.content
       end, calls.notices),
-      { 'tool result', 'system status', 'user text' }
+      expected
     )
   end
 
@@ -2949,6 +3063,937 @@ T['invalidates pre-resume fallback and requires reframe after final output'] = f
   local revise = formatted_call('reframe-revise', 'reasoning_frame', frame_args('revise'))
   eq(execute_protocol_call(chat, revise, 'reframing').status, 'success')
   eq(state.phase, 'active')
+end
+
+T['binds a prepared final to the exact live call and controller generation'] = function()
+  local chat, _, state = final_ready_chat()
+  state.request_generation = 4
+  state.observed_call_ids[4] = {}
+  local fallback = { valid = true, epoch = state.epoch, generation = 4 }
+  state.fallback_lease = fallback
+  local result, tool, call = prepare_final_output(chat, 'response-item-final', 'response-call-final')
+  local internal = result.data._reasoning_final
+
+  eq(Control.stage_final(chat, tool, internal), true)
+  local staged = state.staged_final
+  eq(staged.generation, 4)
+  eq(staged.epoch, state.epoch)
+  eq(staged.call_id, call.id)
+  eq(staged.response_call_id, call.call_id)
+  eq(staged.marker, state.call_tokens[call])
+  eq(staged.adapter, chat.adapter)
+  eq(staged.workspace, State.get(chat))
+  eq(staged.revision, State.get(chat).revision)
+  eq(staged.reserved_id, 'S1')
+  eq(staged.stage, internal.stage)
+  eq(staged.markdown, internal.markdown)
+  eq(state.phase, 'finalizing')
+  eq(state.fallback_lease, nil)
+  eq(fallback.valid, false)
+  eq(chat.subscribers.stopped, true)
+end
+
+T['refuses every stale or malformed final stage without leaving active'] = function()
+  local cases = {
+    function(_, _, _, call)
+      call.id = 'changed-call'
+    end,
+    function(_, _, _, call)
+      call.call_id = 'changed-response-call'
+    end,
+    function(_, state, _, call)
+      state.call_tokens[call].valid = false
+    end,
+    function(_, state)
+      state.request_generation = state.request_generation + 1
+    end,
+    function(_, _, internal)
+      internal.stage.revision = internal.stage.revision + 1
+    end,
+    function(_, _, internal)
+      internal.stage.candidate.data.mode = 'checkpoint'
+    end,
+    function(_, _, internal)
+      internal.stage.reserved_id = 'S-forged'
+    end,
+    function(_, _, internal)
+      internal.markdown = '   '
+    end,
+  }
+
+  for _, mutate in ipairs(cases) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool, call = prepare_final_output(chat, 'refused-final')
+    local internal = result.data._reasoning_final
+    mutate(chat, state, internal, call)
+    eq(Control.stage_final(chat, tool, internal), nil)
+    eq(state.phase, 'active')
+    eq(state.staged_final, nil)
+    eq(chat.subscribers.stopped, nil)
+    eq(State.find(State.get(chat), 'S1'), nil)
+  end
+end
+
+T['records then commits and emits one exact controlled final'] = function()
+  local chat, calls, state = final_ready_chat()
+  local result, tool, call = prepare_final_output(chat, 'atomic-final')
+  local markdown = result.data._reasoning_final.markdown
+  State.commit_final = function(...)
+    table.insert(calls.events, 'commit')
+    eq(State.find(State.get(chat), 'S1'), nil)
+    return original_commit_final(...)
+  end
+  local reentered = false
+  chat:add_callback('on_tool_output', function(_, args)
+    if not reentered then
+      reentered = true
+      chat:add_tool_output(tool, args.for_llm, '')
+    end
+    args.for_user = 'must not leak before final verification'
+  end)
+
+  record_final_output(chat, result, tool)
+
+  eq(calls.events, { 'tool_result_recorded', 'commit', 'history_message', 'buffer_message' })
+  eq(state.phase, 'finalized')
+  eq(state.staged_final, nil)
+  eq(state.call_tokens[call].status, 'classified')
+  eq(state.consecutive_violations, 0)
+  eq(State.find(State.get(chat), 'S1').data.conclusion, final_args().conclusion)
+  eq(#chat.messages, 2)
+  eq(vim.json.decode(chat.messages[1].content)._reasoning_final, nil)
+  eq(chat.messages[2].role, host_config.constants.LLM_ROLE)
+  eq(chat.messages[2].content, markdown)
+  eq(calls.notices[1].data.content, markdown)
+  eq(reentered, true)
+  eq(vim.json.encode(calls.notices):find('must not leak', 1, true), nil)
+  eq(rawget(chat, '_codecompanion_reasoning_terminal_guard'), nil)
+
+  local before = {
+    messages = #chat.messages,
+    notices = #calls.notices,
+    events = #calls.events,
+  }
+  record_final_output(chat, result, tool)
+  chat:dispatch('on_ready')
+  drain_scheduled()
+  chat:submit({ auto_submit = true })
+  eq(#chat.messages, before.messages)
+  eq(#calls.notices, before.notices)
+  eq(#calls.events, before.events)
+  eq(calls.submit, 0)
+  eq(State.get(chat).counts_by_kind.synthesis, 1)
+end
+
+T['seals a successful final against retained rollback capability'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'sealed-final')
+  local stage = result.data._reasoning_final.stage
+
+  record_final_output(chat, result, tool)
+
+  eq(state.phase, 'finalized')
+  eq(stage.state, 'finalized')
+  eq(State.rollback_final(chat, stage), false)
+  eq(State.find(State.get(chat), 'S1') ~= nil, true)
+  eq(#chat.messages, 2)
+end
+
+T['does not run dynamic cleanup after final verification'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'post-verification-cleanup')
+  local cleanup_calls = 0
+  chat:add_callback('on_tool_output', function()
+    chat.remove_tagged_message = function(value)
+      cleanup_calls = cleanup_calls + 1
+      value.messages[1].content = 'tampered after verification'
+    end
+  end)
+
+  record_final_output(chat, result, tool)
+
+  eq(cleanup_calls, 0)
+  eq(state.phase, 'finalized')
+  eq(vim.json.decode(chat.messages[1].content).artifact.id, 'S1')
+  eq(State.find(State.get(chat), 'S1') ~= nil, true)
+end
+
+T['accepts authenticated ordinary Responses and Ollama result layouts'] = function()
+  local layouts = {
+    ordinary = function(call, output)
+      return {
+        role = 'tool',
+        tools = { call_id = call.id, name = call['function'].name },
+        content = output,
+      }
+    end,
+    responses = function(call, output)
+      return {
+        role = 'tool',
+        tools = { id = call.id, call_id = call.call_id, name = call['function'].name },
+        content = output,
+      }
+    end,
+    ollama = function(call, output)
+      return {
+        role = 'tool',
+        tool_name = call['function'].name,
+        content = output,
+      }
+    end,
+  }
+
+  for name, formatter in pairs(layouts) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    chat.adapter.handlers.tools.format_response = function(_, call, output)
+      return formatter(call, output)
+    end
+    local response_id = name == 'responses' and 'response-call-final' or nil
+    local result, tool = prepare_final_output(chat, name .. '-final', response_id)
+    record_final_output(chat, result, tool)
+    eq(state.phase, 'finalized')
+    eq(State.find(State.get(chat), 'S1') ~= nil, true)
+    eq(#chat.messages, 2)
+  end
+
+  Control._reset()
+  State._reset()
+  local ollama, _, ollama_state = controlled_chat('armed')
+  ollama.adapter.handlers.tools.format_response = function(_, call, output)
+    return { role = 'tool', tool_name = call['function'].name, content = output }
+  end
+  local frame = formatted_call('ollama-frame', 'reasoning_frame', frame_args())
+  eq(execute_protocol_call(ollama, frame, 'armed').status, 'success')
+  eq(ollama_state.phase, 'active')
+  eq(ollama_state.call_tokens[frame].status, 'classified')
+end
+
+T['scrubs every mismatched staged-final record and halts uncounted'] = function()
+  local cases = {
+    {
+      name = 'deep payload',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function(_, args)
+          local payload = vim.json.decode(args.for_llm)
+          payload.artifact.data.conclusion = 'hostile substituted conclusion'
+          args.for_llm = vim.json.encode(payload)
+        end)
+      end,
+    },
+    {
+      name = 'payload id',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function(_, args)
+          local payload = vim.json.decode(args.for_llm)
+          payload.artifact.id = 'S-forged'
+          args.for_llm = vim.json.encode(payload)
+        end)
+      end,
+    },
+    {
+      name = 'workspace id',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function(_, args)
+          local payload = vim.json.decode(args.for_llm)
+          payload.workspace_id = 'W-forged'
+          args.for_llm = vim.json.encode(payload)
+        end)
+      end,
+    },
+    {
+      name = 'workspace revision',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          State.retract(State.get(chat), 'E1')
+        end)
+      end,
+    },
+    {
+      name = 'adapter identity',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          chat.adapter = vim.deepcopy(chat.adapter)
+        end)
+      end,
+    },
+    {
+      name = 'adapter transport',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          chat.adapter.type = 'acp'
+        end)
+      end,
+    },
+    {
+      name = 'tool boundary',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          chat.tool_registry.in_use.reasoning_synthesis = nil
+        end)
+      end,
+    },
+    {
+      name = 'wrapper boundary',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          rawset(chat, 'submit', function() end)
+        end)
+      end,
+    },
+    {
+      name = 'missing record',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function()
+          return nil
+        end
+      end,
+    },
+    {
+      name = 'throwing formatter',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function()
+          error('fixture final formatter failed')
+        end
+      end,
+    },
+    {
+      name = 'multiple records',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function(_, args)
+          chat:add_message({ role = 'tool', content = args.for_llm }, { visible = false })
+        end)
+      end,
+    },
+    {
+      name = 'multiple records with nonfinal noise',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          chat:add_message({ role = 'tool', content = vim.json.encode({ code = 'noise' }) }, { visible = false })
+        end)
+      end,
+    },
+    {
+      name = 'multiple records with nonstring noise',
+      arrange = function(chat)
+        chat:add_callback('on_tool_output', function()
+          chat:add_message({ role = 'tool', content = {} }, { visible = false })
+        end)
+      end,
+    },
+    {
+      name = 'wrong result identity',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function(_, _, output)
+          return {
+            role = 'tool',
+            tools = { id = 'wrong-item', call_id = 'wrong-call', name = 'reasoning_synthesis' },
+            content = output,
+          }
+        end
+      end,
+    },
+    {
+      name = 'partial responses identity',
+      call_id = 'response-call-partial',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function(_, call, output)
+          return {
+            role = 'tool',
+            tools = { call_id = call.id, name = 'reasoning_synthesis' },
+            content = output,
+          }
+        end
+      end,
+    },
+    {
+      name = 'missing result identity',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function(_, _, output)
+          return { role = 'tool', content = output }
+        end
+      end,
+    },
+    {
+      name = 'name-only result identity',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function(_, _, output)
+          return { role = 'tool', tools = { name = 'reasoning_synthesis' }, content = output }
+        end
+      end,
+    },
+    {
+      name = 'wrong result name with matching id',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function(_, call, output)
+          return {
+            role = 'tool',
+            tools = { id = call.id, call_id = call.call_id or call.id, name = 'reasoning_evidence' },
+            content = output,
+          }
+        end
+      end,
+    },
+    {
+      name = 'wrong result role',
+      arrange = function(chat)
+        chat.adapter.handlers.tools.format_response = function(_, _, output)
+          return { role = 'assistant', tool_name = 'reasoning_synthesis', content = output }
+        end
+      end,
+    },
+    {
+      name = 'live call identity',
+      arrange = function(chat, call)
+        chat:add_callback('on_tool_output', function()
+          call.id = 'mutated-live-call'
+        end)
+      end,
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    Control._reset()
+    State._reset()
+    local chat, calls, state = final_ready_chat()
+    state.consecutive_violations = 2
+    local result, tool, call = prepare_final_output(chat, 'mismatch-' .. case.name:gsub(' ', '-'), case.call_id)
+    local stage = result.data._reasoning_final.stage
+    case.arrange(chat, call)
+    record_final_output(chat, result, tool)
+
+    eq(state.phase, 'halted')
+    eq(state.resume_phase, 'active')
+    eq(state.consecutive_violations, 2)
+    eq(state.staged_final, nil)
+    eq(stage.state, 'discarded')
+    eq(State.find(State.get(chat), 'S1'), nil)
+    local tool_messages = {}
+    for _, message in ipairs(chat.messages) do
+      if message.role == 'tool' then
+        table.insert(tool_messages, message)
+      end
+    end
+    eq(#tool_messages, 1)
+    eq(#chat.messages, 1)
+    local payload = vim.json.decode(tool_messages[1].content)
+    eq(payload.code, 'internal_error')
+    eq(payload.committed, false)
+    eq(payload.artifact, nil)
+    eq(#calls.notices >= 1, true)
+  end
+end
+
+T['rejects a coordinated mutation of the staged candidate and public result'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'mutated-staged-candidate')
+  local stage = result.data._reasoning_final.stage
+  chat:add_callback('on_tool_output', function(_, args)
+    stage.candidate.data.conclusion = 'Hostile conclusion after deterministic rendering'
+    local payload = vim.json.decode(args.for_llm)
+    payload.artifact = vim.deepcopy(stage.candidate)
+    args.for_llm = vim.json.encode(payload)
+  end)
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'discarded')
+  eq(state.phase, 'halted')
+  eq(State.find(State.get(chat), 'S1'), nil)
+  eq(#chat.messages, 1)
+  eq(vim.json.decode(chat.messages[1].content).code, 'internal_error')
+end
+
+T['rejects and restores pre-record history replacement'] = function()
+  local chat, _, state = final_ready_chat()
+  local prior = { role = 'user', content = 'preserve prior reasoning context' }
+  table.insert(chat.messages, prior)
+  local result, tool = prepare_final_output(chat, 'replaced-pre-record-history')
+  local stage = result.data._reasoning_final.stage
+  chat:add_callback('on_tool_output', function(value)
+    value.messages = {}
+  end)
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'discarded')
+  eq(state.phase, 'halted')
+  eq(State.find(State.get(chat), 'S1'), nil)
+  eq(#chat.messages, 2)
+  eq(chat.messages[1], prior)
+  eq(chat.messages[1].content, 'preserve prior reasoning context')
+  eq(vim.json.decode(chat.messages[2].content).code, 'internal_error')
+end
+
+T['rejects multiple staged-final records when the host reuses a result message'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool, call = prepare_final_output(chat, 'reused-multiple-final')
+  local stage = result.data._reasoning_final.stage
+  local prefix = vim.json.encode({ prior = 'preserved' })
+  local prior = {
+    role = 'tool',
+    tools = { call_id = call.id, name = 'reasoning_synthesis' },
+    content = prefix,
+    _meta = { cycle = chat.cycle },
+  }
+  prior._meta.id = host_hash.hash({ role = prior.role, content = prior.content })
+  table.insert(chat.messages, prior)
+  chat:add_callback('on_tool_output', function(_, args)
+    chat:add_message({ role = 'tool', tool_name = 'reasoning_synthesis', content = args.for_llm }, { visible = false })
+  end)
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'discarded')
+  eq(state.phase, 'halted')
+  eq(state.resume_phase, 'active')
+  eq(state.staged_final, nil)
+  eq(State.find(State.get(chat), 'S1'), nil)
+  eq(#chat.messages, 1)
+  eq(chat.messages[1], prior)
+  eq(chat.messages[1].content:sub(1, #prefix + 2), prefix .. '\n\n')
+  local payload = vim.json.decode(chat.messages[1].content:sub(#prefix + 3))
+  eq(payload.code, 'internal_error')
+  eq(payload.committed, false)
+end
+
+T['rejects identity mutation on a reused staged-final result'] = function()
+  local mutations = {
+    name = function(message)
+      message.tools.name = 'reasoning_evidence'
+    end,
+    call_id = function(message)
+      message.tools.call_id = 'hostile-replacement'
+    end,
+  }
+
+  for name, mutate in pairs(mutations) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool, call = prepare_final_output(chat, 'reused-identity-' .. name)
+    local stage = result.data._reasoning_final.stage
+    local prefix = vim.json.encode({ prior = 'preserved' })
+    local prior = {
+      role = 'tool',
+      tools = { call_id = call.id, name = 'reasoning_synthesis' },
+      content = prefix,
+      _meta = { cycle = chat.cycle },
+    }
+    prior._meta.id = host_hash.hash({ role = prior.role, content = prior.content })
+    table.insert(chat.messages, prior)
+    chat:add_callback('on_tool_output', function()
+      mutate(prior)
+    end)
+
+    record_final_output(chat, result, tool)
+
+    eq(stage.state, 'discarded')
+    eq(state.phase, 'halted')
+    eq(State.find(State.get(chat), 'S1'), nil)
+    eq(#chat.messages, 1)
+    eq(chat.messages[1], prior)
+    eq(prior.tools.call_id, call.id)
+    eq(prior.tools.name, 'reasoning_synthesis')
+    eq(prior.content:sub(1, #prefix + 2), prefix .. '\n\n')
+    eq(vim.json.decode(prior.content:sub(#prefix + 3)).code, 'internal_error')
+  end
+end
+
+T['scrubs a recorded final when host callbacks invalidate its prepared stage'] = function()
+  local cases = {
+    clear = function(chat)
+      chat:clear()
+    end,
+    close = function(chat)
+      chat:close()
+    end,
+    reconcile = function(chat)
+      chat.adapter.type = 'acp'
+      Control.reconcile(chat)
+    end,
+    missing_adapter = function(chat)
+      chat.adapter = nil
+      Control.reconcile(chat)
+    end,
+  }
+
+  for name, invalidate in pairs(cases) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool = prepare_final_output(chat, 'invalidate-' .. name)
+    local stage = result.data._reasoning_final.stage
+    chat:add_callback('on_tool_output', function(value)
+      invalidate(value)
+    end)
+
+    record_final_output(chat, result, tool)
+
+    eq(stage.state, 'discarded')
+    eq(state.staged_final, nil)
+    eq(State.find(State.get(chat), 'S1'), nil)
+    local internal = 0
+    local accepted = 0
+    for _, message in ipairs(chat.messages) do
+      if type(message.content) == 'string' then
+        local decoded_ok, payload = pcall(vim.json.decode, message.content)
+        if decoded_ok and payload.code == 'internal_error' then
+          internal = internal + 1
+        elseif decoded_ok and type(payload.artifact) == 'table' and payload.artifact.id == 'S1' then
+          accepted = accepted + 1
+        end
+      end
+    end
+    eq(internal, 1)
+    eq(accepted, 0)
+    if name == 'clear' then
+      eq(state.phase, 'dormant')
+    elseif name == 'close' then
+      eq(state.closed, true)
+    else
+      eq(state.unsupported_adapter, true)
+    end
+  end
+end
+
+T['rolls back final state history and buffer when either emission fails'] = function()
+  for _, mode in ipairs({ 'history', 'buffer', 'nil' }) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool, call = prepare_final_output(chat, 'rollback-final')
+    local stage = result.data._reasoning_final.stage
+    local prefix = vim.json.encode({ prior = 'preserved' })
+    local prior = {
+      role = 'tool',
+      tools = { call_id = call.id, name = 'reasoning_synthesis' },
+      content = prefix,
+      _meta = { cycle = chat.cycle },
+    }
+    prior._meta.id = host_hash.hash({ role = prior.role, content = prior.content })
+    table.insert(chat.messages, prior)
+    vim.api.nvim_buf_set_lines(chat.bufnr, 0, -1, false, { 'buffer before final' })
+    if mode == 'history' then
+      chat.fixture_history_error = true
+    elseif mode == 'buffer' then
+      chat.fixture_buffer_write = true
+      chat.fixture_buffer_error = true
+    else
+      chat.fixture_buffer_nil = true
+    end
+    local rollbacks = 0
+    State.rollback_final = function(...)
+      rollbacks = rollbacks + 1
+      return original_rollback_final(...)
+    end
+
+    record_final_output(chat, result, tool)
+
+    eq(rollbacks, 1)
+    eq(stage.state, 'rolled_back')
+    eq(state.phase, 'halted')
+    eq(state.resume_phase, 'active')
+    eq(state.staged_final, nil)
+    eq(State.find(State.get(chat), 'S1'), nil)
+    eq(State.get(chat).next_sequence.synthesis, nil)
+    eq(State.get(chat).counts_by_kind.synthesis, nil)
+    eq(#chat.messages, 1)
+    eq(chat.messages[1], prior)
+    eq(chat.messages[1].content:sub(1, #prefix + 2), prefix .. '\n\n')
+    local delta = chat.messages[1].content:sub(#prefix + 3)
+    local payload = vim.json.decode(delta)
+    eq(payload.code, 'internal_error')
+    eq(payload.committed, false)
+    eq(chat.messages[1]._meta.id, host_hash.hash({ role = chat.messages[1].role, content = chat.messages[1].content }))
+    eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'buffer before final' })
+  end
+end
+
+T['does not overwrite lifecycle invalidation during final history or buffer emission'] = function()
+  for _, mode in ipairs({ 'history', 'buffer' }) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool = prepare_final_output(chat, 'invalidate-emission-' .. mode)
+    local stage = result.data._reasoning_final.stage
+    local markdown = result.data._reasoning_final.markdown
+    vim.api.nvim_buf_set_lines(chat.bufnr, 0, -1, false, { 'before invalidated emission' })
+    chat.fixture_buffer_write = true
+    local invalidate = function(value)
+      value:close()
+    end
+    if mode == 'history' then
+      chat.fixture_final_history_invalidate = invalidate
+    else
+      chat.fixture_final_buffer_invalidate = invalidate
+    end
+
+    record_final_output(chat, result, tool)
+
+    eq(state.closed, true)
+    eq(state.phase == 'finalized', false)
+    eq(state.staged_final, nil)
+    eq(stage.state, 'rolled_back')
+    eq(State.find(State.get(chat), 'S1'), nil)
+    eq(State.get(chat).counts_by_kind.synthesis, nil)
+    eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'before invalidated emission' })
+    local internal = 0
+    local rendered = 0
+    for _, message in ipairs(chat.messages) do
+      if message.content == markdown then
+        rendered = rendered + 1
+      elseif type(message.content) == 'string' then
+        local decoded_ok, payload = pcall(vim.json.decode, message.content)
+        if decoded_ok and payload.code == 'internal_error' then
+          internal = internal + 1
+        end
+      end
+    end
+    eq(rendered, 0)
+    eq(internal, 1)
+  end
+end
+
+T['revalidates the exact recorded result after final history and buffer callbacks'] = function()
+  local mutations = {
+    content = function(message)
+      message.content = message.content .. ' '
+    end,
+    identity = function(message)
+      message.tools.name = 'reasoning_evidence'
+    end,
+    hash = function(message)
+      message._meta.id = 'forged-result-hash'
+    end,
+  }
+  for _, emission in ipairs({ 'history', 'buffer' }) do
+    for name, mutate in pairs(mutations) do
+      Control._reset()
+      State._reset()
+      local chat, _, state = final_ready_chat()
+      local result, tool = prepare_final_output(chat, 'mutate-' .. emission .. '-' .. name)
+      local stage = result.data._reasoning_final.stage
+      local hook = function(value)
+        mutate(value.messages[1])
+      end
+      if emission == 'history' then
+        chat.fixture_final_history_invalidate = hook
+      else
+        chat.fixture_final_buffer_invalidate = hook
+      end
+
+      record_final_output(chat, result, tool)
+
+      eq(stage.state, 'rolled_back')
+      eq(state.phase, 'halted')
+      eq(state.resume_phase, 'active')
+      eq(State.find(State.get(chat), 'S1'), nil)
+      eq(#chat.messages, 1)
+      local payload = vim.json.decode(chat.messages[1].content)
+      eq(payload.code, 'internal_error')
+      eq(payload.committed, false)
+      eq(
+        chat.messages[1]._meta.id,
+        host_hash.hash({ role = chat.messages[1].role, content = chat.messages[1].content })
+      )
+    end
+  end
+end
+
+T['restores exact history when an emission callback removes the recorded result'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'remove-recorded-final')
+  local stage = result.data._reasoning_final.stage
+  chat.fixture_final_history_invalidate = function(value)
+    table.remove(value.messages, 1)
+  end
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'rolled_back')
+  eq(state.phase, 'halted')
+  eq(State.find(State.get(chat), 'S1'), nil)
+  eq(#chat.messages, 1)
+  eq(vim.json.decode(chat.messages[1].content).code, 'internal_error')
+end
+
+T['revalidates the emitted assistant history after buffer callbacks'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'mutate-final-assistant')
+  local stage = result.data._reasoning_final.stage
+  chat.fixture_final_buffer_invalidate = function(value)
+    value.messages[2].content = value.messages[2].content .. ' hostile suffix'
+  end
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'rolled_back')
+  eq(state.phase, 'halted')
+  eq(State.find(State.get(chat), 'S1'), nil)
+  eq(#chat.messages, 1)
+  eq(vim.json.decode(chat.messages[1].content).code, 'internal_error')
+end
+
+T['restores the pre-final workspace after emission-time mutation'] = function()
+  local chat, _, state = final_ready_chat()
+  local workspace = State.get(chat)
+  local revision = workspace.revision
+  local result, tool = prepare_final_output(chat, 'mutate-emission-workspace')
+  local stage = result.data._reasoning_final.stage
+  chat.fixture_final_history_invalidate = function()
+    State.retract(workspace, 'E1')
+  end
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'rolled_back')
+  eq(state.phase, 'halted')
+  eq(workspace.revision, revision)
+  eq(State.find(workspace, 'E1').status, 'active')
+  eq(State.find(workspace, 'S1'), nil)
+  eq(vim.json.decode(chat.messages[1].content).code, 'internal_error')
+end
+
+T['unlocks verifies and relocks the buffer during final compensation'] = function()
+  local chat, _, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'locked-buffer-compensation')
+  local stage = result.data._reasoning_final.stage
+  vim.api.nvim_buf_set_lines(chat.bufnr, 0, -1, false, { 'buffer before locked failure' })
+  vim.bo[chat.bufnr].modifiable = false
+  chat.fixture_buffer_partial_lock = true
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'rolled_back')
+  eq(state.phase, 'halted')
+  eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'buffer before locked failure' })
+  eq(vim.bo[chat.bufnr].modifiable, false)
+  eq(State.find(State.get(chat), 'S1'), nil)
+end
+
+T['preserves the host clear render when clear invalidates final emission'] = function()
+  for _, emission in ipairs({ 'history', 'buffer' }) do
+    Control._reset()
+    State._reset()
+    local chat = final_ready_chat()
+    local result, tool = prepare_final_output(chat, 'clear-emission-' .. emission)
+    local stage = result.data._reasoning_final.stage
+    chat.fixture_buffer_write = true
+    chat.fixture_clear_render = true
+    local hook = function(value)
+      value:clear()
+    end
+    if emission == 'history' then
+      chat.fixture_final_history_invalidate = hook
+    else
+      chat.fixture_final_buffer_invalidate = hook
+    end
+
+    record_final_output(chat, result, tool)
+
+    eq(State.get(chat), nil)
+    eq(Control._get(chat).phase, 'dormant')
+    eq(Control._get(chat).staged_final, nil)
+    eq(stage.state == 'prepared', false)
+    eq(chat.messages, {})
+    eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'host cleared render' })
+    eq(vim.bo[chat.bufnr].modifiable, false)
+  end
+end
+
+T['compensates a controller-only clear without restoring its workspace'] = function()
+  for _, emission in ipairs({ 'history', 'buffer' }) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool = prepare_final_output(chat, 'controller-clear-' .. emission)
+    local stage = result.data._reasoning_final.stage
+    vim.api.nvim_buf_set_lines(chat.bufnr, 0, -1, false, { 'before controller-only clear' })
+    chat.fixture_buffer_write = true
+    local hook = function(value)
+      Control.clear(value)
+    end
+    if emission == 'history' then
+      chat.fixture_final_history_invalidate = hook
+    else
+      chat.fixture_final_buffer_invalidate = hook
+    end
+
+    record_final_output(chat, result, tool)
+
+    eq(State.get(chat), nil)
+    eq(state.phase, 'dormant')
+    eq(state.staged_final, nil)
+    eq(stage.state, 'rolled_back')
+    eq(#chat.messages, 1)
+    eq(vim.json.decode(chat.messages[1].content).code, 'internal_error')
+    eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'before controller-only clear' })
+  end
+end
+
+T['does not strand a prepared final when subscriber stop changes the boundary'] = function()
+  local cases = {
+    adapter = function(chat)
+      chat.adapter.type = 'acp'
+    end,
+    tools = function(chat)
+      chat.tool_registry.in_use.reasoning_synthesis = nil
+    end,
+    wrapper = function(chat)
+      rawset(chat, 'submit', function() end)
+    end,
+    resume_command = function(chat)
+      vim.api.nvim_buf_del_user_command(chat.bufnr, Constants.resume_command)
+    end,
+  }
+
+  for name, mutate in pairs(cases) do
+    Control._reset()
+    State._reset()
+    local chat, _, state = final_ready_chat()
+    local result, tool = prepare_final_output(chat, 'stop-boundary-' .. name)
+    local stage = result.data._reasoning_final.stage
+    chat.subscribers.stop = function()
+      mutate(chat)
+    end
+
+    record_final_output(chat, result, tool)
+
+    eq(stage.state, 'discarded')
+    eq(state.staged_final, nil)
+    eq(state.phase, 'halted')
+    eq(state.resume_phase, 'active')
+    eq(State.find(State.get(chat), 'S1'), nil)
+    for _, message in ipairs(chat.messages) do
+      eq(message.content == result.data._reasoning_final.markdown, false)
+    end
+  end
+end
+
+T['rewrites a final commit conflict without emitting accepted prose'] = function()
+  local chat, calls, state = final_ready_chat()
+  local result, tool = prepare_final_output(chat, 'commit-conflict')
+  local stage = result.data._reasoning_final.stage
+  State.commit_final = function()
+    return nil, 'transaction_conflict'
+  end
+
+  record_final_output(chat, result, tool)
+
+  eq(stage.state, 'discarded')
+  eq(state.phase, 'halted')
+  eq(state.resume_phase, 'active')
+  eq(state.staged_final, nil)
+  eq(State.find(State.get(chat), 'S1'), nil)
+  eq(#chat.messages, 1)
+  eq(vim.json.decode(chat.messages[1].content).code, 'internal_error')
+  for _, notice in ipairs(calls.notices) do
+    eq(notice.data.content == result.data._reasoning_final.markdown, false)
+  end
 end
 
 return T

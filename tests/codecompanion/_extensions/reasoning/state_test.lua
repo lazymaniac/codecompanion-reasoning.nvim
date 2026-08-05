@@ -159,6 +159,18 @@ T['rolls back the exact just-committed final after an emission failure'] = funct
   eq(State.find(workspace, checkpoint.id).status, 'active')
 end
 
+T['seals a finalized transaction against retained rollback'] = function()
+  local chat = {}
+  local workspace = State.begin(chat)
+  local stage = State.prepare_final(chat, { mode = 'final' }, {})
+  eq(State.commit_final(chat, stage).id, 'S1')
+
+  eq(State.finalize_final(chat, stage), true)
+  eq(stage.state, 'finalized')
+  eq(State.rollback_final(chat, stage), false)
+  eq(State.find(workspace, 'S1') ~= nil, true)
+end
+
 T['clears only the requested chat workspace'] = function()
   local first, second = {}, {}
   State.begin(first)

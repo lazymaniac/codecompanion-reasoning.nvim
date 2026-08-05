@@ -257,6 +257,23 @@ function M.rollback_final(chat, stage)
   return true
 end
 
+function M.finalize_final(chat, stage)
+  local workspace = M.get(chat)
+  if
+    type(stage) ~= 'table'
+    or stage.state ~= 'committed'
+    or workspace ~= stage.workspace
+    or workspace.revision ~= stage.revision + 1
+    or workspace.artifact_order[#workspace.artifact_order] ~= stage.reserved_id
+    or workspace.artifacts_by_id[stage.reserved_id] ~= stage.committed_artifact
+  then
+    return false
+  end
+  stage.rollback = nil
+  stage.state = 'finalized'
+  return true
+end
+
 function M.discard_final(stage)
   if type(stage) ~= 'table' or stage.state ~= 'prepared' then
     return false
