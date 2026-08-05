@@ -183,27 +183,30 @@ T['applies the configured array cap to perspectives'] = function()
   eq(Frame.cmds[1]({ chat = chat }, args, {}).status, 'success')
 end
 
-T['does not remove a perspective used by active evidence'] = function()
+T['retires evidence when revision removes its perspective'] = function()
   local chat = {}
   Frame.cmds[1]({ chat = chat }, valid_args(), {})
-  local State = require('codecompanion._extensions.reasoning.state')
-  State.add(State.get(chat), 'evidence', { perspective = 'operations' })
+  local workspace = State.get(chat)
+  local evidence = State.add(workspace, 'evidence', { perspective = 'operations' })
   local revised = valid_args('revise')
   revised.perspectives = { revised.perspectives[1], { name = 'security', purpose = 'Find trust failures' } }
   local result = Frame.cmds[1]({ chat = chat }, revised, {})
-  eq(result.data.code, 'frame_incomplete')
+  eq(result.status, 'success')
+  eq(State.find(workspace, evidence.id).status, 'superseded')
 end
 
-T['does not remove an unknown addressed by active evidence'] = function()
+T['retires evidence when revision removes its addressed unknown'] = function()
   local chat = {}
   Frame.cmds[1]({ chat = chat }, valid_args(), {})
-  State.add(State.get(chat), 'evidence', {
+  local workspace = State.get(chat)
+  local evidence = State.add(workspace, 'evidence', {
     perspective = 'correctness',
     addresses_unknowns = { 'Expected write rate' },
   })
   local revised = valid_args('revise')
   revised.unknowns = {}
-  eq(Frame.cmds[1]({ chat = chat }, revised, {}).data.code, 'frame_incomplete')
+  eq(Frame.cmds[1]({ chat = chat }, revised, {}).status, 'success')
+  eq(State.find(workspace, evidence.id).status, 'superseded')
 end
 
 T['replace starts a fresh sequenced workspace'] = function()
@@ -225,6 +228,33 @@ T['advertises perspective lower bounds without caching the configured maximum'] 
     properties.perspectives.description,
     'At least one perspective is required; deep frames require at least two. The configured max_array_items safety bound applies at runtime.'
   )
+end
+
+T['revision retires every downstream artifact before rebuilding'] = function()
+  local chat = {}
+  local started = Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local workspace = State.get(chat)
+  local old_frame = workspace.frame_id
+  local downstream = {}
+  for _, kind in ipairs({ 'evidence', 'branch', 'option', 'review', 'synthesis' }) do
+    local artifact = State.add(workspace, kind, { frame_id = old_frame })
+    table.insert(downstream, artifact.id)
+  end
+
+  local revised = valid_args()
+  revised.action = 'revise'
+  revised.objective = 'Explain the corrected failure'
+  revised.depth = 'standard'
+  revised.perspectives = { { name = 'operations', purpose = 'Check the corrected lifecycle' } }
+  local result = Protocol.call('frame', chat, revised, 'active')
+
+  eq(started.status, 'success')
+  eq(result.status, 'success')
+  eq(State.find(workspace, old_frame).status, 'superseded')
+  for _, id in ipairs(downstream) do
+    eq(State.find(workspace, id).status, 'superseded')
+  end
+  eq(State.find(workspace, workspace.frame_id).status, 'active')
 end
 
 return T

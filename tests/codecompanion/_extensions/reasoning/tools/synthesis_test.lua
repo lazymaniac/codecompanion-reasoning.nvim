@@ -68,8 +68,9 @@ local function add_evidence(chat, statement, perspective, contradicts, addresses
   }, {})
 end
 
-local function add_options(chat, supported, supersedes_branch_id)
-  local ids = supported == false and {} or { 'E1' }
+local function add_options(chat, supported, supersedes_branch_id, evidence_ids)
+  local ids = supported == false and {} or vim.deepcopy(evidence_ids or { 'E1' })
+  local secondary_ids = vim.deepcopy(evidence_ids or { 'E1' })
   return Options.cmds[1]({ chat = chat }, {
     question = 'Which design?',
     branch_type = 'solution',
@@ -90,7 +91,7 @@ local function add_options(chat, supported, supersedes_branch_id)
       {
         label = 'snapshot',
         summary = 'Write atomic snapshots',
-        evidence_ids = { 'E1' },
+        evidence_ids = secondary_ids,
         assumptions = { 'State fits' },
         predictions = { 'Restart loads a snapshot' },
         benefits = { 'Simplicity' },
@@ -102,7 +103,7 @@ local function add_options(chat, supported, supersedes_branch_id)
   }, {})
 end
 
-local function add_review(chat, revise, target_ids, temporal)
+local function add_review(chat, revise, target_ids, temporal, defense_evidence_ids)
   target_ids = target_ids or { 'O1', 'E1' }
   local verdicts = {}
   for _, id in ipairs(target_ids) do
@@ -115,7 +116,10 @@ local function add_review(chat, revise, target_ids, temporal)
   return Review.cmds[1]({ chat = chat }, {
     mode = 'full',
     target_ids = target_ids,
-    defense = { summary = 'Restart evidence supports the journal', evidence_ids = { 'E1' } },
+    defense = {
+      summary = 'Restart evidence supports the journal',
+      evidence_ids = vim.deepcopy(defense_evidence_ids or { 'E1' }),
+    },
     challenges = {
       {
         kind = 'counterexample',
@@ -452,12 +456,15 @@ T['a review without stress tests does not survive a temporal frame revision'] = 
   eq(add_evidence(chat, 'Restart loses process-local state', 'correctness').status, 'success')
   eq(add_review(chat, false, { 'E1' }).status, 'success')
   eq(revise_frame(chat, true).status, 'success')
+  eq(State.find(State.get(chat), 'E1').status, 'superseded')
+  eq(State.find(State.get(chat), 'R1').status, 'superseded')
+  eq(add_evidence(chat, 'Restart loses process-local state', 'correctness').status, 'success')
   local args = final_args()
   args.selected_option_ids = {}
-  args.support_ids = { 'E1' }
-  args.review_ids = { 'R1' }
-  args.criterion_results[1].evidence_ids = { 'E1' }
-  args.criterion_results[2].evidence_ids = { 'E1' }
+  args.support_ids = { 'E2' }
+  args.review_ids = {}
+  args.criterion_results[1].evidence_ids = { 'E2' }
+  args.criterion_results[2].evidence_ids = { 'E2' }
   contains(Synthesis.cmds[1]({ chat = chat }, args, {}).data.unmet_gates, 'temporal_review_missing')
 end
 
@@ -491,18 +498,27 @@ end
 
 T['stale branches and reviews cannot satisfy a revised frame'] = function()
   local chat = deep_workspace()
-  eq(revise_frame(chat).status, 'success')
+  local revised = revise_frame(chat)
+  eq(revised.status, 'success')
+  eq(revised.data.next_action.tool, 'reasoning_evidence')
   local stale = Synthesis.cmds[1]({ chat = chat }, final_args(), {})
-  contains(stale.data.unmet_gates, 'branches_missing')
-  eq(stale.data.next_action.tool, 'reasoning_options')
+  eq(stale.data.code, 'inactive_reference')
+  eq(State.find(State.get(chat), 'B1').status, 'superseded')
+  eq(State.find(State.get(chat), 'R1').status, 'superseded')
 
-  eq(add_options(chat, true, 'B1').status, 'success')
+  eq(add_evidence(chat, 'Restart loses process-local state', 'correctness').status, 'success')
+  eq(add_evidence(chat, 'Compaction bounds retained entries', 'operations').status, 'success')
+  eq(add_options(chat, true, nil, { 'E3' }).status, 'success')
   local args = final_args()
   args.selected_option_ids = { 'O3' }
+  args.support_ids = { 'E3', 'E4' }
+  args.review_ids = {}
+  args.criterion_results[1].evidence_ids = { 'E3' }
+  args.criterion_results[2].evidence_ids = { 'E4' }
   local old_review = Synthesis.cmds[1]({ chat = chat }, args, {})
   contains(old_review.data.unmet_gates, 'full_review_missing')
 
-  eq(add_review(chat, false, { 'O3', 'E1' }).status, 'success')
+  eq(add_review(chat, false, { 'O3', 'E3' }, false, { 'E3' }).status, 'success')
   args.review_ids = { 'R2' }
   eq(Synthesis.cmds[1]({ chat = chat }, args, {}).status, 'success')
 end

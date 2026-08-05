@@ -1,21 +1,25 @@
 local Config = require('codecompanion._extensions.reasoning.config')
+local Constants = require('codecompanion._extensions.reasoning.constants')
 local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
+local Transition = require('codecompanion._extensions.reasoning.transition')
 local log = require('codecompanion.utils.log')
 
 local M = {}
 
-local function failure(code, message, artifact_ids, next_action)
-  return {
-    status = 'error',
-    data = {
-      code = code,
-      message = message,
-      artifact_ids = artifact_ids or {},
-      next_action = next_action,
-    },
+local function failure(code, message, artifact_ids, next_action, diagnostic)
+  local data = {
+    code = code,
+    message = message,
+    artifact_ids = artifact_ids or {},
+    committed = false,
+    next_action = next_action,
   }
+  if diagnostic then
+    data.diagnostic = diagnostic
+  end
+  return { status = 'error', data = data }
 end
 
 local function success(workspace, artifact)
@@ -178,37 +182,26 @@ function M.frame(chat, args)
   if args.action == 'revise' and not existing then
     return failure('workspace_missing', 'there is no frame to revise', {}, 'Start a frame')
   end
+  if args.action == 'replace' and not existing then
+    return failure(
+      'transition_invalid',
+      'replace requires an existing reasoning workspace',
+      {},
+      { tool = 'reasoning_frame', reason = 'Start the workspace with action=start' },
+      {
+        path = 'action',
+        constraint = 'authoritative_transition',
+        expected = 'start',
+        actual = 'replace',
+      }
+    )
+  end
+  local downstream = {}
   if args.action == 'revise' then
-    local unknown_names = {}
-    for _, unknown in ipairs(args.unknowns) do
-      unknown_names[vim.trim(unknown):lower():gsub('%s+', ' ')] = true
-    end
     for _, id in ipairs(existing.artifact_order) do
       local artifact = State.find(existing, id)
-      if
-        artifact.status == 'active'
-        and artifact.kind == 'evidence'
-        and not perspective_names[vim.trim(artifact.data.perspective):lower():gsub('%s+', ' ')]
-      then
-        return failure(
-          'frame_incomplete',
-          'a revised frame cannot remove a perspective used by active evidence',
-          { artifact.id },
-          'Retract or replace the evidence before revising the frame'
-        )
-      end
-      if artifact.status == 'active' and artifact.kind == 'evidence' then
-        for _, unknown in ipairs(artifact.data.addresses_unknowns or {}) do
-          local key = vim.trim(unknown):lower():gsub('%s+', ' ')
-          if not unknown_names[key] then
-            return failure(
-              'frame_incomplete',
-              'a revised frame cannot remove an unknown addressed by active evidence',
-              { artifact.id },
-              'Retract or replace the evidence before revising the frame'
-            )
-          end
-        end
+      if artifact and artifact.status == 'active' and artifact.kind ~= 'frame' then
+        table.insert(downstream, id)
       end
     end
   end
@@ -228,6 +221,9 @@ function M.frame(chat, args)
     State.supersede(workspace, workspace.frame_id, frame.id)
   end
   State.set_frame(workspace, frame.id)
+  for _, id in ipairs(downstream) do
+    State.retire(workspace, id)
+  end
   return success(workspace, frame)
 end
 
@@ -292,9 +288,13 @@ function M.evidence(chat, args)
   end
 
   local known_statements = {}
+  local current_frame_seen = false
   for _, id in ipairs(workspace.artifact_order) do
     local artifact = State.find(workspace, id)
-    if artifact.kind == 'evidence' then
+    if id == workspace.frame_id then
+      current_frame_seen = true
+    end
+    if artifact.kind == 'evidence' and (artifact.status == 'active' or current_frame_seen) then
       known_statements[normalized(artifact.data.statement)] = artifact.id
     end
   end
@@ -1695,6 +1695,7 @@ M.failure = failure
 M.success = success
 M.text_valid = text_valid
 M.bounded_array = bounded_array
+M.transition = Transition.next
 
 local function accepted_final(workspace)
   if not workspace then
@@ -1715,64 +1716,81 @@ local function accepted_final(workspace)
   return #gates == 0 and latest or nil
 end
 
-function M.call(operation, chat, args)
-  local tools_by_operation = {
-    frame = 'reasoning_frame',
-    evidence = 'reasoning_evidence',
-    options = 'reasoning_options',
-    review = 'reasoning_review',
-    synthesis = 'reasoning_synthesis',
+local function normalize_next_action(operation, result)
+  if result.status ~= 'error' or type(result.data.next_action) ~= 'string' then
+    return result
+  end
+  local tools_by_code = {
+    workspace_missing = 'reasoning_frame',
+    perspective_unknown = 'reasoning_frame',
+    limit_exceeded = 'reasoning_frame',
   }
+  result.data.next_action = {
+    tool = tools_by_code[result.data.code] or Constants.tool_by_operation[operation] or 'reasoning_frame',
+    reason = result.data.next_action,
+  }
+  return result
+end
+
+function M.call(operation, chat, args, lifecycle_phase)
+  local tools_by_operation = Constants.tool_by_operation
+  local workspace = State.get(chat)
   local explicit_reframe = operation == 'frame'
     and type(args) == 'table'
     and vim.tbl_contains({ 'revise', 'replace' }, args.action)
   if not explicit_reframe then
-    local final = accepted_final(State.get(chat))
+    local final = accepted_final(workspace)
     if final then
       return failure(
         'workspace_finalized',
         'the accepted final synthesis is terminal until the frame is explicitly revised or replaced',
         { final.id },
-        {
-          tool = 'none',
-          reason = 'Return the accepted conclusion; revise or replace the frame only for new user information',
-        }
+        { tool = 'none', reason = 'Use explicit user resume before reframing' }
       )
     end
   end
+
+  if lifecycle_phase and not Transition.allowed(workspace, lifecycle_phase, operation, args) then
+    local expected = Transition.next(workspace, lifecycle_phase)
+    return failure(
+      'transition_invalid',
+      'the reasoning operation does not match the authoritative transition',
+      {},
+      expected,
+      {
+        path = 'tool',
+        constraint = 'authoritative_transition',
+        expected = expected and expected.tool or 'none',
+        actual = tools_by_operation[operation] or 'unknown_operation',
+      }
+    )
+  end
+
   local handler = M[operation]
   if type(handler) ~= 'function' then
-    log:error('[reasoning] unknown protocol operation: %s', tostring(operation))
-    return failure('internal_error', 'the reasoning operation is unavailable', {}, {
-      tool = tools_by_operation[operation] or 'reasoning_frame',
-      reason = 'Retry with a registered reasoning tool',
-    })
+    return failure(
+      'internal_error',
+      'the reasoning operation is unavailable',
+      {},
+      { tool = tools_by_operation[operation] or 'reasoning_frame', reason = 'Report the plugin error' }
+    )
   end
   local ok, result = xpcall(function()
     return handler(chat, args)
   end, debug.traceback)
   if not ok then
     log:error('[reasoning] %s failed: %s', operation, result)
-    return failure('internal_error', 'the reasoning operation failed internally', {}, {
-      tool = tools_by_operation[operation],
-      reason = 'Correct the call or report the plugin error',
-    })
+    return failure(
+      'internal_error',
+      'the reasoning operation failed internally',
+      {},
+      { tool = tools_by_operation[operation], reason = 'Report the plugin error' }
+    )
   end
-  if explicit_reframe and result.status == 'success' then
+  if lifecycle_phase == nil and explicit_reframe and result.status == 'success' then
     Terminal.clear(chat)
   end
-  if result.status == 'error' and type(result.data.next_action) == 'string' then
-    local tools_by_code = {
-      workspace_missing = 'reasoning_frame',
-      perspective_unknown = 'reasoning_frame',
-      limit_exceeded = 'reasoning_frame',
-    }
-    result.data.next_action = {
-      tool = tools_by_code[result.data.code] or tools_by_operation[operation] or 'reasoning_frame',
-      reason = result.data.next_action,
-    }
-  end
-  return result
+  return normalize_next_action(operation, result)
 end
 
 return M

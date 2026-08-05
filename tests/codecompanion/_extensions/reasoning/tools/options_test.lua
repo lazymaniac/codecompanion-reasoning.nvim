@@ -14,6 +14,26 @@ local T = MiniTest.new_set({
 })
 local eq = MiniTest.expect.equality
 
+local function evidence_args()
+  return {
+    items = {
+      {
+        kind = 'observation',
+        statement = 'The cache is process-local',
+        source = 'lua/cache.lua:14',
+        confidence = 'high',
+        falsifier = 'A persistence adapter loaded by cache.lua',
+        perspective = 'correctness',
+        addresses_unknowns = {},
+        supports = {},
+        contradicts = {},
+        qualifies = {},
+        supersedes_id = '',
+      },
+    },
+  }
+end
+
 local function prepared_chat()
   local chat = {}
   local frame = {
@@ -33,24 +53,7 @@ local function prepared_chat()
     branching_rationale = 'Several storage strategies are viable',
   }
   eq(Frame.cmds[1]({ chat = chat }, frame, {}).status, 'success')
-  local evidence = {
-    items = {
-      {
-        kind = 'observation',
-        statement = 'The cache is process-local',
-        source = 'lua/cache.lua:14',
-        confidence = 'high',
-        falsifier = 'A persistence adapter loaded by cache.lua',
-        perspective = 'correctness',
-        addresses_unknowns = {},
-        supports = {},
-        contradicts = {},
-        qualifies = {},
-        supersedes_id = '',
-      },
-    },
-  }
-  eq(Evidence.cmds[1]({ chat = chat }, evidence, {}).status, 'success')
+  eq(Evidence.cmds[1]({ chat = chat }, evidence_args(), {}).status, 'success')
   return chat
 end
 
@@ -256,18 +259,24 @@ T['rejects a replacement atomically when total capacity is unavailable'] = funct
   eq(State.find(State.get(chat), 'O2').status, 'active')
 end
 
-T['binds replacement branches to the active frame revision'] = function()
+T['binds rebuilt branches to the active frame revision'] = function()
   local chat = prepared_chat()
   eq(Options.cmds[1]({ chat = chat }, valid_args(), {}).status, 'success')
   local revised = vim.deepcopy(State.find(State.get(chat), 'F1').data)
   revised.action = 'revise'
   revised.objective = 'Choose and validate a durable cache design'
   eq(Frame.cmds[1]({ chat = chat }, revised, {}).status, 'success')
+  eq(State.find(State.get(chat), 'E1').status, 'superseded')
+  eq(State.find(State.get(chat), 'B1').status, 'superseded')
+  eq(Evidence.cmds[1]({ chat = chat }, evidence_args(), {}).status, 'success')
 
   local replacement = valid_args()
-  replacement.supersedes_branch_id = 'B1'
+  for _, option in ipairs(replacement.options) do
+    option.evidence_ids = { 'E2' }
+  end
   local result = Options.cmds[1]({ chat = chat }, replacement, {})
   eq(result.status, 'success')
+  eq(result.data.artifact.id, 'B2')
   eq(result.data.artifact.data.frame_id, 'F2')
   eq(State.find(State.get(chat), 'B2').relations.depends_on, { 'F2' })
 end
