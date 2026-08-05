@@ -1,3 +1,4 @@
+local Control = require('codecompanion._extensions.reasoning.control')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
 
 local M = {}
@@ -76,7 +77,7 @@ function M.success(tool, stdout, meta)
     encoded,
     string.format('Recorded %s; next: %s', artifact.id, payload.next_action.tool)
   )
-  if payload.next_action.tool == 'none' then
+  if payload.next_action.tool == 'none' and Control.legacy_terminal_allowed(meta.tools.chat) then
     Terminal.install(meta.tools)
   end
 end

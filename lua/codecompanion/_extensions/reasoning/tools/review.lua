@@ -1,3 +1,4 @@
+local Control = require('codecompanion._extensions.reasoning.control')
 local Output = require('codecompanion._extensions.reasoning.output')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 
@@ -7,7 +8,7 @@ return {
   name = 'reasoning_review',
   cmds = {
     function(tools, args, opts)
-      return Protocol.call('review', tools.chat, args)
+      return Protocol.call('review', tools.chat, args, Control.phase(tools.chat))
     end,
   },
   output = Output.handlers,
