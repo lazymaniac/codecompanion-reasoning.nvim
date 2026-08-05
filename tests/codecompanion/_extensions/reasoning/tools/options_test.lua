@@ -2,6 +2,7 @@ local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
+local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
 
 local T = MiniTest.new_set({
@@ -121,6 +122,40 @@ T['rejects invalid and inactive evidence'] = function()
   eq(Options.cmds[1]({ chat = chat }, missing, {}).data.code, 'invalid_reference')
   State.retract(State.get(chat), 'E1')
   eq(Options.cmds[1]({ chat = chat }, valid_args(), {}).data.code, 'inactive_reference')
+end
+
+T['reports typed option references without consuming branch IDs'] = function()
+  local chat = prepared_chat()
+  local additional = evidence_args()
+  additional.items[1].statement = 'The cache needs bounded lifecycle recovery'
+  additional.items[1].source = 'tests/cache_spec.lua:28'
+  additional.items[1].perspective = 'operations'
+  additional.items[1].addresses_unknowns = { 'Expected write rate' }
+  eq(Evidence.cmds[1]({ chat = chat }, additional, {}).status, 'success')
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
+  local args = valid_args()
+  args.options[1].evidence_ids = { 'F1' }
+  local result = Protocol.call('options', chat, args, 'active')
+
+  eq(result.data.committed, false)
+  eq(result.data.diagnostic, {
+    path = 'options[1].evidence_ids[1]',
+    constraint = 'artifact_kind',
+    expected = 'evidence',
+    actual = 'F1',
+  })
+  eq(result.data.next_action, Protocol.transition(workspace, 'active'))
+  eq({
+    revision = workspace.revision,
+    artifact_order = workspace.artifact_order,
+    next_sequence = workspace.next_sequence,
+  }, before)
+  eq(Protocol.call('options', chat, valid_args(), 'active').data.artifact.id, 'B1')
 end
 
 T['replaces a complete branch set'] = function()

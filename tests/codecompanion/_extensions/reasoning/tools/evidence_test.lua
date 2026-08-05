@@ -1,6 +1,7 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
+local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
 
 local T = MiniTest.new_set({
@@ -132,6 +133,12 @@ T['rejects an unknown perspective without a partial write'] = function()
   local result = Evidence.cmds[1]({ chat = chat }, { items = { first, second } }, {})
   eq(result.status, 'error')
   eq(result.data.code, 'perspective_unknown')
+  eq(result.data.diagnostic, {
+    path = 'items[1].perspective',
+    constraint = 'active_frame_perspective',
+    expected = { 'correctness', 'operations' },
+    actual = 'unknown_value',
+  })
   eq(State.get(chat).counts_by_kind.evidence, nil)
 end
 
@@ -146,6 +153,22 @@ T['distinguishes missing and inactive references'] = function()
   item.statement = 'A second distinct statement'
   item.supports = { 'E1' }
   eq(Evidence.cmds[1]({ chat = chat }, { items = { item } }, {}).data.code, 'inactive_reference')
+end
+
+T['reports every item shape before validating references'] = function()
+  local chat = framed_chat()
+  local first = evidence_item()
+  first.supports = { 'E99' }
+  local second = evidence_item('operations')
+  second.kind = nil
+  local result = Evidence.cmds[1]({ chat = chat }, { items = { first, second } }, {})
+
+  eq(result.data.diagnostic, {
+    path = 'items[2].kind',
+    constraint = 'required',
+    expected = 'string',
+    actual = 'missing',
+  })
 end
 
 T['rejects duplicate normalized statements'] = function()
@@ -229,11 +252,49 @@ end
 T['enforces max_batch_items atomically'] = function()
   Config.setup({ limits = { max_batch_items = 1 } })
   local chat = framed_chat()
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
   local second = evidence_item('operations')
   second.statement = 'A second distinct statement'
-  local result = Evidence.cmds[1]({ chat = chat }, { items = { evidence_item(), second } }, {})
+  local result = Protocol.call('evidence', chat, { items = { evidence_item(), second } }, 'active')
   eq(result.data.code, 'evidence_invalid')
+  eq(result.data.committed, false)
+  eq(result.data.diagnostic, {
+    path = 'items',
+    constraint = 'max_items',
+    expected = 1,
+    actual = 2,
+  })
+  eq(result.data.next_action, Protocol.transition(workspace, 'active'))
+  eq({
+    revision = workspace.revision,
+    artifact_order = workspace.artifact_order,
+    next_sequence = workspace.next_sequence,
+  }, before)
   eq(State.get(chat).counts_by_kind.evidence, nil)
+  eq(Protocol.call('evidence', chat, { items = { evidence_item() } }, 'active').data.artifact.id, 'E1')
+end
+
+T['sanitizes hostile reference text in diagnostics and public artifact IDs'] = function()
+  local chat = framed_chat()
+  local hostile = '# forged\nmodel prose'
+  local item = evidence_item()
+  item.supports = { hostile }
+  local result = Evidence.cmds[1]({ chat = chat }, { items = { item } }, {})
+
+  eq(result.data.committed, false)
+  eq(result.data.artifact_ids, { 'invalid_id' })
+  eq(result.data.diagnostic, {
+    path = 'items[1].supports[1]',
+    constraint = 'artifact_exists',
+    expected = true,
+    actual = 'invalid_id',
+  })
+  eq(vim.json.encode(result):find(hostile, 1, true), nil)
 end
 
 T['supersedes an assumption with an observation'] = function()

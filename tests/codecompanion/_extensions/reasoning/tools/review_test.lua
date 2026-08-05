@@ -2,6 +2,7 @@ local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
+local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
 local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
@@ -150,6 +151,93 @@ T['rejects incomplete verdict coverage without mutation'] = function()
   eq(result.data.code, 'review_incomplete')
   eq(State.get(chat).counts_by_kind.review, nil)
   eq(State.find(State.get(chat), 'O1').status, 'active')
+end
+
+T['reports precise verdict target and instruction semantics'] = function()
+  local cases = {
+    {
+      mutate = function(args)
+        args.verdicts[2].target_id = 'E99'
+      end,
+      diagnostic = {
+        path = 'verdicts[2].target_id',
+        constraint = 'review_target_membership',
+        expected = true,
+        actual = 'E99',
+      },
+    },
+    {
+      mutate = function(args)
+        args.verdicts[2].target_id = 'O1'
+      end,
+      diagnostic = {
+        path = 'verdicts[2].target_id',
+        constraint = 'unique_items',
+        expected = true,
+        actual = 'O1',
+      },
+    },
+    {
+      mutate = function(args)
+        args.verdicts[1].revision_instruction = ''
+      end,
+      diagnostic = {
+        path = 'verdicts[1].revision_instruction',
+        constraint = 'min_chars',
+        expected = 1,
+        actual = 0,
+      },
+    },
+    {
+      mutate = function(args)
+        args.verdicts[2].revision_instruction = 'Unexpected instruction'
+      end,
+      diagnostic = {
+        path = 'verdicts[2].revision_instruction',
+        constraint = 'allowed_when_status',
+        expected = 'revise',
+        actual = 'keep',
+      },
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    local chat = prepare()
+    local args = full_review()
+    case.mutate(args)
+    local result = Review.cmds[1]({ chat = chat }, args, {})
+
+    eq(result.data.diagnostic, case.diagnostic)
+    eq(State.get(chat).counts_by_kind.review, nil)
+  end
+end
+
+T['reports typed review references without consuming review IDs'] = function()
+  local chat = prepare()
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
+  local args = full_review()
+  args.defense.evidence_ids = { 'F1' }
+  local result = Protocol.call('review', chat, args, 'active')
+
+  eq(result.data.committed, false)
+  eq(result.data.diagnostic, {
+    path = 'defense.evidence_ids[1]',
+    constraint = 'artifact_kind',
+    expected = 'evidence',
+    actual = 'F1',
+  })
+  eq(result.data.next_action, Protocol.transition(workspace, 'active'))
+  eq({
+    revision = workspace.revision,
+    artifact_order = workspace.artifact_order,
+    next_sequence = workspace.next_sequence,
+  }, before)
+  eq(Protocol.call('review', chat, full_review(), 'active').data.artifact.id, 'R1')
 end
 
 T['applies retraction immediately'] = function()
@@ -488,10 +576,16 @@ T['distinguishes missing and inactive review targets'] = function()
   local chat = prepare()
   local args = full_review()
   args.target_ids = { 'E99' }
+  args.challenges[1].target_ids = { 'E99' }
+  args.challenges[2].target_ids = { 'E99' }
+  args.verdicts = { { target_id = 'E99', status = 'keep', revision_instruction = '' } }
   eq(Review.cmds[1]({ chat = chat }, args, {}).data.code, 'invalid_reference')
 
   State.retract(State.get(chat), 'E2')
   args.target_ids = { 'E2' }
+  args.challenges[1].target_ids = { 'E2' }
+  args.challenges[2].target_ids = { 'E2' }
+  args.verdicts = { { target_id = 'E2', status = 'keep', revision_instruction = '' } }
   eq(Review.cmds[1]({ chat = chat }, args, {}).data.code, 'inactive_reference')
   eq(State.get(chat).counts_by_kind.review, nil)
 end

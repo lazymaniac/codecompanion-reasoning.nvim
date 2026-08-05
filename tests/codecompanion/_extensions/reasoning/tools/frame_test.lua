@@ -108,6 +108,19 @@ T['explains the standard perspective lower bound'] = function()
   eq(result.data.next_action.reason, 'Add a perspective and retry with action=start')
 end
 
+T['reports perspective cardinality before later frame fields'] = function()
+  local args = resize_perspectives(valid_args(), 0)
+  args.temporal_required = nil
+  local result = Frame.cmds[1]({ chat = {} }, args, {})
+
+  eq(result.data.diagnostic, {
+    path = 'perspectives',
+    constraint = 'min_items',
+    expected = 2,
+    actual = 0,
+  })
+end
+
 T['requires branching for design problems'] = function()
   local args = valid_args()
   args.branching_required = false
@@ -255,6 +268,47 @@ T['revision retires every downstream artifact before rebuilding'] = function()
     eq(State.find(workspace, id).status, 'superseded')
   end
   eq(State.find(workspace, workspace.frame_id).status, 'active')
+end
+
+T['reports ordered armed and reframing diagnostics without consuming frame IDs'] = function()
+  local armed_chat = {}
+  local malformed_start = valid_args()
+  malformed_start.objective = '   '
+  local armed = Protocol.call('frame', armed_chat, malformed_start, 'armed')
+  eq(armed.data.committed, false)
+  eq(armed.data.diagnostic, {
+    path = 'objective',
+    constraint = 'min_chars',
+    expected = 1,
+    actual = 3,
+  })
+  eq(armed.data.next_action, Protocol.transition(nil, 'armed'))
+  eq(State.get(armed_chat), nil)
+  eq(Protocol.call('frame', armed_chat, valid_args(), 'armed').data.artifact.id, 'F1')
+
+  local workspace = State.get(armed_chat)
+  local before = {
+    revision = workspace.revision,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
+  local malformed_revision = valid_args('revise')
+  malformed_revision.objective = nil
+  local reframing = Protocol.call('frame', armed_chat, malformed_revision, 'reframing')
+  eq(reframing.data.committed, false)
+  eq(reframing.data.diagnostic, {
+    path = 'objective',
+    constraint = 'required',
+    expected = 'string',
+    actual = 'missing',
+  })
+  eq(reframing.data.next_action, Protocol.transition(workspace, 'reframing'))
+  eq({
+    revision = workspace.revision,
+    artifact_order = workspace.artifact_order,
+    next_sequence = workspace.next_sequence,
+  }, before)
+  eq(Protocol.call('frame', armed_chat, valid_args('revise'), 'reframing').data.artifact.id, 'F2')
 end
 
 return T

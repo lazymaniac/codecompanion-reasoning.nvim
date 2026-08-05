@@ -2,6 +2,7 @@ local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
+local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
 local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
@@ -401,6 +402,34 @@ T['rejects well-formed references of the wrong artifact kind'] = function()
   local reviews = final_args()
   reviews.review_ids = { 'O1' }
   eq(Synthesis.cmds[1]({ chat = deep_workspace() }, reviews, {}).data.code, 'invalid_reference')
+end
+
+T['reports typed synthesis references without consuming synthesis IDs'] = function()
+  local chat = deep_workspace()
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
+  local args = final_args()
+  args.support_ids = { 'O1' }
+  local result = Protocol.call('synthesis', chat, args, 'active')
+
+  eq(result.data.committed, false)
+  eq(result.data.diagnostic, {
+    path = 'support_ids[1]',
+    constraint = 'artifact_kind',
+    expected = 'evidence',
+    actual = 'O1',
+  })
+  eq(result.data.next_action, Protocol.transition(workspace, 'active'))
+  eq({
+    revision = workspace.revision,
+    artifact_order = workspace.artifact_order,
+    next_sequence = workspace.next_sequence,
+  }, before)
+  eq(Protocol.call('synthesis', chat, final_args(), 'active').data.artifact.id, 'S1')
 end
 
 T['final rejects a selected option without active evidence'] = function()

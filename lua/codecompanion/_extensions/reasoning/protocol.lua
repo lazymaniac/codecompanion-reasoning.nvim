@@ -4,6 +4,7 @@ local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
 local Transition = require('codecompanion._extensions.reasoning.transition')
+local Validation = require('codecompanion._extensions.reasoning.validation')
 local log = require('codecompanion.utils.log')
 
 local M = {}
@@ -12,7 +13,7 @@ local function failure(code, message, artifact_ids, next_action, diagnostic)
   local data = {
     code = code,
     message = message,
-    artifact_ids = artifact_ids or {},
+    artifact_ids = Validation.artifact_ids(artifact_ids),
     committed = false,
     next_action = next_action,
   }
@@ -45,68 +46,144 @@ local function bounded_array(value, minimum, maximum)
   return type(value) == 'table' and #value >= minimum and #value <= maximum
 end
 
-local function frame_text_array(value, minimum)
-  if not bounded_array(value, minimum or 0, Config.get().limits.max_array_items) then
-    return false
-  end
-  for _, item in ipairs(value) do
-    if not text_valid(item) then
-      return false
-    end
-  end
-  return true
+local function normalized(value)
+  return vim.trim(value):lower():gsub('%s+', ' ')
 end
 
-local function unique_frame_texts(values)
-  local seen = {}
-  for _, value in ipairs(values) do
-    local key = vim.trim(value):lower():gsub('%s+', ' ')
-    if seen[key] then
-      return false
-    end
-    seen[key] = true
+local function text_array_diagnostic(value, path, minimum, maximum, normalize_values)
+  local diagnostic = Validation.array(value, path, minimum or 0, maximum or Config.get().limits.max_array_items)
+  if diagnostic then
+    return diagnostic
   end
-  return true
+  for index, item in ipairs(value) do
+    diagnostic = Validation.text(item, ('%s[%d]'):format(path, index), Config.get().limits.max_text_chars)
+    if diagnostic then
+      return diagnostic
+    end
+  end
+  if normalize_values == nil then
+    return
+  end
+  return Validation.unique(value, path, normalize_values and normalized or nil)
+end
+
+local function optional_text_diagnostic(value, path)
+  local diagnostic = Validation.required(value, path, 'string')
+  if diagnostic then
+    return diagnostic
+  end
+  local count = vim.fn.strchars(value)
+  if count > Config.get().limits.max_text_chars then
+    return Validation.diagnostic(path, 'max_chars', Config.get().limits.max_text_chars, count)
+  end
+end
+
+local function any_reference_diagnostic(workspace, id, path)
+  local artifact = type(id) == 'string' and workspace.artifacts_by_id[id] or nil
+  return Validation.reference(workspace, id, path, artifact and artifact.kind or 'artifact')
 end
 
 function M.frame(chat, args)
-  if
-    type(args) ~= 'table'
-    or not vim.tbl_contains({ 'start', 'revise', 'replace' }, args.action)
-    or not text_valid(args.objective)
-    or not frame_text_array(args.constraints)
-    or not frame_text_array(args.success_criteria, 1)
-    or not frame_text_array(args.unknowns)
-    or type(args.temporal_required) ~= 'boolean'
-    or type(args.branching_required) ~= 'boolean'
-    or not text_valid(args.branching_rationale)
-  then
-    return failure('frame_incomplete', 'objective must be non-empty and bounded', {}, 'Call reasoning_frame')
+  if type(args) ~= 'table' then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      Validation.required(nil, 'action', 'string')
+    )
   end
-  if not unique_frame_texts(args.success_criteria) or not unique_frame_texts(args.unknowns) then
+  local diagnostic = Validation.required(args.action, 'action', 'string')
+    or Validation.enum(args.action, 'action', { start = true, revise = true, replace = true })
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      diagnostic
+    )
+  end
+  diagnostic = Validation.text(args.objective, 'objective', Config.get().limits.max_text_chars)
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      diagnostic
+    )
+  end
+  diagnostic = Validation.required(args.problem_type, 'problem_type', 'string')
+    or Validation.enum(args.problem_type, 'problem_type', {
+      analysis = true,
+      decision = true,
+      diagnosis = true,
+      design = true,
+      planning = true,
+    })
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'problem_type is invalid',
+      {},
+      'Call reasoning_frame with a valid problem_type',
+      diagnostic
+    )
+  end
+  diagnostic = Validation.required(args.depth, 'depth', 'string')
+    or Validation.enum(args.depth, 'depth', { standard = true, deep = true })
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'depth must be standard or deep',
+      {},
+      'Call reasoning_frame with a valid depth',
+      diagnostic
+    )
+  end
+  diagnostic = text_array_diagnostic(args.constraints, 'constraints')
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      diagnostic
+    )
+  end
+  diagnostic = text_array_diagnostic(args.success_criteria, 'success_criteria', 1, nil, true)
+  if diagnostic then
     return failure(
       'frame_incomplete',
       'success criteria and unknowns must be unique',
       {},
-      'Remove duplicate frame entries'
+      'Remove duplicate frame entries',
+      diagnostic
     )
   end
-  if not vim.tbl_contains({ 'analysis', 'decision', 'diagnosis', 'design', 'planning' }, args.problem_type) then
-    return failure('frame_incomplete', 'problem_type is invalid', {}, 'Call reasoning_frame with a valid problem_type')
+  diagnostic = text_array_diagnostic(args.unknowns, 'unknowns', 0, nil, true)
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'success criteria and unknowns must be unique',
+      {},
+      'Remove duplicate frame entries',
+      diagnostic
+    )
   end
-  if args.depth ~= 'standard' and args.depth ~= 'deep' then
-    return failure('frame_incomplete', 'depth must be standard or deep', {}, 'Call reasoning_frame with a valid depth')
-  end
-  local minimum_perspectives = args.depth == 'deep' and 2 or 1
-  local maximum_perspectives = Config.get().limits.max_array_items
-  if type(args.perspectives) ~= 'table' then
+  diagnostic = Validation.required(args.perspectives, 'perspectives', 'array')
+  if diagnostic then
     return failure(
       'frame_incomplete',
       'perspectives must be an array',
       {},
-      string.format('Provide perspectives and retry with action=%s', args.action)
+      string.format('Provide perspectives and retry with action=%s', args.action),
+      diagnostic
     )
   end
+  local minimum_perspectives = args.depth == 'deep' and 2 or 1
+  local maximum_perspectives = Config.get().limits.max_array_items
   if maximum_perspectives < minimum_perspectives then
     return failure(
       'limit_exceeded',
@@ -117,7 +194,8 @@ function M.frame(chat, args)
         minimum_perspectives
       ),
       {},
-      string.format('Use standard depth or configure max_array_items to at least %d', minimum_perspectives)
+      string.format('Use standard depth or configure max_array_items to at least %d', minimum_perspectives),
+      Validation.diagnostic('perspectives', 'configured_capacity', minimum_perspectives, maximum_perspectives)
     )
   end
   local perspective_count = #args.perspectives
@@ -134,7 +212,8 @@ function M.frame(chat, args)
         perspective_count
       ),
       {},
-      string.format('Add %s and retry with action=%s', addition, args.action)
+      string.format('Add %s and retry with action=%s', addition, args.action),
+      Validation.diagnostic('perspectives', 'min_items', minimum_perspectives, perspective_count)
     )
   end
   if perspective_count > maximum_perspectives then
@@ -142,32 +221,85 @@ function M.frame(chat, args)
       'frame_incomplete',
       string.format('perspectives exceed max_array_items=%d; received %d', maximum_perspectives, perspective_count),
       {},
-      string.format('Reduce perspectives to %d or fewer and retry with action=%s', maximum_perspectives, args.action)
+      string.format('Reduce perspectives to %d or fewer and retry with action=%s', maximum_perspectives, args.action),
+      Validation.diagnostic('perspectives', 'max_items', maximum_perspectives, perspective_count)
     )
   end
   local perspective_names = {}
-  for _, perspective in ipairs(args.perspectives) do
-    if type(perspective) ~= 'table' or not text_valid(perspective.name) or not text_valid(perspective.purpose) then
+  for index, perspective in ipairs(args.perspectives) do
+    local path = ('perspectives[%d]'):format(index)
+    diagnostic = Validation.required(perspective, path, 'object')
+    if diagnostic then
       return failure(
         'frame_incomplete',
         'every perspective needs a bounded name and purpose',
         {},
-        'Correct the perspectives'
+        'Correct the perspectives',
+        diagnostic
       )
     end
-    local name = vim.trim(perspective.name):lower():gsub('%s+', ' ')
+    diagnostic = Validation.text(perspective.name, path .. '.name', Config.get().limits.max_text_chars)
+      or Validation.text(perspective.purpose, path .. '.purpose', Config.get().limits.max_text_chars)
+    if diagnostic then
+      return failure(
+        'frame_incomplete',
+        'every perspective needs a bounded name and purpose',
+        {},
+        'Correct the perspectives',
+        diagnostic
+      )
+    end
+    local name = normalized(perspective.name)
     if perspective_names[name] then
-      return failure('frame_incomplete', 'perspective names must be unique', {}, 'Rename the duplicate perspective')
+      return failure(
+        'frame_incomplete',
+        'perspective names must be unique',
+        {},
+        'Rename the duplicate perspective',
+        Validation.diagnostic(path .. '.name', 'unique_items', true, 'duplicate_value')
+      )
     end
     perspective_names[name] = true
   end
+  diagnostic = Validation.required(args.temporal_required, 'temporal_required', 'boolean')
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      diagnostic
+    )
+  end
+  diagnostic = Validation.required(args.branching_required, 'branching_required', 'boolean')
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      diagnostic
+    )
+  end
+  diagnostic = Validation.text(args.branching_rationale, 'branching_rationale', Config.get().limits.max_text_chars)
+  if diagnostic then
+    return failure(
+      'frame_incomplete',
+      'objective must be non-empty and bounded',
+      {},
+      'Call reasoning_frame',
+      diagnostic
+    )
+  end
+
   local requires_branching = vim.tbl_contains({ 'decision', 'diagnosis', 'design', 'planning' }, args.problem_type)
   if requires_branching and not args.branching_required then
     return failure(
       'branching_required',
       'this problem type requires competing branches',
       {},
-      'Set branching_required to true'
+      'Set branching_required to true',
+      Validation.diagnostic('branching_required', 'problem_type_requires_branching', true, false)
     )
   end
   local existing = State.get(chat)
@@ -176,11 +308,18 @@ function M.frame(chat, args)
       'workspace_exists',
       'an active workspace already exists',
       { existing.frame_id },
-      'Use revise or replace'
+      'Use revise or replace',
+      Validation.diagnostic('action', 'workspace_state', { 'revise', 'replace' }, 'start')
     )
   end
   if args.action == 'revise' and not existing then
-    return failure('workspace_missing', 'there is no frame to revise', {}, 'Start a frame')
+    return failure(
+      'workspace_missing',
+      'there is no frame to revise',
+      {},
+      'Start a frame',
+      Validation.diagnostic('action', 'workspace_exists', true, false)
+    )
   end
   if args.action == 'replace' and not existing then
     return failure(
@@ -215,7 +354,18 @@ function M.frame(chat, args)
   frame_data.action = nil
   local frame = State.add(workspace, 'frame', frame_data)
   if not frame then
-    return failure('limit_exceeded', 'the workspace artifact limit was reached', {}, 'Replace the workspace')
+    return failure(
+      'limit_exceeded',
+      'the workspace artifact limit was reached',
+      {},
+      'Replace the workspace',
+      Validation.diagnostic(
+        'workspace.artifacts',
+        'max_items',
+        Config.get().limits.max_artifacts,
+        #workspace.artifact_order
+      )
+    )
   end
   if workspace.frame_id then
     State.supersede(workspace, workspace.frame_id, frame.id)
@@ -225,10 +375,6 @@ function M.frame(chat, args)
     State.retire(workspace, id)
   end
   return success(workspace, frame)
-end
-
-local function normalized(value)
-  return vim.trim(value):lower():gsub('%s+', ' ')
 end
 
 local function text_array_valid(value, minimum)
@@ -273,19 +419,43 @@ function M.evidence(chat, args)
   if not workspace then
     return failure('workspace_missing', 'start a frame before recording evidence', {}, 'Call reasoning_frame')
   end
-  if type(args) ~= 'table' or not bounded_array(args.items, 1, Config.get().limits.max_batch_items) then
-    return failure('evidence_invalid', 'items must be a non-empty bounded batch', {}, 'Call reasoning_evidence')
+  if type(args) ~= 'table' then
+    return failure(
+      'evidence_invalid',
+      'items must be a non-empty bounded batch',
+      {},
+      'Call reasoning_evidence',
+      Validation.required(nil, 'items', 'array')
+    )
+  end
+  local diagnostic = Validation.array(args.items, 'items', 1, Config.get().limits.max_batch_items)
+  if diagnostic then
+    return failure(
+      'evidence_invalid',
+      'items must be a non-empty bounded batch',
+      {},
+      'Call reasoning_evidence',
+      diagnostic
+    )
   end
 
   local frame = State.find(workspace, workspace.frame_id)
   local perspectives = {}
+  local perspective_values = {}
   for _, perspective in ipairs(frame.data.perspectives) do
-    perspectives[normalized(perspective.name)] = true
+    local name = normalized(perspective.name)
+    perspectives[name] = true
+    table.insert(perspective_values, name)
   end
+  table.sort(perspective_values)
   local frame_unknowns = {}
+  local frame_unknown_values = {}
   for _, unknown in ipairs(frame.data.unknowns) do
-    frame_unknowns[normalized(unknown)] = true
+    local name = normalized(unknown)
+    frame_unknowns[name] = true
+    table.insert(frame_unknown_values, unknown)
   end
+  table.sort(frame_unknown_values)
 
   local known_statements = {}
   local current_frame_seen = false
@@ -308,103 +478,88 @@ function M.evidence(chat, args)
     pending_ids['E' .. (evidence_sequence + index)] = index
   end
   for index, item in ipairs(args.items) do
-    if
-      type(item) ~= 'table'
-      or not vim.tbl_contains({ 'observation', 'claim', 'assumption' }, item.kind)
-      or not text_valid(item.statement)
-      or not text_valid(item.source)
-      or not vim.tbl_contains({ 'low', 'medium', 'high' }, item.confidence)
-      or not text_valid(item.falsifier)
-      or not text_valid(item.perspective)
-      or not text_array_valid(item.addresses_unknowns)
-      or not text_array_valid(item.supports)
-      or not text_array_valid(item.contradicts)
-      or not text_array_valid(item.qualifies)
-      or type(item.supersedes_id) ~= 'string'
-    then
+    local path = ('items[%d]'):format(index)
+    diagnostic = Validation.required(item, path, 'object')
+    if diagnostic then
       return failure(
         'evidence_invalid',
         'evidence item ' .. index .. ' is invalid',
         {},
-        'Correct reasoning_evidence fields'
+        'Correct reasoning_evidence fields',
+        diagnostic
       )
     end
+    diagnostic = Validation.required(item.kind, path .. '.kind', 'string')
+      or Validation.enum(item.kind, path .. '.kind', { observation = true, claim = true, assumption = true })
+      or Validation.text(item.statement, path .. '.statement', Config.get().limits.max_text_chars)
+      or Validation.text(item.source, path .. '.source', Config.get().limits.max_text_chars)
+      or Validation.required(item.confidence, path .. '.confidence', 'string')
+      or Validation.enum(item.confidence, path .. '.confidence', { low = true, medium = true, high = true })
+      or Validation.text(item.falsifier, path .. '.falsifier', Config.get().limits.max_text_chars)
+      or Validation.text(item.perspective, path .. '.perspective', Config.get().limits.max_text_chars)
+      or text_array_diagnostic(item.addresses_unknowns, path .. '.addresses_unknowns')
+      or text_array_diagnostic(item.supports, path .. '.supports')
+      or text_array_diagnostic(item.contradicts, path .. '.contradicts')
+      or text_array_diagnostic(item.qualifies, path .. '.qualifies')
+      or optional_text_diagnostic(item.supersedes_id, path .. '.supersedes_id')
+    if diagnostic then
+      return failure(
+        'evidence_invalid',
+        'evidence item ' .. index .. ' is invalid',
+        {},
+        'Correct reasoning_evidence fields',
+        diagnostic
+      )
+    end
+  end
+  for index, item in ipairs(args.items) do
+    local path = ('items[%d]'):format(index)
     local source = normalized(item.source)
     if item.kind == 'assumption' and not source:match('^assumption:') then
       return failure(
         'evidence_invalid',
         'assumption sources must begin with assumption:',
         {},
-        'Label the assumption source'
+        'Label the assumption source',
+        Validation.diagnostic(path .. '.source', 'assumption_prefix', 'assumption:', 'invalid_source')
       )
     end
     if item.kind == 'observation' and vim.tbl_contains({ 'unknown', 'unspecified', 'none' }, source) then
-      return failure('evidence_invalid', 'observations require a concrete source', {}, 'Provide the observation source')
+      return failure(
+        'evidence_invalid',
+        'observations require a concrete source',
+        {},
+        'Provide the observation source',
+        Validation.diagnostic(path .. '.source', 'concrete_source', true, 'placeholder_source')
+      )
     end
     if not perspectives[normalized(item.perspective)] then
       return failure(
         'perspective_unknown',
         'evidence references an unknown perspective',
         {},
-        'Revise the frame or perspective'
+        'Revise the frame or perspective',
+        Validation.diagnostic(path .. '.perspective', 'active_frame_perspective', perspective_values, 'unknown_value')
       )
     end
     local addressed = {}
-    for _, unknown in ipairs(item.addresses_unknowns) do
+    for unknown_index, unknown in ipairs(item.addresses_unknowns) do
       local key = normalized(unknown)
       if addressed[key] or not frame_unknowns[key] then
         return failure(
           'evidence_invalid',
           'addresses_unknowns must uniquely match active frame unknowns',
           {},
-          'Use exact unknowns from reasoning_frame'
+          'Use exact unknowns from reasoning_frame',
+          Validation.diagnostic(
+            ('%s.addresses_unknowns[%d]'):format(path, unknown_index),
+            addressed[key] and 'unique_items' or 'active_frame_unknown',
+            addressed[key] and true or frame_unknown_values,
+            addressed[key] and 'duplicate_value' or 'unknown_value'
+          )
         )
       end
       addressed[key] = true
-    end
-    for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
-      local seen = {}
-      for _, id in ipairs(item[field]) do
-        if seen[id] then
-          return failure(
-            'evidence_invalid',
-            field .. ' contains a duplicate ID',
-            { id },
-            'Remove the duplicate reference'
-          )
-        end
-        seen[id] = true
-        local _, code = active_reference(workspace, id)
-        if code == 'invalid_reference' and pending_ids[id] and pending_ids[id] < index then
-          code = nil
-        end
-        if code then
-          return failure(code, 'evidence relation target is unavailable', { id }, 'Use an active artifact ID')
-        end
-      end
-    end
-    if item.supersedes_id ~= '' then
-      local target, code = active_reference(workspace, item.supersedes_id)
-      if code then
-        return failure(code, 'superseded evidence is unavailable', { item.supersedes_id }, 'Use an active evidence ID')
-      end
-      if target.kind ~= 'evidence' then
-        return failure(
-          'invalid_reference',
-          'supersedes_id must name evidence',
-          { item.supersedes_id },
-          'Use reasoning_evidence'
-        )
-      end
-      if pending_supersessions[item.supersedes_id] then
-        return failure(
-          'duplicate_artifact',
-          'one evidence artifact cannot have two replacements in the same batch',
-          { item.supersedes_id },
-          'Submit one replacement for the evidence ID'
-        )
-      end
-      pending_supersessions[item.supersedes_id] = true
     end
     local key = normalized(item.statement)
     local duplicate_id = known_statements[key]
@@ -413,7 +568,8 @@ function M.evidence(chat, args)
         'duplicate_artifact',
         'the evidence batch contains duplicate normalized statements',
         duplicate_id and { duplicate_id } or {},
-        'Keep one statement or submit separate revisions'
+        'Keep one statement or submit separate revisions',
+        Validation.diagnostic(path .. '.statement', 'unique_items', true, 'duplicate_value')
       )
     end
     if duplicate_id and item.supersedes_id ~= duplicate_id then
@@ -421,22 +577,98 @@ function M.evidence(chat, args)
         'duplicate_artifact',
         'an evidence artifact already has the same statement',
         { duplicate_id },
-        'Supersede the active evidence or use a distinct statement'
+        'Supersede the active evidence or use a distinct statement',
+        Validation.diagnostic(path .. '.statement', 'unique_items', true, 'duplicate_value')
       )
     end
     pending_statements[key] = true
     table.insert(prepared, vim.deepcopy(item))
   end
 
-  for _, item in ipairs(prepared) do
+  for index, item in ipairs(prepared) do
+    local path = ('items[%d]'):format(index)
     for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
-      for _, id in ipairs(item[field]) do
+      local seen = {}
+      for reference_index, id in ipairs(item[field]) do
+        local reference_path = ('%s.%s[%d]'):format(path, field, reference_index)
+        if seen[id] then
+          return failure(
+            'evidence_invalid',
+            field .. ' contains a duplicate ID',
+            { id },
+            'Remove the duplicate reference',
+            Validation.diagnostic(reference_path, 'unique_items', true, Validation.artifact_ids({ id })[1])
+          )
+        end
+        seen[id] = true
+        local _, code = active_reference(workspace, id)
+        if code == 'invalid_reference' and pending_ids[id] and pending_ids[id] < index then
+          code = nil
+        end
+        if code then
+          return failure(
+            code,
+            'evidence relation target is unavailable',
+            { id },
+            'Use an active artifact ID',
+            any_reference_diagnostic(workspace, id, reference_path)
+          )
+        end
+      end
+    end
+    if item.supersedes_id ~= '' then
+      local target, code = active_reference(workspace, item.supersedes_id)
+      if code then
+        return failure(
+          code,
+          'superseded evidence is unavailable',
+          { item.supersedes_id },
+          'Use an active evidence ID',
+          Validation.reference(workspace, item.supersedes_id, path .. '.supersedes_id', 'evidence')
+        )
+      end
+      if target.kind ~= 'evidence' then
+        return failure(
+          'invalid_reference',
+          'supersedes_id must name evidence',
+          { item.supersedes_id },
+          'Use reasoning_evidence',
+          Validation.reference(workspace, item.supersedes_id, path .. '.supersedes_id', 'evidence')
+        )
+      end
+      if pending_supersessions[item.supersedes_id] then
+        return failure(
+          'duplicate_artifact',
+          'one evidence artifact cannot have two replacements in the same batch',
+          { item.supersedes_id },
+          'Submit one replacement for the evidence ID',
+          Validation.diagnostic(
+            path .. '.supersedes_id',
+            'unique_supersession_target',
+            true,
+            Validation.artifact_ids({ item.supersedes_id })[1]
+          )
+        )
+      end
+      pending_supersessions[item.supersedes_id] = true
+    end
+  end
+
+  for item_index, item in ipairs(prepared) do
+    for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
+      for reference_index, id in ipairs(item[field]) do
         if pending_supersessions[id] then
           return failure(
             'inactive_reference',
             'evidence relation target is superseded by the same batch',
             { id },
-            'Reference the replacement evidence artifact'
+            'Reference the replacement evidence artifact',
+            Validation.diagnostic(
+              ('items[%d].%s[%d]'):format(item_index, field, reference_index),
+              'batch_reference_status',
+              'survives_batch',
+              Validation.artifact_ids({ id })[1]
+            )
           )
         end
       end
@@ -448,7 +680,13 @@ function M.evidence(chat, args)
       'limit_exceeded',
       'the complete evidence batch exceeds the artifact limit',
       {},
-      'Replace the workspace or reduce the batch'
+      'Replace the workspace or reduce the batch',
+      Validation.diagnostic(
+        'items',
+        'workspace_capacity',
+        Config.get().limits.max_artifacts - #workspace.artifact_order,
+        #prepared
+      )
     )
   end
 
@@ -476,34 +714,113 @@ function M.options(chat, args)
   if not workspace then
     return failure('workspace_missing', 'start a frame before creating branches', {}, 'Call reasoning_frame')
   end
-  if
-    type(args) ~= 'table'
-    or not text_valid(args.question)
-    or not vim.tbl_contains({ 'solution', 'hypothesis', 'scenario' }, args.branch_type)
-    or not bounded_array(args.criteria, 1, math.min(8, Config.get().limits.max_array_items))
-    or type(args.supersedes_branch_id) ~= 'string'
-    or (args.supersedes_branch_id ~= '' and not text_valid(args.supersedes_branch_id))
-  then
-    return failure('options_invalid', 'branch-set fields are invalid', {}, 'Correct reasoning_options fields')
+  if type(args) ~= 'table' then
+    return failure(
+      'options_invalid',
+      'branch-set fields are invalid',
+      {},
+      'Correct reasoning_options fields',
+      Validation.required(nil, 'question', 'string')
+    )
   end
-  local criteria = {}
-  for _, criterion in ipairs(args.criteria) do
-    if not text_valid(criterion) then
-      return failure('options_invalid', 'criteria must contain bounded text', {}, 'Correct reasoning_options criteria')
-    end
-    local key = normalized(criterion)
-    if criteria[key] then
-      return failure('options_invalid', 'criteria must be unique', {}, 'Remove the duplicate criterion')
-    end
-    criteria[key] = true
+  local diagnostic = Validation.text(args.question, 'question', Config.get().limits.max_text_chars)
+  if diagnostic then
+    return failure(
+      'options_invalid',
+      'branch-set fields are invalid',
+      {},
+      'Correct reasoning_options fields',
+      diagnostic
+    )
   end
-  if not bounded_array(args.options, 2, math.min(6, Config.get().limits.max_array_items)) then
+  diagnostic = Validation.required(args.branch_type, 'branch_type', 'string')
+    or Validation.enum(args.branch_type, 'branch_type', { solution = true, hypothesis = true, scenario = true })
+  if diagnostic then
+    return failure(
+      'options_invalid',
+      'branch-set fields are invalid',
+      {},
+      'Correct reasoning_options fields',
+      diagnostic
+    )
+  end
+  diagnostic =
+    text_array_diagnostic(args.criteria, 'criteria', 1, math.min(8, Config.get().limits.max_array_items), true)
+  if diagnostic then
+    return failure(
+      'options_invalid',
+      'criteria must contain bounded text',
+      {},
+      'Correct reasoning_options criteria',
+      diagnostic
+    )
+  end
+  diagnostic = optional_text_diagnostic(args.supersedes_branch_id, 'supersedes_branch_id')
+  if diagnostic then
+    return failure(
+      'options_invalid',
+      'branch-set fields are invalid',
+      {},
+      'Correct reasoning_options fields',
+      diagnostic
+    )
+  end
+  diagnostic = Validation.array(args.options, 'options', 2, math.min(6, Config.get().limits.max_array_items))
+  if diagnostic then
     return failure(
       'branch_count_insufficient',
       'a branch set requires two to six options',
       {},
-      'Provide competing options'
+      'Provide competing options',
+      diagnostic
     )
+  end
+
+  local labels = {}
+  local prepared = {}
+  for index, option in ipairs(args.options) do
+    local path = ('options[%d]'):format(index)
+    diagnostic = Validation.required(option, path, 'object')
+    if diagnostic then
+      return failure(
+        'options_invalid',
+        'option ' .. index .. ' is invalid',
+        {},
+        'Correct the option fields',
+        diagnostic
+      )
+    end
+    diagnostic = Validation.text(option.label, path .. '.label', Config.get().limits.max_text_chars)
+      or Validation.text(option.summary, path .. '.summary', Config.get().limits.max_text_chars)
+      or text_array_diagnostic(option.evidence_ids, path .. '.evidence_ids', 1, nil, false)
+      or text_array_diagnostic(option.assumptions, path .. '.assumptions')
+      or text_array_diagnostic(option.predictions, path .. '.predictions', 1)
+      or text_array_diagnostic(option.benefits, path .. '.benefits')
+      or text_array_diagnostic(option.costs, path .. '.costs')
+      or text_array_diagnostic(option.risks, path .. '.risks')
+      or Validation.required(option.reversibility, path .. '.reversibility', 'string')
+      or Validation.enum(option.reversibility, path .. '.reversibility', { easy = true, moderate = true, hard = true })
+    if diagnostic then
+      return failure(
+        'options_invalid',
+        'option ' .. index .. ' is invalid',
+        {},
+        'Correct the option fields',
+        diagnostic
+      )
+    end
+    local label = normalized(option.label)
+    if labels[label] then
+      return failure(
+        'options_invalid',
+        'option labels must be unique',
+        {},
+        'Rename the duplicate option',
+        Validation.diagnostic(path .. '.label', 'unique_items', true, 'duplicate_value')
+      )
+    end
+    labels[label] = true
+    table.insert(prepared, vim.deepcopy(option))
   end
 
   local active_branch
@@ -519,7 +836,8 @@ function M.options(chat, args)
       'options_invalid',
       'an active branch set must be explicitly superseded',
       { active_branch.id },
-      'Set supersedes_branch_id to the active branch ID'
+      'Set supersedes_branch_id to the active branch ID',
+      Validation.diagnostic('supersedes_branch_id', 'active_branch_supersession', active_branch.id, 'missing')
     )
   end
   if active_branch and args.supersedes_branch_id ~= active_branch.id then
@@ -527,7 +845,13 @@ function M.options(chat, args)
       'options_invalid',
       'supersedes_branch_id must name the current active branch set',
       { active_branch.id },
-      'Set supersedes_branch_id to the active branch ID'
+      'Set supersedes_branch_id to the active branch ID',
+      Validation.diagnostic(
+        'supersedes_branch_id',
+        'active_branch_supersession',
+        active_branch.id,
+        Validation.artifact_ids({ args.supersedes_branch_id })[1]
+      )
     )
   end
 
@@ -540,7 +864,8 @@ function M.options(chat, args)
         code,
         'the replaced branch set is unavailable',
         { args.supersedes_branch_id },
-        'Use an active branch ID'
+        'Use an active branch ID',
+        Validation.reference(workspace, args.supersedes_branch_id, 'supersedes_branch_id', 'branch')
       )
     end
     if replaced.kind ~= 'branch' then
@@ -548,48 +873,35 @@ function M.options(chat, args)
         'invalid_reference',
         'supersedes_branch_id must name a branch set',
         { replaced.id },
-        'Use an active B artifact'
+        'Use an active B artifact',
+        Validation.reference(workspace, args.supersedes_branch_id, 'supersedes_branch_id', 'branch')
       )
     end
   end
 
-  local labels = {}
-  local prepared = {}
   for index, option in ipairs(args.options) do
-    if
-      type(option) ~= 'table'
-      or not text_valid(option.label)
-      or not text_valid(option.summary)
-      or not text_array_valid(option.evidence_ids, 1)
-      or not text_array_valid(option.assumptions)
-      or not text_array_valid(option.predictions, 1)
-      or not text_array_valid(option.benefits)
-      or not text_array_valid(option.costs)
-      or not text_array_valid(option.risks)
-      or not vim.tbl_contains({ 'easy', 'moderate', 'hard' }, option.reversibility)
-    then
-      return failure('options_invalid', 'option ' .. index .. ' is invalid', {}, 'Correct the option fields')
-    end
-    local label = normalized(option.label)
-    if labels[label] then
-      return failure('options_invalid', 'option labels must be unique', {}, 'Rename the duplicate option')
-    end
-    labels[label] = true
-    local seen_evidence = {}
-    for _, id in ipairs(option.evidence_ids) do
-      if seen_evidence[id] then
-        return failure('options_invalid', 'option evidence_ids contains a duplicate', { id }, 'Remove the duplicate ID')
-      end
-      seen_evidence[id] = true
+    for reference_index, id in ipairs(option.evidence_ids) do
+      local path = ('options[%d].evidence_ids[%d]'):format(index, reference_index)
       local target, code = active_reference(workspace, id)
       if code then
-        return failure(code, 'option evidence is unavailable', { id }, 'Use active evidence IDs')
+        return failure(
+          code,
+          'option evidence is unavailable',
+          { id },
+          'Use active evidence IDs',
+          Validation.reference(workspace, id, path, 'evidence')
+        )
       end
       if target.kind ~= 'evidence' then
-        return failure('invalid_reference', 'option evidence_ids must name evidence', { id }, 'Use E artifact IDs')
+        return failure(
+          'invalid_reference',
+          'option evidence_ids must name evidence',
+          { id },
+          'Use E artifact IDs',
+          Validation.reference(workspace, id, path, 'evidence')
+        )
       end
     end
-    table.insert(prepared, vim.deepcopy(option))
   end
 
   if #workspace.artifact_order + 1 + #prepared > Config.get().limits.max_artifacts then
@@ -597,7 +909,13 @@ function M.options(chat, args)
       'limit_exceeded',
       'the branch set exceeds the artifact limit',
       {},
-      'Replace the workspace or reduce branches'
+      'Replace the workspace or reduce branches',
+      Validation.diagnostic(
+        'options',
+        'workspace_capacity',
+        Config.get().limits.max_artifacts - #workspace.artifact_order - 1,
+        #prepared
+      )
     )
   end
 
@@ -649,25 +967,158 @@ local function contradiction_key(left, right)
   return left .. ':' .. right
 end
 
-local function validate_evidence_ids(workspace, ids)
-  if not text_array_valid(ids) then
-    return nil, 'review_incomplete'
-  end
+local function validate_evidence_ids(workspace, ids, path)
   local seen = {}
-  for _, id in ipairs(ids) do
+  for index, id in ipairs(ids) do
+    local item_path = ('%s[%d]'):format(path, index)
     if seen[id] then
-      return nil, 'review_incomplete', id
+      return nil,
+        'review_incomplete',
+        id,
+        Validation.diagnostic(item_path, 'unique_items', true, Validation.artifact_ids({ id })[1])
     end
     seen[id] = true
     local target, code = active_reference(workspace, id)
     if code then
-      return nil, code, id
+      return nil, code, id, Validation.reference(workspace, id, item_path, 'evidence')
     end
     if target.kind ~= 'evidence' then
-      return nil, 'invalid_reference', id
+      return nil, 'invalid_reference', id, Validation.reference(workspace, id, item_path, 'evidence')
     end
   end
   return true
+end
+
+local function review_shape_diagnostic(args)
+  if type(args) ~= 'table' then
+    return Validation.required(nil, 'mode', 'string')
+  end
+  local diagnostic = Validation.required(args.mode, 'mode', 'string')
+    or Validation.enum(args.mode, 'mode', {
+      falsification = true,
+      assumptions = true,
+      temporal = true,
+      cross_perspective = true,
+      full = true,
+    })
+    or text_array_diagnostic(args.target_ids, 'target_ids', 1, nil, false)
+  if diagnostic then
+    return diagnostic
+  end
+  diagnostic = Validation.required(args.defense, 'defense', 'object')
+  if diagnostic then
+    return diagnostic
+  end
+  diagnostic = Validation.text(args.defense.summary, 'defense.summary', Config.get().limits.max_text_chars)
+    or text_array_diagnostic(args.defense.evidence_ids, 'defense.evidence_ids', 0, nil, false)
+    or Validation.array(args.challenges, 'challenges', 1, Config.get().limits.max_array_items)
+  if diagnostic then
+    return diagnostic
+  end
+  local challenge_kinds = {
+    counterexample = true,
+    missing_evidence = true,
+    hidden_assumption = true,
+    temporal_failure = true,
+    overclaim = true,
+    underclaim = true,
+  }
+  for index, challenge in ipairs(args.challenges) do
+    local path = ('challenges[%d]'):format(index)
+    diagnostic = Validation.required(challenge, path, 'object')
+    if diagnostic then
+      return diagnostic
+    end
+    diagnostic = Validation.required(challenge.kind, path .. '.kind', 'string')
+      or Validation.enum(challenge.kind, path .. '.kind', challenge_kinds)
+      or Validation.text(challenge.summary, path .. '.summary', Config.get().limits.max_text_chars)
+      or text_array_diagnostic(challenge.target_ids, path .. '.target_ids', 1, nil, false)
+      or Validation.text(challenge.falsifier, path .. '.falsifier', Config.get().limits.max_text_chars)
+    if diagnostic then
+      return diagnostic
+    end
+  end
+  diagnostic = text_array_diagnostic(
+    args.blind_spots,
+    'blind_spots',
+    args.mode == 'full' and 1 or 0,
+    Config.get().limits.max_array_items
+  ) or Validation.array(args.stress_tests, 'stress_tests', 0, Config.get().limits.max_array_items)
+  if diagnostic then
+    return diagnostic
+  end
+  for index, test in ipairs(args.stress_tests) do
+    local path = ('stress_tests[%d]'):format(index)
+    diagnostic = Validation.required(test, path, 'object')
+    if diagnostic then
+      return diagnostic
+    end
+    diagnostic = Validation.text(test.scenario, path .. '.scenario', Config.get().limits.max_text_chars)
+      or Validation.text(test.prediction, path .. '.prediction', Config.get().limits.max_text_chars)
+      or Validation.text(test.failure_signal, path .. '.failure_signal', Config.get().limits.max_text_chars)
+    if diagnostic then
+      return diagnostic
+    end
+  end
+  diagnostic = Validation.array(args.verdicts, 'verdicts', #args.target_ids, #args.target_ids)
+  if diagnostic then
+    return diagnostic
+  end
+  for index, verdict in ipairs(args.verdicts) do
+    local path = ('verdicts[%d]'):format(index)
+    diagnostic = Validation.required(verdict, path, 'object')
+    if diagnostic then
+      return diagnostic
+    end
+    diagnostic = Validation.text(verdict.target_id, path .. '.target_id', Config.get().limits.max_text_chars)
+      or Validation.required(verdict.status, path .. '.status', 'string')
+      or Validation.enum(verdict.status, path .. '.status', { keep = true, revise = true, retract = true })
+      or optional_text_diagnostic(verdict.revision_instruction, path .. '.revision_instruction')
+    if diagnostic then
+      return diagnostic
+    end
+  end
+  diagnostic = Validation.array(
+    args.contradiction_resolutions,
+    'contradiction_resolutions',
+    0,
+    Config.get().limits.max_array_items
+  )
+  if diagnostic then
+    return diagnostic
+  end
+  for index, resolution in ipairs(args.contradiction_resolutions) do
+    local path = ('contradiction_resolutions[%d]'):format(index)
+    diagnostic = Validation.required(resolution, path, 'object')
+    if diagnostic then
+      return diagnostic
+    end
+    diagnostic = Validation.text(resolution.left_id, path .. '.left_id', Config.get().limits.max_text_chars)
+      or Validation.text(resolution.right_id, path .. '.right_id', Config.get().limits.max_text_chars)
+      or Validation.text(resolution.resolution, path .. '.resolution', Config.get().limits.max_text_chars)
+      or text_array_diagnostic(resolution.evidence_ids, path .. '.evidence_ids', 1, nil, false)
+    if diagnostic then
+      return diagnostic
+    end
+  end
+  diagnostic =
+    Validation.array(args.structural_tradeoffs, 'structural_tradeoffs', 0, Config.get().limits.max_array_items)
+  if diagnostic then
+    return diagnostic
+  end
+  for index, tradeoff in ipairs(args.structural_tradeoffs) do
+    local path = ('structural_tradeoffs[%d]'):format(index)
+    diagnostic = Validation.required(tradeoff, path, 'object')
+    if diagnostic then
+      return diagnostic
+    end
+    diagnostic = Validation.text(tradeoff.statement, path .. '.statement', Config.get().limits.max_text_chars)
+      or text_array_diagnostic(tradeoff.evidence_ids, path .. '.evidence_ids', 0, nil, false)
+      or Validation.text(tradeoff.falsifier, path .. '.falsifier', Config.get().limits.max_text_chars)
+    if diagnostic then
+      return diagnostic
+    end
+  end
 end
 
 local function collect_perspectives(workspace, artifact, perspectives, visited)
@@ -717,59 +1168,76 @@ function M.review(chat, args)
   if not workspace then
     return failure('workspace_missing', 'start a frame before review', {}, 'Call reasoning_frame')
   end
-  local modes = { 'falsification', 'assumptions', 'temporal', 'cross_perspective', 'full' }
-  if type(args) ~= 'table' or not vim.tbl_contains(modes, args.mode) or not text_array_valid(args.target_ids, 1) then
-    return failure('review_incomplete', 'mode and target_ids are required', {}, 'Correct reasoning_review fields')
+  local diagnostic = review_shape_diagnostic(args)
+  if diagnostic then
+    return failure(
+      'review_incomplete',
+      'mode and target_ids are required',
+      {},
+      'Correct reasoning_review fields',
+      diagnostic
+    )
   end
 
   local targets = {}
-  for _, id in ipairs(args.target_ids) do
+  for index, id in ipairs(args.target_ids) do
+    local path = ('target_ids[%d]'):format(index)
     if targets[id] then
-      return failure('review_incomplete', 'target_ids must be unique', { id }, 'Remove the duplicate target')
+      return failure(
+        'review_incomplete',
+        'target_ids must be unique',
+        { id },
+        'Remove the duplicate target',
+        Validation.diagnostic(path, 'unique_items', true, Validation.artifact_ids({ id })[1])
+      )
     end
     local target, code = active_reference(workspace, id)
     if code then
-      return failure(code, 'review target is unavailable', { id }, 'Use an active artifact ID')
+      return failure(
+        code,
+        'review target is unavailable',
+        { id },
+        'Use an active artifact ID',
+        any_reference_diagnostic(workspace, id, path)
+      )
     end
     if target.kind == 'review' then
       return failure(
         'invalid_reference',
         'reviews cannot revise another review artifact',
         { id },
-        'Target a frame, evidence, branch, option, or synthesis'
+        'Target a frame, evidence, branch, option, or synthesis',
+        Validation.diagnostic(path, 'artifact_kind', 'non_review', Validation.artifact_ids({ id })[1])
       )
     end
     targets[id] = target
   end
 
-  if type(args.defense) ~= 'table' or not text_valid(args.defense.summary) then
-    return failure(
-      'review_incomplete',
-      'a bounded defense summary is required',
-      {},
-      'Add the strongest surviving defense'
-    )
-  end
-  local evidence_ok, evidence_code, evidence_id = validate_evidence_ids(workspace, args.defense.evidence_ids)
+  local evidence_ok, evidence_code, evidence_id, evidence_diagnostic =
+    validate_evidence_ids(workspace, args.defense.evidence_ids, 'defense.evidence_ids')
   if not evidence_ok then
     return failure(
       evidence_code,
       'defense evidence is invalid',
       evidence_id and { evidence_id } or {},
-      'Use active evidence IDs'
+      'Use active evidence IDs',
+      evidence_diagnostic
     )
   end
   if args.mode == 'full' and #args.defense.evidence_ids == 0 then
-    return failure('review_incomplete', 'full review requires defense evidence', {}, 'Add evidence to the defense')
+    return failure(
+      'review_incomplete',
+      'full review requires defense evidence',
+      {},
+      'Add evidence to the defense',
+      Validation.diagnostic('defense.evidence_ids', 'min_items', 1, 0)
+    )
   end
   local required_evidence = {}
   for _, id in ipairs(args.defense.evidence_ids) do
     required_evidence[id] = true
   end
 
-  if not bounded_array(args.challenges, 1, Config.get().limits.max_array_items) then
-    return failure('review_incomplete', 'at least one challenge is required', {}, 'Add an adversarial challenge')
-  end
   local challenge_kinds = {
     'counterexample',
     'missing_evidence',
@@ -781,23 +1249,16 @@ function M.review(chat, args)
   local has_disconfirmation, has_hidden_assumption = false, false
   local challenged_targets = {}
   for index, challenge in ipairs(args.challenges) do
-    if
-      type(challenge) ~= 'table'
-      or not vim.tbl_contains(challenge_kinds, challenge.kind)
-      or not text_valid(challenge.summary)
-      or not text_array_valid(challenge.target_ids, 1)
-      or not text_valid(challenge.falsifier)
-    then
-      return failure('review_incomplete', 'challenge ' .. index .. ' is invalid', {}, 'Correct the challenge fields')
-    end
     local challenge_targets = {}
-    for _, id in ipairs(challenge.target_ids) do
+    for target_index, id in ipairs(challenge.target_ids) do
+      local path = ('challenges[%d].target_ids[%d]'):format(index, target_index)
       if challenge_targets[id] then
         return failure(
           'review_incomplete',
           'challenge target_ids must be unique',
           { id },
-          'Remove the duplicate challenge target'
+          'Remove the duplicate challenge target',
+          Validation.diagnostic(path, 'unique_items', true, Validation.artifact_ids({ id })[1])
         )
       end
       challenge_targets[id] = true
@@ -806,7 +1267,8 @@ function M.review(chat, args)
           'invalid_reference',
           'challenge targets must be in target_ids',
           { id },
-          'Add the target to target_ids'
+          'Add the target to target_ids',
+          Validation.diagnostic(path, 'review_target_membership', true, Validation.artifact_ids({ id })[1])
         )
       end
       challenged_targets[id] = true
@@ -815,13 +1277,19 @@ function M.review(chat, args)
       or vim.tbl_contains({ 'counterexample', 'missing_evidence', 'temporal_failure', 'overclaim' }, challenge.kind)
     has_hidden_assumption = has_hidden_assumption or challenge.kind == 'hidden_assumption'
   end
-  for _, id in ipairs(args.target_ids) do
+  for index, id in ipairs(args.target_ids) do
     if not challenged_targets[id] then
       return failure(
         'review_incomplete',
         'every review target must receive an adversarial challenge',
         { id },
-        'Add a challenge for the uncovered target'
+        'Add a challenge for the uncovered target',
+        Validation.diagnostic(
+          ('target_ids[%d]'):format(index),
+          'challenge_coverage',
+          true,
+          Validation.artifact_ids({ id })[1]
+        )
       )
     end
   end
@@ -833,7 +1301,13 @@ function M.review(chat, args)
       'review_incomplete',
       'full review requires disconfirmation and a hidden assumption',
       {},
-      'Add both challenge types'
+      'Add both challenge types',
+      Validation.diagnostic(
+        'challenges',
+        'required_challenge_kinds',
+        { 'counterexample', 'hidden_assumption' },
+        'missing_kind'
+      )
     )
   end
   if args.mode == 'falsification' and not has_disconfirmation then
@@ -841,7 +1315,8 @@ function M.review(chat, args)
       'review_incomplete',
       'falsification review requires a disconfirming challenge',
       {},
-      'Add a falsifiable attack'
+      'Add a falsifiable attack',
+      Validation.diagnostic('challenges', 'disconfirming_challenge', true, false)
     )
   end
   if args.mode == 'assumptions' and not has_hidden_assumption then
@@ -849,7 +1324,8 @@ function M.review(chat, args)
       'review_incomplete',
       'assumptions review requires a hidden-assumption challenge',
       {},
-      'Expose a hidden assumption'
+      'Expose a hidden assumption',
+      Validation.diagnostic('challenges', 'hidden_assumption_challenge', true, false)
     )
   end
   if args.mode == 'cross_perspective' and #args.target_ids < 2 then
@@ -857,7 +1333,8 @@ function M.review(chat, args)
       'review_incomplete',
       'cross-perspective review requires at least two targets',
       args.target_ids,
-      'Add another perspective target'
+      'Add another perspective target',
+      Validation.diagnostic('target_ids', 'min_items', 2, #args.target_ids)
     )
   end
   if args.mode == 'cross_perspective' then
@@ -874,7 +1351,8 @@ function M.review(chat, args)
         'review_incomplete',
         'cross-perspective review requires evidence from distinct frame perspectives',
         args.target_ids,
-        'Target artifacts grounded in at least two perspectives'
+        'Target artifacts grounded in at least two perspectives',
+        Validation.diagnostic('target_ids', 'evidence_perspective_count', 2, count)
       )
     end
   end
@@ -899,34 +1377,68 @@ function M.review(chat, args)
   end
   local frame = State.find(workspace, workspace.frame_id)
   if (args.mode == 'temporal' or frame.data.temporal_required) and #args.stress_tests == 0 then
-    return failure('review_incomplete', 'temporal reasoning requires a stress test', {}, 'Add a temporal stress test')
-  end
-
-  if not bounded_array(args.verdicts, #args.target_ids, #args.target_ids) then
     return failure(
       'review_incomplete',
-      'every target requires exactly one verdict',
-      args.target_ids,
-      'Cover every target'
+      'temporal reasoning requires a stress test',
+      {},
+      'Add a temporal stress test',
+      Validation.diagnostic('stress_tests', 'min_items', 1, 0)
     )
   end
+
   local verdicts = {}
-  for _, verdict in ipairs(args.verdicts) do
-    if
-      type(verdict) ~= 'table'
-      or not targets[verdict.target_id]
-      or verdicts[verdict.target_id]
-      or not vim.tbl_contains({ 'keep', 'revise', 'retract' }, verdict.status)
-      or type(verdict.revision_instruction) ~= 'string'
-      or vim.fn.strchars(verdict.revision_instruction) > Config.get().limits.max_text_chars
-      or (verdict.status == 'revise' and not text_valid(verdict.revision_instruction))
-      or (verdict.status ~= 'revise' and verdict.revision_instruction ~= '')
-    then
+  for index, verdict in ipairs(args.verdicts) do
+    local path = ('verdicts[%d]'):format(index)
+    if not targets[verdict.target_id] then
       return failure(
         'review_incomplete',
         'verdicts must uniquely cover every target',
-        args.target_ids,
-        'Correct the verdicts'
+        { verdict.target_id },
+        'Correct the verdicts',
+        Validation.diagnostic(
+          path .. '.target_id',
+          'review_target_membership',
+          true,
+          Validation.artifact_ids({ verdict.target_id })[1]
+        )
+      )
+    end
+    if verdicts[verdict.target_id] then
+      return failure(
+        'review_incomplete',
+        'verdicts must uniquely cover every target',
+        { verdict.target_id },
+        'Correct the verdicts',
+        Validation.diagnostic(
+          path .. '.target_id',
+          'unique_items',
+          true,
+          Validation.artifact_ids({ verdict.target_id })[1]
+        )
+      )
+    end
+    if verdict.status == 'revise' then
+      diagnostic = Validation.text(
+        verdict.revision_instruction,
+        path .. '.revision_instruction',
+        Config.get().limits.max_text_chars
+      )
+      if diagnostic then
+        return failure(
+          'review_incomplete',
+          'verdicts must uniquely cover every target',
+          { verdict.target_id },
+          'Correct the verdicts',
+          diagnostic
+        )
+      end
+    elseif verdict.revision_instruction ~= '' then
+      return failure(
+        'review_incomplete',
+        'verdicts must uniquely cover every target',
+        { verdict.target_id },
+        'Correct the verdicts',
+        Validation.diagnostic(path .. '.revision_instruction', 'allowed_when_status', 'revise', verdict.status)
       )
     end
     verdicts[verdict.target_id] = verdict.status
@@ -939,7 +1451,13 @@ function M.review(chat, args)
         {
           tool = 'reasoning_frame',
           reason = 'Revise or replace the active problem frame',
-        }
+        },
+        Validation.diagnostic(
+          ('verdicts[%d].status'):format(index),
+          'frame_status_transition',
+          { 'keep', 'revise' },
+          'retract'
+        )
       )
     end
     if target.kind == 'option' and verdict.status == 'retract' then
@@ -950,7 +1468,13 @@ function M.review(chat, args)
         {
           tool = 'reasoning_options',
           reason = 'Revise the option and replace the complete branch set',
-        }
+        },
+        Validation.diagnostic(
+          ('verdicts[%d].status'):format(index),
+          'option_status_transition',
+          { 'keep', 'revise' },
+          'retract'
+        )
       )
     end
     if verdict.status == 'revise' and workspace.open_revisions[verdict.target_id] then
@@ -961,7 +1485,13 @@ function M.review(chat, args)
         {
           tool = corrective_tool(target.kind),
           reason = 'Resolve the existing revision before opening another',
-        }
+        },
+        Validation.diagnostic(
+          ('verdicts[%d].target_id'):format(index),
+          'open_revision',
+          false,
+          Validation.artifact_ids({ verdict.target_id })[1]
+        )
       )
     end
   end
@@ -976,7 +1506,8 @@ function M.review(chat, args)
             {
               tool = 'reasoning_options',
               reason = 'Review or replace the branch set as one coherent unit',
-            }
+            },
+            Validation.diagnostic('verdicts', 'coherent_branch_verdict', true, 'mixed_branch_and_option')
           )
         end
       end
@@ -1005,7 +1536,13 @@ function M.review(chat, args)
         'review_incomplete',
         'contradiction resolution ' .. index .. ' is invalid',
         {},
-        'Correct the contradiction resolution'
+        'Correct the contradiction resolution',
+        Validation.diagnostic(
+          ('contradiction_resolutions[%d].right_id'):format(index),
+          'distinct_from_left_id',
+          true,
+          'duplicate_value'
+        )
       )
     end
     local left, right = targets[resolution.left_id], targets[resolution.right_id]
@@ -1014,7 +1551,13 @@ function M.review(chat, args)
         'invalid_reference',
         'contradiction endpoints must both be reviewed',
         { resolution.left_id, resolution.right_id },
-        'Target both contradictory artifacts'
+        'Target both contradictory artifacts',
+        Validation.diagnostic(
+          ('contradiction_resolutions[%d]'):format(index),
+          'review_target_membership',
+          true,
+          'unreviewed_endpoint'
+        )
       )
     end
     if verdicts[left.id] ~= 'keep' or verdicts[right.id] ~= 'keep' then
@@ -1022,7 +1565,8 @@ function M.review(chat, args)
         'review_incomplete',
         'resolved contradiction endpoints require keep verdicts',
         { left.id, right.id },
-        'Keep both qualified endpoints or omit the resolution'
+        'Keep both qualified endpoints or omit the resolution',
+        Validation.diagnostic(('contradiction_resolutions[%d]'):format(index), 'endpoint_verdicts', 'keep', 'non_keep')
       )
     end
     local actual = vim.tbl_contains(left.relations.contradicts, right.id)
@@ -1032,7 +1576,8 @@ function M.review(chat, args)
         'review_incomplete',
         'the resolution does not name an active contradiction',
         { left.id, right.id },
-        'Resolve an actual contradiction pair'
+        'Resolve an actual contradiction pair',
+        Validation.diagnostic(('contradiction_resolutions[%d]'):format(index), 'active_contradiction', true, false)
       )
     end
     local key = contradiction_key(left.id, right.id)
@@ -1041,16 +1586,22 @@ function M.review(chat, args)
         'review_incomplete',
         'a contradiction pair may be resolved once per review',
         { left.id, right.id },
-        'Remove the duplicate resolution'
+        'Remove the duplicate resolution',
+        Validation.diagnostic(('contradiction_resolutions[%d]'):format(index), 'unique_items', true, 'duplicate_pair')
       )
     end
-    local ok, code, id = validate_evidence_ids(workspace, resolution.evidence_ids)
+    local ok, code, id, reference_diagnostic = validate_evidence_ids(
+      workspace,
+      resolution.evidence_ids,
+      ('contradiction_resolutions[%d].evidence_ids'):format(index)
+    )
     if not ok then
       return failure(
         code,
         'contradiction-resolution evidence is invalid',
         id and { id } or {},
-        'Use active evidence IDs'
+        'Use active evidence IDs',
+        reference_diagnostic
       )
     end
     for _, id in ipairs(resolution.evidence_ids) do
@@ -1066,9 +1617,16 @@ function M.review(chat, args)
     if type(tradeoff) ~= 'table' or not text_valid(tradeoff.statement) or not text_valid(tradeoff.falsifier) then
       return failure('review_incomplete', 'structural tradeoff ' .. index .. ' is invalid', {}, 'Correct the tradeoff')
     end
-    local ok, code, id = validate_evidence_ids(workspace, tradeoff.evidence_ids)
+    local ok, code, id, reference_diagnostic =
+      validate_evidence_ids(workspace, tradeoff.evidence_ids, ('structural_tradeoffs[%d].evidence_ids'):format(index))
     if not ok then
-      return failure(code, 'structural tradeoff evidence is invalid', id and { id } or {}, 'Use active evidence IDs')
+      return failure(
+        code,
+        'structural tradeoff evidence is invalid',
+        id and { id } or {},
+        'Use active evidence IDs',
+        reference_diagnostic
+      )
     end
     for _, id in ipairs(tradeoff.evidence_ids) do
       required_evidence[id] = true
@@ -1080,12 +1638,24 @@ function M.review(chat, args)
         'review_incomplete',
         'a review cannot retract evidence required by its own analysis',
         { id },
-        'Remove the evidence dependency or revise the verdict'
+        'Remove the evidence dependency or revise the verdict',
+        Validation.diagnostic('verdicts', 'required_evidence_status', 'keep', Validation.artifact_ids({ id })[1])
       )
     end
   end
   if #workspace.artifact_order >= Config.get().limits.max_artifacts then
-    return failure('limit_exceeded', 'the review exceeds the artifact limit', {}, 'Replace the workspace')
+    return failure(
+      'limit_exceeded',
+      'the review exceeds the artifact limit',
+      {},
+      'Replace the workspace',
+      Validation.diagnostic(
+        'workspace.artifacts',
+        'max_items',
+        Config.get().limits.max_artifacts,
+        #workspace.artifact_order
+      )
+    )
   end
 
   local review_data = vim.deepcopy(args)
@@ -1542,29 +2112,60 @@ function M.final_gates(workspace, synthesis)
   return ordered, blocker_ids
 end
 
-local function synthesis_references_valid(workspace, ids, kind)
-  for _, id in ipairs(ids) do
+local function synthesis_references_valid(workspace, ids, kind, path)
+  for index, id in ipairs(ids) do
     local artifact, code = active_reference(workspace, id)
+    local item_path = ('%s[%d]'):format(path, index)
     if code then
-      return nil, code, id
+      return nil, code, id, Validation.reference(workspace, id, item_path, kind)
     end
     if artifact.kind ~= kind then
-      return nil, 'invalid_reference', id
+      return nil, 'invalid_reference', id, Validation.reference(workspace, id, item_path, kind)
     end
   end
   return true
 end
 
-local function unique_strings(values, normalize_values)
-  local seen = {}
-  for _, value in ipairs(values) do
-    local key = normalize_values and normalized(value) or value
-    if seen[key] then
-      return false
-    end
-    seen[key] = true
+local function synthesis_shape_diagnostic(args)
+  if type(args) ~= 'table' then
+    return Validation.required(nil, 'mode', 'string')
   end
-  return true
+  local diagnostic = Validation.required(args.mode, 'mode', 'string')
+    or Validation.enum(args.mode, 'mode', { checkpoint = true, final = true })
+    or Validation.text(args.conclusion, 'conclusion', Config.get().limits.max_text_chars)
+    or text_array_diagnostic(args.selected_option_ids, 'selected_option_ids', 0, nil, false)
+    or text_array_diagnostic(args.support_ids, 'support_ids', 0, nil, false)
+    or text_array_diagnostic(args.review_ids, 'review_ids', 0, nil, false)
+    or Validation.array(args.criterion_results, 'criterion_results', 0, Config.get().limits.max_array_items)
+  if diagnostic then
+    return diagnostic
+  end
+  for index, result in ipairs(args.criterion_results) do
+    local path = ('criterion_results[%d]'):format(index)
+    diagnostic = Validation.required(result, path, 'object')
+    if diagnostic then
+      return diagnostic
+    end
+    diagnostic = Validation.text(result.criterion, path .. '.criterion', Config.get().limits.max_text_chars)
+      or Validation.required(result.status, path .. '.status', 'string')
+      or Validation.enum(result.status, path .. '.status', {
+        passed = true,
+        failed = true,
+        pending = true,
+        not_applicable = true,
+      })
+      or text_array_diagnostic(result.evidence_ids, path .. '.evidence_ids', 0, nil, false)
+      or Validation.text(result.explanation, path .. '.explanation', Config.get().limits.max_text_chars)
+    if diagnostic then
+      return diagnostic
+    end
+  end
+  return text_array_diagnostic(args.tradeoffs, 'tradeoffs', 0, nil, true)
+    or text_array_diagnostic(args.uncertainties, 'uncertainties', 0, nil, true)
+    or text_array_diagnostic(args.blind_spots, 'blind_spots', 0, nil, true)
+    or text_array_diagnostic(args.next_actions, 'next_actions', 0, nil, true)
+    or Validation.required(args.confidence, 'confidence', 'string')
+    or Validation.enum(args.confidence, 'confidence', { low = true, medium = true, high = true })
 end
 
 function M.synthesis(chat, args)
@@ -1572,60 +2173,42 @@ function M.synthesis(chat, args)
   if not workspace then
     return failure('workspace_missing', 'start a frame before synthesis', {}, 'Call reasoning_frame')
   end
-  if
-    type(args) ~= 'table'
-    or not vim.tbl_contains({ 'checkpoint', 'final' }, args.mode)
-    or not text_valid(args.conclusion)
-    or not text_array_valid(args.selected_option_ids)
-    or not text_array_valid(args.support_ids)
-    or not text_array_valid(args.review_ids)
-    or not unique_strings(args.selected_option_ids)
-    or not unique_strings(args.support_ids)
-    or not unique_strings(args.review_ids)
-    or not bounded_array(args.criterion_results, 0, Config.get().limits.max_array_items)
-    or not text_array_valid(args.tradeoffs)
-    or not unique_strings(args.tradeoffs, true)
-    or not text_array_valid(args.uncertainties)
-    or not unique_strings(args.uncertainties, true)
-    or not text_array_valid(args.blind_spots)
-    or not unique_strings(args.blind_spots, true)
-    or not text_array_valid(args.next_actions)
-    or not unique_strings(args.next_actions, true)
-    or not vim.tbl_contains({ 'low', 'medium', 'high' }, args.confidence)
-  then
-    return failure('synthesis_invalid', 'synthesis fields are invalid', {}, 'Correct reasoning_synthesis fields')
+  local diagnostic = synthesis_shape_diagnostic(args)
+  if diagnostic then
+    return failure(
+      'synthesis_invalid',
+      'synthesis fields are invalid',
+      {},
+      'Correct reasoning_synthesis fields',
+      diagnostic
+    )
   end
-  for index, result in ipairs(args.criterion_results) do
-    if
-      type(result) ~= 'table'
-      or not text_valid(result.criterion)
-      or not vim.tbl_contains({ 'passed', 'failed', 'pending', 'not_applicable' }, result.status)
-      or not text_array_valid(result.evidence_ids)
-      or not unique_strings(result.evidence_ids)
-      or not text_valid(result.explanation)
-    then
+  for _, reference in ipairs({
+    { args.selected_option_ids, 'option', 'selected_option_ids' },
+    { args.support_ids, 'evidence', 'support_ids' },
+    { args.review_ids, 'review', 'review_ids' },
+  }) do
+    local ok, code, id, reference_diagnostic =
+      synthesis_references_valid(workspace, reference[1], reference[2], reference[3])
+    if not ok then
       return failure(
-        'synthesis_invalid',
-        'criterion result ' .. index .. ' is invalid',
-        {},
-        'Correct criterion_results'
+        code,
+        'synthesis reference is unavailable',
+        { id },
+        'Use active typed artifact IDs',
+        reference_diagnostic
       )
     end
   end
-  for _, reference in ipairs({
-    { args.selected_option_ids, 'option' },
-    { args.support_ids, 'evidence' },
-    { args.review_ids, 'review' },
-  }) do
-    local ok, code, id = synthesis_references_valid(workspace, reference[1], reference[2])
+  for index, result in ipairs(args.criterion_results) do
+    local ok, code, id, reference_diagnostic = synthesis_references_valid(
+      workspace,
+      result.evidence_ids,
+      'evidence',
+      ('criterion_results[%d].evidence_ids'):format(index)
+    )
     if not ok then
-      return failure(code, 'synthesis reference is unavailable', { id }, 'Use active typed artifact IDs')
-    end
-  end
-  for _, result in ipairs(args.criterion_results) do
-    local ok, code, id = synthesis_references_valid(workspace, result.evidence_ids, 'evidence')
-    if not ok then
-      return failure(code, 'criterion evidence is unavailable', { id }, 'Use active evidence IDs')
+      return failure(code, 'criterion evidence is unavailable', { id }, 'Use active evidence IDs', reference_diagnostic)
     end
   end
 
@@ -1635,13 +2218,25 @@ function M.synthesis(chat, args)
       'synthesis_gate_failed',
       'final synthesis is blocked by: ' .. table.concat(gates, ', '),
       blocker_ids,
-      Guidance.next(workspace, args)
+      Guidance.next(workspace, args),
+      Validation.diagnostic('final_gates', 'satisfied', true, gates)
     )
     rejected.data.unmet_gates = gates
     return rejected
   end
   if #workspace.artifact_order >= Config.get().limits.max_artifacts then
-    return failure('limit_exceeded', 'the synthesis exceeds the artifact limit', {}, 'Replace the workspace')
+    return failure(
+      'limit_exceeded',
+      'the synthesis exceeds the artifact limit',
+      {},
+      'Replace the workspace',
+      Validation.diagnostic(
+        'workspace.artifacts',
+        'max_items',
+        Config.get().limits.max_artifacts,
+        #workspace.artifact_order
+      )
+    )
   end
 
   local synthesis_data = vim.deepcopy(args)
@@ -1790,7 +2385,11 @@ function M.call(operation, chat, args, lifecycle_phase)
   if lifecycle_phase == nil and explicit_reframe and result.status == 'success' then
     Terminal.clear(chat)
   end
-  return normalize_next_action(operation, result)
+  result = normalize_next_action(operation, result)
+  if lifecycle_phase and result.status == 'error' then
+    result.data.next_action = Transition.next(State.get(chat), lifecycle_phase)
+  end
+  return result
 end
 
 return M
