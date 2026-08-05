@@ -1,9 +1,11 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Schema = require('codecompanion._extensions.reasoning.schema')
+local resolve_schema = Schema.resolve
 
 local M = {}
 local owned_default_tools = setmetatable({}, { __mode = 'k' })
+local owned_callbacks = setmetatable({}, { __mode = 'k' })
 
 local paths = {
   reasoning_frame = '_extensions.reasoning.tools.frame',
@@ -22,10 +24,35 @@ local descriptions = {
 }
 
 local function tool_callback(name)
-  return function()
-    local template = require('codecompanion.' .. paths[name])
-    return Schema.resolve(name, template)
+  local template = vim.deepcopy(require('codecompanion.' .. paths[name]))
+  local callback = function()
+    return resolve_schema(name, template)
   end
+  owned_callbacks[callback] = {
+    name = name,
+    command = template.cmds and template.cmds[1] or nil,
+  }
+  return callback
+end
+
+function M.owns_tool_config(name, config)
+  if type(config) ~= 'table' or getmetatable(config) ~= nil then
+    return false
+  end
+  local ownership = owned_callbacks[rawget(config, 'callback')]
+  if not ownership or ownership.name ~= name or type(ownership.command) ~= 'function' then
+    return false
+  end
+  for _, field in ipairs({ 'extends', 'path', '_adapter_tool', '_has_client_tool' }) do
+    if rawget(config, field) ~= nil then
+      return false
+    end
+  end
+  local opts = rawget(config, 'opts')
+  if opts ~= nil and (type(opts) ~= 'table' or getmetatable(opts) ~= nil or rawget(opts, 'client_tool') ~= nil) then
+    return false
+  end
+  return vim.deep_equal(opts, ownership.opts)
 end
 
 local function tool_registration(name, existing)
@@ -33,26 +60,26 @@ local function tool_registration(name, existing)
     callback = tool_callback(name),
     description = descriptions[name],
   }
-  if type(existing) ~= 'table' then
-    return registration
-  end
-  if type(existing.description) == 'string' then
-    registration.description = existing.description
-  end
-  if type(existing.visible) == 'boolean' then
-    registration.visible = existing.visible
-  end
-  if type(existing.opts) == 'table' then
-    local approval_options = {}
-    for _, key in ipairs({ 'require_approval_before', 'allowed_in_yolo_mode', 'judge_in_yolo_mode' }) do
-      if existing.opts[key] ~= nil then
-        approval_options[key] = vim.deepcopy(existing.opts[key])
+  if type(existing) == 'table' then
+    if type(existing.description) == 'string' then
+      registration.description = existing.description
+    end
+    if type(existing.visible) == 'boolean' then
+      registration.visible = existing.visible
+    end
+    if type(existing.opts) == 'table' then
+      local approval_options = {}
+      for _, key in ipairs({ 'require_approval_before', 'allowed_in_yolo_mode', 'judge_in_yolo_mode' }) do
+        if existing.opts[key] ~= nil then
+          approval_options[key] = vim.deepcopy(existing.opts[key])
+        end
+      end
+      if next(approval_options) then
+        registration.opts = approval_options
       end
     end
-    if next(approval_options) then
-      registration.opts = approval_options
-    end
   end
+  owned_callbacks[registration.callback].opts = vim.deepcopy(registration.opts)
   return registration
 end
 

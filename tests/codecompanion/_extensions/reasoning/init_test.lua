@@ -152,6 +152,55 @@ T['forces canonical tool identity across host name collisions'] = function()
   eq(resolved.cmds[1], Frame.cmds[1])
 end
 
+T['authenticates runtime registrations without resolving foreign callbacks'] = function()
+  Extension.setup()
+  local authentic = config.interactions.chat.tools.reasoning_frame
+  local copied = vim.deepcopy(authentic)
+  eq(Extension.owns_tool_config('reasoning_frame', authentic), true)
+  eq(Extension.owns_tool_config('reasoning_frame', copied), true)
+  eq(Extension.owns_tool_config('reasoning_evidence', copied), false)
+
+  local callback_calls = 0
+  eq(
+    Extension.owns_tool_config('reasoning_frame', {
+      callback = function()
+        callback_calls = callback_calls + 1
+        return Frame
+      end,
+    }),
+    false
+  )
+  eq(callback_calls, 0)
+
+  for _, redirect in ipairs({
+    { extends = 'cmd_tool' },
+    { path = '_extensions.reasoning.tools.frame' },
+    { _adapter_tool = true },
+    { _has_client_tool = true },
+  }) do
+    local candidate = vim.deepcopy(authentic)
+    for key, value in pairs(redirect) do
+      candidate[key] = value
+    end
+    eq(Extension.owns_tool_config('reasoning_frame', candidate), false)
+  end
+  local mutated_opts = vim.deepcopy(authentic)
+  mutated_opts.opts = mutated_opts.opts or {}
+  mutated_opts.opts.require_approval_before = function()
+    callback_calls = callback_calls + 1
+    return true
+  end
+  eq(Extension.owns_tool_config('reasoning_frame', mutated_opts), false)
+  eq(callback_calls, 0)
+  local inherited = setmetatable({}, { __index = authentic })
+  eq(Extension.owns_tool_config('reasoning_frame', inherited), false)
+
+  local previous = authentic.callback
+  Extension.setup()
+  eq(config.interactions.chat.tools.reasoning_frame.callback == previous, false)
+  eq(Extension.owns_tool_config('reasoning_frame', { callback = previous }), true)
+end
+
 T['keeps only safe display overrides on a colliding group'] = function()
   config.interactions.chat.tools.groups.reasoning = {
     description = 'Custom reasoning label',
