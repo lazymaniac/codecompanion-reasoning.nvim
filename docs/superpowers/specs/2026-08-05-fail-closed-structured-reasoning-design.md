@@ -1,7 +1,7 @@
 # Fail-Closed Structured Reasoning Design
 
 Date: 2026-08-05
-Status: Design approved; written spec awaiting review
+Status: Approved for implementation
 
 ## Summary
 
@@ -112,19 +112,34 @@ resume_phase: phase to restore after an explicit halt resume
 unsupported_adapter: whether HTTP enforcement is temporarily unavailable
 consecutive_violations: 0..3
 fallback_lease: generation-bound obligation for at most one corrective request
+submitting: synchronous submit/request-construction re-entrancy lease
+construction_lease: exact epoch/generation/payload identity owed one HTTP construction
 request_generation: monotonically increasing submitted-request number
 completion_classified: whether the current generation has been settled
 observed_call_ids: reasoning calls keyed by request generation and call ID
+active_request_token: exact epoch/generation identity captured by HTTP callbacks
+pending_stop_token: cancelled request awaiting anonymous host stop cleanup
+call_tokens: weak formatted-call identity to epoch/generation bindings
 staged_final: generation, call ID, workspace revision, candidate, and Markdown
 closed: whether all late callbacks must be ignored
 original_submit: preserved chat submit method
+original_submit_http: preserved HTTP request-construction method
 original_done: preserved chat completion method
 original_add_buf_message: preserved buffer-output method
 original_add_tool_output: preserved tool-result method
+original_clear: preserved pre-event chat clear method
+original_close: preserved pre-cancellation chat close method
 original_tools_execute: preserved formatted-tool executor
 registered callbacks: exact callback identities for cleanup
 buffer-local resume command identity
 ```
+
+`blocked` is an effective transition sentinel, not stored controller state.
+`Control.phase` returns it for a complete chat whose controller is not yet
+installed and for closed, unsupported, or incomplete sticky controllers. This
+prevents nil lifecycle context from silently selecting standalone mutation;
+nil remains reserved for controller-absent or open/dormant partial-tool
+compatibility.
 
 The extension owns one idempotent `User` autocmd group for the version-pinned
 `CodeCompanionChatToolAdded`, `CodeCompanionChatAdapter`, and
@@ -147,7 +162,9 @@ invalidates retries and staged finals, removes correction guidance, cancels or
 invalidates in-flight calls, deletes that chat's reasoning workspace, and moves
 the installed controller to `dormant`. Dormant wrappers delegate new ordinary
 chat activity unchanged while discarding callbacks from generations invalidated
-by the clear. Reattaching all five reasoning tools moves back to `armed`.
+by the clear. The same event removes any partial-tool legacy terminal guard,
+including when no controller was installed. Reattaching all five reasoning
+tools moves back to `armed`.
 
 Installation hydrates the controller from the existing workspace, is
 idempotent, and supports chat methods inherited through a metatable, following
@@ -159,14 +176,27 @@ silently restore an unstructured final-answer path.
 It wraps only the chat instance. It does not replace global CodeCompanion
 methods or settings.
 
-The `done` wrapper owns request-level completion classification and removes
-free-form output before the host writes it to history. The formatted
+The `_submit_http` wrapper invokes the preserved host method on a per-request
+proxy whose stream, status, and completion callbacks close over an exact
+controller epoch/generation token. This is required because v19.22.0 otherwise
+drops the client request ID before dynamically calling `self:done`, making an
+old callback indistinguishable from a new one after clear and rearm. The proxy
+gates adapter response handlers before stale content, reasoning, or compaction
+chunks can mutate chat-visible state. Submit construction is non-reentrant and
+consumes one exact epoch/generation/payload lease, and
+a transport-construction throw invalidates its token and halts without leaving
+a live generation. The `done`
+wrapper owns request-level completion classification and removes free-form
+output before the host writes it to history. The formatted
 `chat.tools.execute` wrapper preflights tool batches before any tool side
 effect. The `add_tool_output` wrapper delegates to the preserved host method
-first, then classifies the recorded result with access to
-`tool.function_call.id`. This ordering preserves host callbacks and guarantees
-that a deterministic final answer is added only after its tool result exists
-in history.
+only after rejecting stale exact call identities, then classifies the recorded
+result with access to `tool.function_call`. This ordering prevents invalidated
+asynchronous output from mutating history while preserving live host callbacks,
+and guarantees that a deterministic final answer is added only after its tool
+result exists in history. Instance `clear` and `close` wrappers invalidate state
+before the pinned host fires its post-clear event or begins close-time
+cancellation.
 
 The controller also installs a buffer-local
 `:CodeCompanionReasoningResume` command. It is the sole request origin from
@@ -216,10 +246,17 @@ artifact mutation beyond installing or hydrating the chat-local controller.
 
 ### `terminal.lua`
 
-Remove the separate terminal wrapper after equivalent post-final behavior is
-covered by the lifecycle controller. Keeping two wrappers around `chat.submit`
-would create order-dependent behavior. `terminal.lua` is internal and has no
-documented public API.
+Retain the internal one-shot terminal wrapper only for backward-compatible
+partial-tool chats when the lifecycle controller is absent or dormant. A
+complete controlled chat never installs it; attaching the fifth tool first
+clears any legacy guard before controller method capture, so two submit
+wrappers cannot interact or become order-dependent. The same unwrapping runs
+on dormant fifth-tool rearm after clear, restoring the existing controller
+submit wrapper.
+`Terminal.install` is authorized only by the explicit absent-or-dormant
+partial-tool predicate; complete, enforcing, unsupported, incomplete sticky,
+and closed boundaries never install it.
+Partial-tool use is outside the fail-closed guarantee.
 
 ## State machine
 
@@ -245,11 +282,13 @@ the closed tombstone behavior described below.
   retry budget, or consume a violation.
 - Free-form response and reasoning buffer messages are suppressed just as they
   are in the active phase.
-- A text-only completion is an attempt to abandon the armed protocol and
-  consumes one violation.
+- Any successful completion with no tool call—including text-only,
+  reasoning-only, metadata-only, or empty output—is an attempt to abandon the
+  armed protocol and consumes one violation.
 
-An accepted start moves the controller to `active`, sets the expected action
-from the result, and resets the violation count.
+An accepted start moves the controller to `active` and resets the violation
+count. The next expected action is recomputed from the mutated workspace rather
+than cached from the result.
 
 ### Active
 
@@ -259,7 +298,7 @@ from the result, and resets the violation count.
 - Free-form response and reasoning buffer messages are suppressed.
 - Accepted reasoning artifacts reset the violation count to zero.
 - Rejected reasoning operations increment the violation count.
-- A text-only model completion increments the violation count.
+- A successful zero-call model completion increments the violation count.
 
 An accepted final candidate moves to `finalizing`. Three consecutive violations
 move to `halted`.
@@ -317,11 +356,13 @@ blocked.
 - External investigation remains unrestricted and budget-neutral.
 - The only permitted reasoning call is `reasoning_frame action=revise` or
   `action=replace`.
-- A text-only completion or other reasoning operation consumes a violation.
+- A successful zero-call completion or other reasoning operation consumes a
+  violation.
 
 An accepted revision or replacement returns the controller to `active`, resets
-the violation count, removes stale correction guidance, and establishes the
-new expected action. Three violations halt with `resume_phase=reframing`.
+the violation count, and removes stale correction guidance. The new expected
+action is recomputed from the resulting workspace. Three violations halt with
+`resume_phase=reframing`.
 
 ## Authoritative transitions
 
@@ -350,6 +391,8 @@ may occur before it.
 
 Controller preflight adds lifecycle gates around that protocol transition:
 
+- effective `blocked` permits no mutation and is never stored as controller
+  state;
 - `dormant` delegates all calls without reasoning enforcement;
 - `armed` permits only the frame tool, whose handler requires `action=start`;
 - `active` permits the pure protocol transition plus explicit reframe;
@@ -366,7 +409,7 @@ one; evidence can be re-recorded explicitly when it remains applicable.
 
 ## Intermediate-output control
 
-While armed, active, reframing, or halted, the per-chat output wrapper
+While armed, active, reframing, finalizing, or halted, the per-chat output wrapper
 suppresses streamed CodeCompanion `LLM_MESSAGE` and `REASONING_MESSAGE` buffer
 entries. Tool status and tool result messages remain visible, including
 external investigation performed before the first frame.
@@ -375,8 +418,9 @@ The completion wrapper applies these rules:
 
 - A response containing tool calls passes those calls to CodeCompanion.
   Accompanying free-form content and reasoning are discarded.
-- A response containing only free-form content is not added to message history
-  or the visible buffer. It is a protocol violation.
+- A successful response containing no tool call is not added to message history
+  or the visible buffer, even when it contains only reasoning, metadata, or no
+  content. It is a protocol violation.
 - A response containing only one or more legitimate external tool calls is not
   a violation. The expected reasoning transition and retry budget remain
   unchanged even when an external tool fails.
@@ -384,7 +428,7 @@ The completion wrapper applies these rules:
 `on_submitted` increments `request_generation` and clears that generation's
 completion marker. The `done` wrapper classifies a successful completion at
 most once, even if a host error path calls `done` again. Transport errors,
-stopped requests, and user cancellation never become text-only violations;
+stopped requests, and user cancellation never become zero-call violations;
 their partial free-form stream remains suppressed and the host error or stop
 state is preserved.
 
@@ -419,6 +463,15 @@ host through `add_tool_output` and is classified there. An anonymous malformed
 host envelope cannot be attributed to a reasoning or external tool and is
 treated as a host error, not misreported as an external-tool failure or a
 reasoning violation. Each request/call ID pair is counted at most once.
+Every table-shaped formatted call receives its exact request/call marker before
+batch acceptance is decided, so an atomically rejected mixed or duplicate batch
+can settle all distinct IDs without executing any call.
+
+After the host records a reasoning result, the controller compares each public
+artifact and ordered artifact collection deeply with the authoritative State
+objects allocated by that call. Matching IDs, kinds, and counts alone are not
+enough; a same-shape `on_tool_output` rewrite is an internal integrity failure,
+not accepted progress.
 
 The controller does not claim to inspect or rewrite hidden chain-of-thought.
 It prevents unstructured intermediate output from becoming protocol state or
@@ -436,7 +489,7 @@ Counted violations are:
 - a malformed reasoning tool call rejected by CodeCompanion before the
   protocol handler;
 - an out-of-order reasoning tool call;
-- a text-only model completion after the controller is armed and before
+- a successful zero-call model completion after the controller is armed and before
   accepted final synthesis.
 
 Not counted are:
@@ -492,9 +545,11 @@ and external-tool failure does not punish investigation.
 
 The post-record `add_tool_output` classifier counts a reasoning call ID at most
 once. A decoded payload with an accepted artifact is progress; a decoded
-payload with an error code is a rejection; non-JSON or host-generated error
-output for a known reasoning tool is a malformed-call rejection. Outputs for
-all other tools are ignored by the protocol budget. `internal_error` and
+payload with an error code is a rejection. Invalid JSON attributed to a known
+reasoning call is a counted malformed-call rejection; non-JSON host error after
+a valid decoded/preflighted reasoning call indicates resolver failure and is
+an uncounted `internal_error`. Outputs for all other tools are ignored by the
+protocol budget. `internal_error` and
 `render_internal` are internal halt conditions rather than model violations:
 they set an appropriate `resume_phase`, spend no violation, and never fabricate
 an accepted artifact.
@@ -612,8 +667,8 @@ the corresponding buffer message through the preserved original output method,
 bypassing its intermediate-output filter exactly once. The submit guard blocks
 CodeCompanion's normal post-tool automatic submission.
 
-Before emission, the wrapper verifies that the staged artifact ID matches the
-accepted tool payload and that history contains the matching tool-call result.
+Before emission, the wrapper verifies that the staged artifact deeply equals
+the accepted tool payload and that history contains the matching tool-call result.
 A mismatch or missing host record replaces any partial result with an internal
 error, discards the uncommitted candidate, emits no model prose, and halts.
 Successful commit and emission clear the staged value so duplicate callbacks
@@ -621,7 +676,8 @@ cannot render twice.
 
 Rendering is part of final-synthesis validation, before artifact allocation.
 The protocol renders the uncommitted candidate under `pcall`; only a successful
-render permits the revision-bound candidate and its Markdown to be staged. The
+nonblank string render permits the revision-bound candidate and its Markdown to
+be staged. The
 controller enters `finalized` only after the host records that tool result, the
 candidate commits atomically, and the preserved output path emits the staged
 assistant message. An unexpected rendering failure returns `render_internal`
@@ -630,8 +686,10 @@ three-violation budget, and never falls back to model prose.
 
 ## Cleanup and method preservation
 
-For each wrapped method, the controller stores its target object, whether a raw
-field existed, and the resolved original function. An explicit uninstall on a
+For each wrapped method (`submit`, `_submit_http`, `done`, `add_buf_message`,
+`add_tool_output`, `clear`, `close`, and `chat.tools.execute`), the controller
+stores its target object, whether a raw field existed, and the resolved
+original function. An explicit uninstall on a
 live, settled chat restores the raw method when present or removes the wrapper
 to reveal an inherited method. This applies to both chat methods and
 `chat.tools.execute` and matches the metatable-safe behavior of the current
@@ -642,12 +700,18 @@ blocking post-final auto-submit and permit an explicit later reframe. A chat
 clear keeps dormant wrappers so invalidated late generations can still be
 discarded.
 
-Close-time cleanup first marks the controller closed, invalidates every retry
-generation, removes its tagged corrective message, and cancels the active tool
+Clear-time cleanup sets a clearing gate, consumes any construction lease, and
+invalidates request/formatted-call tokens before cancellation; synchronous
+cancellation callbacks cannot submit mid-clear. It then delegates the
+preserved host clear so its final clean render wins. Close-time cleanup first
+marks the controller closed, invalidates every retry
+generation and request token, removes its tagged corrective message, and
+cancels the active tool
 orchestrator when present. It unregisters callbacks but leaves minimal closed
-tombstone wrappers on the chat object: submit, completion, tool execution, and
-tool output become no-ops. The original methods remain referenced only in the
-weak controller state until the closed chat is garbage-collected. Restoring
+tombstone wrappers on the chat object: request construction, submit,
+completion, streaming output, tool execution/output, clear, and close become
+no-ops. The original methods remain referenced only in the weak controller
+state until the closed chat is garbage-collected. Restoring
 them at close would let an already-scheduled host callback mutate a deleted
 buffer. This prevents an asynchronous reasoning tool, `ToolsFinished` event,
 or subscriber callback from acting after closure.
@@ -699,12 +763,12 @@ failing test that demonstrates the missing enforcement.
   close every rejected host call with a synthetic result.
 - Permit multi-call batches containing only external tools.
 - Classify invalid JSON and duplicate reasoning call IDs once per request.
-- Count a successful text-only completion once; ignore duplicate `done`,
+- Count a successful zero-call completion once; ignore duplicate `done`,
   transport-error, stopped, and cancelled completions.
 - Suppress intermediate LLM and reasoning buffer output.
 - Preserve external tool calls and visible tool results.
 - Discard prose accompanying tool calls without counting a violation.
-- Count text-only abandonment and reasoning rejections.
+- Count zero-call abandonment and reasoning rejections.
 - Reset only after accepted reasoning progress.
 - Auto-continue after violations one and two.
 - Keep only one generation-bound retry and one replaceable tagged correction
@@ -746,14 +810,15 @@ failing test that demonstrates the missing enforcement.
 
 - Attach the reasoning group, investigate with searches and file reads before
   framing, and verify the first reasoning call must still be the frame.
-- Verify a text-only completion immediately after attachment is suppressed and
-  retried even though no frame exists yet.
+- Verify text-only, reasoning-only, and empty successful completions immediately
+  after attachment are suppressed and retried even though no frame exists yet.
 - Verify an ACP attachment reports unsupported enforcement rather than claiming
   a protected reasoning run.
 - Switch adapters before the first tool call and verify enforcement is blocked
   on ACP and restored on HTTP.
-- Clear an active chat and verify old callbacks and workspace state cannot leak
-  into the dormant or re-armed chat.
+- Clear request A, rearm and complete request B, and verify A's late stream,
+  status, completion, and reused-ID tool callbacks cannot leak into B or the
+  fresh workspace even after B's handle reports success.
 - Reproduce frame, rejected evidence, nonexistent evidence reference,
   out-of-order synthesis, and attempted prose abandonment.
 - Verify no premature prose reaches history or the visible buffer.
