@@ -1,8 +1,11 @@
 local Constants = require('codecompanion._extensions.reasoning.constants')
+local Adapters = require('codecompanion.adapters')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
 local Transition = require('codecompanion._extensions.reasoning.transition')
+local Hash = require('codecompanion.utils.hash')
+local log = require('codecompanion.utils.log')
 local owns_tool_config = require('codecompanion._extensions.reasoning').owns_tool_config
 
 local M = {}
@@ -44,9 +47,12 @@ local function new_state(chat, phase)
     request_handle = nil,
     resume_attempt = nil,
     submitting = false,
+    submit_epoch = nil,
+    submit_prior_violations = nil,
     clearing = false,
     processing_done = false,
     boundary_issue = nil,
+    halt_notified = false,
     methods = {},
     callbacks = {},
   }
@@ -151,6 +157,7 @@ end
 local function invalidate_marker(marker)
   if type(marker) == 'table' then
     marker.valid = false
+    marker.invalidated = true
   end
 end
 
@@ -176,14 +183,16 @@ local function invalidate_runtime(state, chat, opts)
   state.pending_stop_token = nil
   state.construction_lease = nil
   state.executing_scope = nil
-  state.call_tokens = setmetatable({}, { __mode = 'k' })
   state.resume_attempt = nil
   state.observed_call_ids = {}
   state.completion_classified = true
   state.consecutive_violations = 0
+  state.halt_notified = false
   state.request_generation = state.request_generation + 1
   state.epoch = state.epoch + 1
   state.submitting = false
+  state.submit_epoch = nil
+  state.submit_prior_violations = nil
   discard_stage(state)
 
   local handle = state.request_handle or chat.current_request
@@ -351,13 +360,18 @@ local function bind_call_markers(state, chat, calls)
         status = operation and (malformed_json and 'malformed_pending' or 'executing') or 'external',
         epoch = state.epoch,
         generation = state.request_generation,
+        phase = state.phase,
         request_token = state.active_request_token,
         operation = operation,
+        call_id = type(call.id) == 'string' and call.id ~= '' and call.id or nil,
+        response_call_id = type(call.call_id) == 'string' and call.call_id ~= '' and call.call_id or nil,
+        tool_name = name,
         action = type(decoded) == 'table' and decoded.action or nil,
         decoded_arguments = decoded,
         arguments_malformed = malformed_json,
         arguments_invalid = operation ~= nil and type(arguments) ~= 'table' and type(arguments) ~= 'string',
         workspace = workspace,
+        workspace_snapshot = workspace and vim.deepcopy(workspace) or nil,
         workspace_id = workspace and workspace.id or nil,
         revision = workspace and workspace.revision or nil,
         artifact_ids_before = artifact_ids_before(workspace),
@@ -461,16 +475,23 @@ local function replace_recorded_delta(chat, changed, call_id, payload)
   local encoded = assert(vim.json.encode(payload))
   local entry = changed[1]
   if entry and chat.messages[entry.index] then
-    chat.messages[entry.index].content = type(entry.prior) == 'string'
-        and (entry.prior .. (entry.prior == '' and '' or '\n\n') .. encoded)
+    local message = chat.messages[entry.index]
+    message.content = type(entry.prior) == 'string' and (entry.prior .. (entry.prior == '' and '' or '\n\n') .. encoded)
       or encoded
+    message._meta = type(message._meta) == 'table' and message._meta or { cycle = chat.cycle }
+    message._meta.id = Hash.hash({ role = message.role, content = message.content })
     return
   end
-  table.insert(chat.messages, {
+  local message = {
     role = 'tool',
+    tools = { id = call_id, call_id = call_id },
     tool_call_id = call_id,
     content = encoded,
-  })
+    opts = { visible = false },
+    _meta = { cycle = chat.cycle },
+  }
+  message._meta.id = Hash.hash({ role = message.role, content = message.content })
+  table.insert(chat.messages, message)
 end
 
 local function record_and_verify_synthetic(state, marker, tool, payload)
@@ -520,17 +541,337 @@ local function settlement_tool(state, marker, call)
   }
 end
 
-local function halt_internal(state, message)
+local function halt_internal(state, message, resume_phase)
+  invalidate_marker(state.fallback_lease)
   state.fallback_lease = nil
-  state.resume_phase = state.phase
+  state.resume_phase = resume_phase or state.phase
   state.phase = 'halted'
   local chat = chat_for(state)
   if chat then
+    if type(chat.remove_tagged_message) == 'function' then
+      pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+    end
     if chat.subscribers and type(chat.subscribers.stop) == 'function' then
       chat.subscribers:stop()
     end
-    emit_status(chat, state, message)
+    if not state.halt_notified then
+      state.halt_notified = true
+      emit_status(chat, state, message)
+    end
   end
+end
+
+local record_violation
+
+local function result_matches_call(message, marker)
+  if type(message) ~= 'table' or not marker.call_id then
+    return false
+  end
+  local tools = type(message.tools) == 'table' and message.tools or {}
+  return message.tool_call_id == marker.call_id
+    or tools.id == marker.call_id
+    or tools.call_id == marker.call_id
+    or (marker.response_call_id ~= nil and tools.call_id == marker.response_call_id)
+end
+
+local function snapshot_recorded_result(chat, marker)
+  local snapshot = { refs = {}, existing = nil, content = nil }
+  for _, message in ipairs(chat.messages or {}) do
+    snapshot.refs[message] = true
+    local tools = type(message) == 'table' and type(message.tools) == 'table' and message.tools or nil
+    if not snapshot.existing and marker.call_id and tools and tools.call_id == marker.call_id then
+      snapshot.existing = message
+      snapshot.content = message.content
+    end
+  end
+  return snapshot
+end
+
+local function recorded_result_entry(chat, marker, snapshot)
+  if snapshot.existing then
+    local present = false
+    for _, message in ipairs(chat.messages or {}) do
+      present = present or message == snapshot.existing
+    end
+    local before = snapshot.content
+    local after = snapshot.existing.content
+    local prefix = type(before) == 'string' and (before == '' and '' or before .. '\n\n') or nil
+    if not present or type(after) ~= 'string' or not prefix or after:sub(1, #prefix) ~= prefix then
+      return { message = present and snapshot.existing or nil, prefix = prefix or '' }, 'append_prefix_changed'
+    end
+    return {
+      message = snapshot.existing,
+      prefix = prefix,
+      delta = after:sub(#prefix + 1),
+    }
+  end
+
+  local found
+  for index = #(chat.messages or {}), 1, -1 do
+    local message = chat.messages[index]
+    if not snapshot.refs[message] and result_matches_call(message, marker) then
+      if found then
+        return found, 'multiple_results'
+      end
+      found = { message = message, prefix = '', delta = message.content }
+    end
+  end
+  if not found or type(found.delta) ~= 'string' then
+    return found, 'result_missing'
+  end
+  return found
+end
+
+local function stamp_result(chat, message)
+  message._meta = type(message._meta) == 'table' and message._meta or {}
+  message._meta.cycle = message._meta.cycle or chat.cycle
+  message._meta.id = Hash.hash({ role = message.role, content = message.content })
+end
+
+local function fallback_result_message(chat, marker, encoded)
+  local call = {
+    id = marker.call_id,
+    call_id = marker.response_call_id,
+    ['function'] = { name = marker.tool_name },
+  }
+  local ok, message = pcall(Adapters.call_handler, chat.adapter, 'format_response', call, encoded)
+  if
+    not ok
+    or type(message) ~= 'table'
+    or type(message.content) ~= 'string'
+    or not result_matches_call(message, marker)
+  then
+    message = {
+      role = chat.adapter.roles and chat.adapter.roles.tool or 'tool',
+      tools = {
+        id = marker.call_id,
+        call_id = marker.response_call_id or marker.call_id,
+        name = marker.tool_name,
+      },
+      tool_call_id = marker.call_id,
+      content = encoded,
+      opts = { visible = false },
+    }
+  end
+  message.role = message.role or (chat.adapter.roles and chat.adapter.roles.tool) or 'tool'
+  message.content = encoded
+  message.opts = vim.tbl_extend('force', message.opts or {}, { visible = false })
+  stamp_result(chat, message)
+  table.insert(chat.messages, message)
+  return message
+end
+
+local function rewrite_recorded_result(state, marker, entry, payload)
+  local chat = chat_for(state)
+  if not chat then
+    return
+  end
+  local encoded = assert(vim.json.encode(payload))
+  if entry and entry.message then
+    entry.message.content = (entry.prefix or '') .. encoded
+    stamp_result(chat, entry.message)
+    return entry.message
+  end
+  return fallback_result_message(chat, marker, encoded)
+end
+
+local function internal_result(state, marker, entry, message, resume_phase)
+  marker.status = 'classified'
+  local workspace = State.get(chat_for(state))
+  local ok, transition = pcall(Protocol.transition, workspace, resume_phase or marker.phase or state.phase)
+  if not ok or type(transition) ~= 'table' then
+    transition = { tool = 'none', reason = 'Wait for explicit user recovery' }
+  end
+  local payload = Protocol.failure('internal_error', message, {}, transition).data
+  rewrite_recorded_result(state, marker, entry, payload)
+  halt_internal(state, 'Structured reasoning halted after an internal result-integrity failure.', resume_phase)
+end
+
+local accepted_shape = {
+  frame = { primary = 'frame' },
+  evidence = { primary = 'evidence', collection = 'evidence', collection_required = true },
+  options = { primary = 'branch', collection = 'option', collection_required = true },
+  review = { primary = 'review' },
+  synthesis = { primary = 'synthesis' },
+}
+
+local function ordered_new_artifacts(workspace, marker, clean_workspace)
+  local artifacts = {}
+  for _, id in ipairs(workspace.artifact_order or {}) do
+    if clean_workspace or not marker.artifact_ids_before[id] then
+      table.insert(artifacts, workspace.artifacts_by_id[id])
+    end
+  end
+  return artifacts
+end
+
+local function accepted_payload(state, marker, payload)
+  local chat = chat_for(state)
+  local workspace = chat and State.get(chat) or nil
+  local shape = accepted_shape[marker.operation]
+  if not workspace or not shape or type(payload) ~= 'table' then
+    return false
+  end
+  local clean_workspace = marker.operation == 'frame' and (marker.workspace == nil or marker.action == 'replace')
+  if clean_workspace then
+    if workspace == marker.workspace or #workspace.artifact_order ~= 1 then
+      return false
+    end
+  elseif workspace ~= marker.workspace then
+    return false
+  end
+
+  local newly_allocated = ordered_new_artifacts(workspace, marker, clean_workspace)
+  local primary = type(payload.artifact) == 'table' and State.find(workspace, payload.artifact.id) or nil
+  if not primary or primary.kind ~= shape.primary or primary.status ~= 'active' then
+    return false
+  end
+  local expected_collection
+  if shape.collection_required then
+    expected_collection = {}
+    for _, artifact in ipairs(newly_allocated) do
+      if artifact.kind == shape.collection then
+        table.insert(expected_collection, artifact)
+      end
+    end
+    if #expected_collection == 0 or not vim.deep_equal(payload.artifacts, expected_collection) then
+      return false
+    end
+    if marker.operation == 'evidence' and primary ~= expected_collection[#expected_collection] then
+      return false
+    end
+  elseif payload.artifacts ~= nil then
+    return false
+  end
+
+  local reported = { [primary.id] = true }
+  for _, artifact in ipairs(expected_collection or {}) do
+    reported[artifact.id] = true
+  end
+  if #newly_allocated == 0 then
+    return false
+  end
+  for _, artifact in ipairs(newly_allocated) do
+    if artifact.status ~= 'active' or not reported[artifact.id] then
+      return false
+    end
+  end
+  local reported_count = 0
+  for _ in pairs(reported) do
+    reported_count = reported_count + 1
+  end
+  if reported_count ~= #newly_allocated then
+    return false
+  end
+
+  local expected = {
+    workspace_id = workspace.id,
+    artifact = vim.deepcopy(primary),
+    progress = vim.deepcopy(workspace.counts_by_kind),
+    unmet_gates = marker.operation == 'synthesis'
+        and type(marker.decoded_arguments) == 'table'
+        and marker.decoded_arguments.mode == 'final'
+        and {}
+      or Protocol.final_gates(workspace, nil),
+    next_action = Protocol.transition(workspace, 'active'),
+  }
+  if expected_collection then
+    expected.artifacts = vim.deepcopy(expected_collection)
+  end
+  return vim.deep_equal(payload, expected)
+end
+
+local function workspace_unchanged(marker, workspace)
+  if workspace ~= marker.workspace then
+    return false
+  end
+  return vim.deep_equal(workspace, marker.workspace_snapshot)
+end
+
+local function count_marker_violation(state, marker, payload)
+  local bucket = state.observed_call_ids[marker.generation] or {}
+  local canonical = marker.call_id and bucket[marker.call_id] or marker
+  if marker.violation_counted or (canonical and canonical.violation_counted) then
+    return
+  end
+  marker.violation_counted = true
+  if canonical then
+    canonical.violation_counted = true
+  end
+  record_violation(state, payload)
+end
+
+local function classify_recorded_result(state, marker, entry)
+  local chat = chat_for(state)
+  if not chat then
+    return
+  end
+  if marker.call_id == nil or marker.tool_name ~= Constants.tool_by_operation[marker.operation] then
+    return internal_result(state, marker, entry, 'reasoning call identity changed before its result was recorded')
+  end
+  local decoded_ok, payload = pcall(vim.json.decode, entry.delta)
+  if marker.status == 'malformed_pending' then
+    if not workspace_unchanged(marker, State.get(chat)) then
+      return internal_result(state, marker, entry, 'malformed reasoning arguments unexpectedly mutated protocol state')
+    end
+    payload = Protocol.failure(
+      'reasoning_call_malformed',
+      'reasoning tool arguments must be a JSON object',
+      {},
+      Protocol.transition(State.get(chat), state.phase),
+      {
+        path = 'arguments',
+        constraint = 'json_object',
+        expected = 'object',
+        actual = 'invalid_json',
+      }
+    ).data
+    marker.status = 'classified'
+    rewrite_recorded_result(state, marker, entry, payload)
+    count_marker_violation(state, marker, payload)
+    return
+  end
+  if not decoded_ok or type(payload) ~= 'table' then
+    return internal_result(state, marker, entry, 'reasoning tool resolution failed internally')
+  end
+  if payload.code == 'internal_error' or payload.code == 'render_internal' then
+    marker.status = 'classified'
+    local workspace = State.get(chat)
+    local resume_phase = workspace_unchanged(marker, workspace) and marker.phase
+      or (workspace and 'active' or marker.phase)
+    return halt_internal(state, 'Structured reasoning halted after an internal protocol failure.', resume_phase)
+  end
+  if accepted_payload(state, marker, payload) then
+    marker.status = 'classified'
+    state.consecutive_violations = 0
+    invalidate_marker(state.fallback_lease)
+    state.fallback_lease = nil
+    if type(chat.remove_tagged_message) == 'function' then
+      pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+    end
+    if state.phase == 'armed' or state.phase == 'reframing' then
+      state.phase = 'active'
+    end
+    return
+  end
+  local transition = Protocol.transition(State.get(chat), state.phase)
+  local rejection = payload.committed == false
+    and type(payload.code) == 'string'
+    and payload.code ~= ''
+    and vim.deep_equal(payload.next_action, transition)
+    and workspace_unchanged(marker, State.get(chat))
+  if rejection then
+    marker.status = 'classified'
+    count_marker_violation(state, marker, payload)
+    return
+  end
+  return internal_result(
+    state,
+    marker,
+    entry,
+    'recorded reasoning output did not match committed protocol state',
+    State.get(chat) and 'active' or state.phase
+  )
 end
 
 local function settle_rejected_batch(state, tools, chat, calls, payload, count_violation)
@@ -575,7 +916,12 @@ local function settle_rejected_batch(state, tools, chat, calls, payload, count_v
   if not verified then
     halt_internal(state, 'reasoning synthetic settlement was rewritten')
   elseif count_violation then
-    state.consecutive_violations = math.min(3, state.consecutive_violations + 1)
+    local first = type(calls[1]) == 'table' and state.call_tokens[calls[1]] or nil
+    if first then
+      count_marker_violation(state, first, payload)
+    else
+      record_violation(state, payload)
+    end
   end
   local ok, result = xpcall(function()
     return tools:reset({ auto_submit = false })
@@ -726,10 +1072,365 @@ local function blocked_submit(chat, opts)
   end
 end
 
-local function pass_through(slot)
-  return function(target, ...)
-    return slot.original(target, ...)
+local recoverable_phase = {
+  armed = true,
+  active = true,
+  reframing = true,
+}
+
+local function token_current(state, token)
+  return not state.closed
+    and not token.invalidated
+    and token.valid ~= false
+    and not token.settling
+    and not token.settled
+    and state.active_request_token == token
+    and token.epoch == state.epoch
+    and token.generation == state.request_generation
+end
+
+local function replace_correction(state, transition, code)
+  local chat = chat_for(state)
+  if not chat then
+    return
   end
+  if type(chat.remove_tagged_message) == 'function' then
+    pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+  end
+  if type(chat.add_message) == 'function' then
+    pcall(chat.add_message, chat, {
+      role = 'system',
+      content = string.format(
+        'Reasoning protocol correction (%s): call %s next. %s Rejected calls commit no artifacts; change the arguments before retrying.',
+        code,
+        transition.tool,
+        transition.reason
+      ),
+    }, {
+      visible = false,
+      _meta = { tag = Constants.corrective_tag },
+    })
+  end
+end
+
+record_violation = function(state, payload)
+  state.consecutive_violations = math.min(3, state.consecutive_violations + 1)
+  local chat = chat_for(state)
+  local transition = chat and Protocol.transition(State.get(chat), state.phase) or nil
+  transition = transition or { tool = 'none', reason = 'Wait for explicit user recovery' }
+  if state.consecutive_violations < 3 then
+    replace_correction(state, transition, type(payload) == 'table' and payload.code or 'completion_missing')
+    invalidate_marker(state.fallback_lease)
+    state.fallback_lease = {
+      valid = true,
+      generation = state.request_generation,
+      epoch = state.epoch,
+    }
+    return
+  end
+  halt_internal(
+    state,
+    string.format(
+      'Reasoning halted after three rejected completions. Expected %s: %s Use :%s to resume.',
+      transition.tool,
+      transition.reason,
+      Constants.resume_command
+    ),
+    state.phase
+  )
+end
+
+local function request_adapter_proxy(state, token, adapter)
+  local seen = {}
+  local function clone(value)
+    if type(value) ~= 'table' then
+      return value
+    end
+    if seen[value] then
+      return seen[value]
+    end
+    local copy = {}
+    seen[value] = copy
+    for child_key, child in pairs(value) do
+      copy[child_key] = clone(child)
+    end
+    return setmetatable(copy, getmetatable(value))
+  end
+
+  local function protected(storage)
+    return setmetatable({}, {
+      __index = storage,
+      __newindex = function() end,
+    })
+  end
+
+  local function guarded(handler)
+    if type(handler) ~= 'function' then
+      return nil
+    end
+    return function(...)
+      if not token_current(state, token) then
+        return
+      end
+      return handler(...)
+    end
+  end
+
+  local storage = clone(adapter)
+  local source_handlers = type(adapter.handlers) == 'table' and adapter.handlers or {}
+  local handlers = clone(source_handlers)
+  local modern = source_handlers.lifecycle ~= nil or source_handlers.request ~= nil or source_handlers.response ~= nil
+  if modern then
+    local response_source = type(source_handlers.response) == 'table' and source_handlers.response or {}
+    local response = clone(response_source)
+    for _, name in ipairs({ 'parse_chat', 'parse_tokens', 'parse_meta' }) do
+      response[name] = guarded(response_source[name])
+    end
+    handlers.response = protected(response)
+  else
+    handlers.response = nil
+  end
+  for _, name in ipairs({ 'chat_output', 'tokens', 'parse_message_meta' }) do
+    handlers[name] = guarded(source_handlers[name])
+  end
+  for _, category in ipairs({ 'lifecycle', 'request', 'tools' }) do
+    if type(handlers[category]) == 'table' then
+      handlers[category] = protected(handlers[category])
+    end
+  end
+  storage.handlers = protected(handlers)
+
+  return setmetatable({}, {
+    __index = storage,
+    __newindex = function(_, key, value)
+      if key ~= 'handlers' then
+        storage[key] = value
+      end
+    end,
+  })
+end
+
+local complete_bound_request
+
+local function readonly_snapshot(value)
+  if type(value) ~= 'table' then
+    return value
+  end
+  local storage = {}
+  for key, child in pairs(value) do
+    storage[key] = readonly_snapshot(child)
+  end
+  return setmetatable({}, {
+    __index = storage,
+    __newindex = function() end,
+  })
+end
+
+local function request_chat_proxy(state, token, chat)
+  local shadow = {
+    status = chat.status,
+    tokens = chat.tokens,
+    _last_role = chat._last_role,
+    current_request = nil,
+  }
+  local immutable = {
+    adapter = request_adapter_proxy(state, token, chat.adapter),
+    bufnr = chat.bufnr,
+    id = chat.id,
+    MESSAGE_TYPES = readonly_snapshot(chat.MESSAGE_TYPES),
+  }
+  immutable.done = function(_, ...)
+    return complete_bound_request(state, token, ...)
+  end
+  immutable.add_buf_message = function(_, ...)
+    local current = chat_for(state)
+    local slot = state.methods.add_buf_message
+    if token_current(state, token) and current and rawget(current, slot.key) == slot.wrapper then
+      return slot.wrapper(current, ...)
+    end
+  end
+  local set_status = chat._set_status
+  immutable._set_status = function(_, ...)
+    local current = chat_for(state)
+    if
+      token_current(state, token)
+      and current
+      and current._set_status == set_status
+      and type(set_status) == 'function'
+    then
+      return set_status(current, ...)
+    end
+  end
+  return setmetatable({}, {
+    __index = function(_, key)
+      if immutable[key] ~= nil then
+        return immutable[key]
+      end
+      if shadow[key] ~= nil then
+        return shadow[key]
+      end
+      local current = chat_for(state)
+      if token_current(state, token) and current then
+        return current[key]
+      end
+    end,
+    __newindex = function(_, key, value)
+      if immutable[key] ~= nil then
+        return
+      end
+      if key == 'current_request' then
+        shadow.current_request = value
+        token.handle = value
+        local current = chat_for(state)
+        if token_current(state, token) and current then
+          current.current_request = value
+          state.request_handle = value
+        end
+        return
+      end
+      shadow[key] = value
+      local current = chat_for(state)
+      if token_current(state, token) and current then
+        current[key] = value
+      end
+    end,
+  })
+end
+
+local function run_preserved_done(state, target, done, extra, classify)
+  if state.processing_done then
+    return
+  end
+  local has_tools = type(extra[3]) == 'table' and not vim.tbl_isempty(extra[3])
+  local done_opts = extra[5]
+  local stopped = type(done_opts) == 'table' and done_opts.status == 'stopped'
+  local failed = target.status == 'error' or target.status == 'cancelling'
+  if classify and not state.completion_classified then
+    state.completion_classified = true
+    if not has_tools and not stopped and not failed then
+      record_violation(state)
+    end
+  end
+  if suppressing_phase[state.phase] then
+    extra[1] = nil
+    extra[2] = nil
+    if not has_tools and not (type(done_opts) == 'table' and done_opts.status ~= nil) then
+      extra[4] = nil
+    end
+  end
+  state.processing_done = true
+  local format_slot = extra[3] ~= nil and install_format_guard(target, state) or nil
+  local ok, values = xpcall(function()
+    return packed(done.original(target, unpack(extra, 1, extra.n)))
+  end, debug.traceback)
+  if format_slot then
+    restore_method(format_slot)
+  end
+  if state.boundary_issue == nil and (not live_tools_match(target, state) or not wrappers_intact(state)) then
+    block_boundary(
+      target,
+      state,
+      'method_ownership',
+      'Structured reasoning is blocked because its controlled host methods changed; recreate this chat.'
+    )
+  end
+  state.processing_done = false
+  if not ok then
+    error(values, 0)
+  end
+  return unpack(values, 1, values.n)
+end
+
+complete_bound_request = function(state, token, ...)
+  if not token_current(state, token) then
+    return
+  end
+  local chat = chat_for(state)
+  if not chat then
+    return
+  end
+  token.settling = true
+  local prior_phase = state.phase
+  local extra = packed(...)
+  local ok, values = xpcall(function()
+    return packed(run_preserved_done(state, chat, state.methods.done, extra, true))
+  end, debug.traceback)
+  token.settling = false
+  token.settled = true
+  if state.active_request_token == token then
+    state.active_request_token = nil
+  end
+  chat.current_request = nil
+  state.request_handle = nil
+  if not ok then
+    log:error('[reasoning control] bound request completion failed: %s', values)
+    if type(token.prior_violations) == 'number' then
+      state.consecutive_violations = token.prior_violations
+    end
+    state.completion_classified = true
+    state.epoch = state.epoch + 1
+    halt_internal(state, 'Reasoning request completion failed internally.', prior_phase)
+    return
+  end
+  return unpack(values, 1, values.n)
+end
+
+local function fail_request_construction(state, token, resume_phase)
+  local prior_violations = token and token.prior_violations or state.submit_prior_violations
+  if token then
+    token.invalidated = true
+    token.settled = true
+  end
+  if state.active_request_token == token then
+    state.active_request_token = nil
+  end
+  state.construction_lease = nil
+  state.request_handle = nil
+  state.completion_classified = true
+  local chat = chat_for(state)
+  if chat then
+    local handle = (token and token.handle) or chat.current_request
+    if handle and type(handle.cancel) == 'function' then
+      pcall(handle.cancel, handle)
+    end
+    chat.current_request = nil
+    if type(chat.remove_tagged_message) == 'function' then
+      pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+    end
+  end
+  if type(prior_violations) == 'number' then
+    state.consecutive_violations = prior_violations
+  end
+  state.epoch = state.epoch + 1
+  halt_internal(state, 'Reasoning request construction failed internally.', resume_phase)
+end
+
+local function schedule_fallback(state)
+  local lease = state.fallback_lease
+  if not lease then
+    return
+  end
+  vim.schedule(function()
+    local chat = chat_for(state)
+    if
+      not chat
+      or state.closed
+      or state.fallback_lease ~= lease
+      or lease.epoch ~= state.epoch
+      or lease.generation ~= state.request_generation
+      or state.unsupported_adapter
+      or not complete_tool_set(chat)
+      or not chat.adapter
+      or chat.adapter.type ~= 'http'
+      or chat.current_request
+      or chat.tool_orchestrator
+      or not recoverable_phase[state.phase]
+    then
+      return
+    end
+    chat:submit({ auto_submit = true })
+    state.request_handle = chat.current_request
+  end)
 end
 
 local function install(chat, phase)
@@ -772,20 +1473,43 @@ local function install(chat, phase)
       or state.clearing
       or state.processing_done
       or state.submitting
+      or not recoverable_phase[state.phase]
     then
       return blocked_submit(current, opts)
     end
 
     local extra = packed(...)
+    local prior_phase = state.phase
+    local prior_epoch = state.epoch
+    local prior_violations = state.consecutive_violations
+    state.submit_prior_violations = prior_violations
+    state.submit_epoch = prior_epoch
     state.submitting = true
     local ok, values = xpcall(function()
       return packed(submit.original(current, opts, unpack(extra, 1, extra.n)))
     end, debug.traceback)
     state.submitting = false
-    state.request_handle = current.current_request
     if not ok then
-      error(values, 0)
+      log:error('[reasoning control] preserved submit failed: %s', values)
+      if not state.closed and state.phase ~= 'dormant' then
+        fail_request_construction(state, state.active_request_token, prior_phase)
+      end
+      state.submit_prior_violations = nil
+      state.submit_epoch = nil
+      return
     end
+    local lease = state.construction_lease
+    if lease and lease.epoch == prior_epoch and not lease.consumed then
+      lease.consumed = true
+      state.construction_lease = nil
+      if not state.closed and state.phase ~= 'dormant' then
+        fail_request_construction(state, nil, prior_phase)
+      else
+        state.completion_classified = true
+      end
+    end
+    state.submit_prior_violations = nil
+    state.submit_epoch = nil
     return unpack(values, 1, values.n)
   end)
 
@@ -806,10 +1530,58 @@ local function install(chat, phase)
       or not current.adapter
       or current.adapter.type ~= 'http'
       or state.executing_scope ~= nil
+      or not state.submitting
+      or state.completion_classified
+      or state.active_request_token ~= nil
     then
-      return blocked_submit(current)
+      return
     end
-    return submit_http.original(current, payload, ...)
+    local lease = state.construction_lease
+    if
+      not lease
+      or lease.consumed
+      or lease.payload ~= payload
+      or lease.epoch ~= state.epoch
+      or lease.generation ~= state.request_generation
+    then
+      return
+    end
+    lease.consumed = true
+    state.construction_lease = nil
+    local token = {
+      id = state.next_request_token + 1,
+      epoch = lease.epoch,
+      generation = lease.generation,
+      handle = nil,
+      valid = true,
+      invalidated = false,
+      settling = false,
+      settled = false,
+      prior_phase = lease.phase,
+      prior_violations = lease.consecutive_violations,
+    }
+    state.next_request_token = token.id
+    state.active_request_token = token
+    if state.resume_attempt and state.resume_attempt.epoch == state.epoch then
+      state.resume_attempt.constructed = true
+      state.resume_attempt.request_token = token
+    end
+    local proxy = request_chat_proxy(state, token, current)
+    token.proxy = proxy
+    local extra = packed(...)
+    local ok, values = xpcall(function()
+      return packed(submit_http.original(proxy, payload, unpack(extra, 1, extra.n)))
+    end, debug.traceback)
+    if not ok then
+      log:error('[reasoning control] HTTP request construction failed: %s', values)
+      fail_request_construction(state, token, token.prior_phase or state.phase)
+      return
+    end
+    if token_current(state, token) and token.handle == nil then
+      fail_request_construction(state, token, token.prior_phase or state.phase)
+      return
+    end
+    return unpack(values, 1, values.n)
   end)
 
   local submit_acp = state.methods._submit_acp
@@ -828,37 +1600,26 @@ local function install(chat, phase)
       return
     end
     local extra = packed(...)
-    local has_tools = type(extra[3]) == 'table' and not vim.tbl_isempty(extra[3])
-    if suppressing_phase[state.phase] then
-      extra[1] = nil
-      extra[2] = nil
-      local done_opts = extra[5]
-      if not has_tools and not (type(done_opts) == 'table' and done_opts.status ~= nil) then
-        extra[4] = nil
-      end
+    local done_opts = extra[5]
+    local stopped = type(done_opts) == 'table' and done_opts.status == 'stopped'
+    local lease = state.pending_stop_token
+    if
+      not stopped
+      or not lease
+      or lease.valid == false
+      or lease.cleanup_epoch ~= state.epoch
+      or lease.generation ~= state.request_generation
+      or state.active_request_token ~= nil
+    then
+      invalidate_marker(lease)
+      state.pending_stop_token = nil
+      return
     end
-    state.processing_done = true
-    local format_slot = extra[3] ~= nil and install_format_guard(target, state) or nil
-    local ok, values = xpcall(function()
-      return packed(done.original(target, unpack(extra, 1, extra.n)))
-    end, debug.traceback)
-    if format_slot then
-      restore_method(format_slot)
-    end
-    if state.boundary_issue == nil and (not live_tools_match(target, state) or not wrappers_intact(state)) then
-      block_boundary(
-        target,
-        state,
-        'method_ownership',
-        'Structured reasoning is blocked because its controlled host methods changed; recreate this chat.'
-      )
-    end
-    state.processing_done = false
+    lease.valid = false
+    state.pending_stop_token = nil
+    local values = packed(run_preserved_done(state, target, done, extra, false))
     if target.current_request == nil then
       state.request_handle = nil
-    end
-    if not ok then
-      error(values, 0)
     end
     return unpack(values, 1, values.n)
   end)
@@ -917,10 +1678,81 @@ local function install(chat, phase)
     elseif not callbacks_allowed(target, state) then
       return
     end
-    if marker and marker.status == 'synthetic' then
+    if marker and (marker.status == 'synthetic' or marker.status == 'classified') then
       return
     end
-    return add_tool_output.original(target, tool, ...)
+    if
+      marker
+      and (marker.valid == false or marker.epoch ~= state.epoch or marker.generation ~= state.request_generation)
+    then
+      return
+    end
+    if not marker then
+      if state.phase == 'dormant' then
+        return add_tool_output.original(target, tool, ...)
+      end
+      halt_internal(state, 'Structured reasoning halted after an unauthenticated tool result.', state.phase)
+      return
+    end
+
+    local snapshot = snapshot_recorded_result(target, marker)
+    local extra = packed(...)
+    local ok, values = xpcall(function()
+      return packed(add_tool_output.original(target, tool, unpack(extra, 1, extra.n)))
+    end, debug.traceback)
+    if marker.status == 'external' then
+      if not ok then
+        log:error('[reasoning control] external tool-result recording failed: %s', values)
+        halt_internal(state, 'Structured reasoning halted after tool-result recording failed.', state.phase)
+        return
+      end
+      local entry, result_error = recorded_result_entry(target, marker, snapshot)
+      if entry and not result_error and entry.message then
+        stamp_result(target, entry.message)
+      end
+      marker.status = 'classified'
+      return unpack(values, 1, values.n)
+    end
+
+    local entry, result_error = recorded_result_entry(target, marker, snapshot)
+    if not ok or result_error then
+      if not ok then
+        log:error('[reasoning control] tool-result recording failed: %s', values)
+      end
+      internal_result(
+        state,
+        marker,
+        entry,
+        not ok and 'reasoning tool-result recording failed' or 'reasoning tool-result append integrity failed',
+        State.get(target) and 'active' or state.phase
+      )
+      return
+    end
+    stamp_result(target, entry.message)
+    if
+      call.id ~= marker.call_id
+      or (call.call_id or nil) ~= marker.response_call_id
+      or type(call['function']) ~= 'table'
+      or call['function'].name ~= marker.tool_name
+      or not result_matches_call(entry.message, marker)
+    then
+      internal_result(state, marker, entry, 'reasoning call/result correlation changed before classification')
+      return
+    end
+    local classified, classification_error = xpcall(function()
+      classify_recorded_result(state, marker, entry)
+    end, debug.traceback)
+    if not classified then
+      log:error('[reasoning control] tool-result classification failed: %s', classification_error)
+      internal_result(
+        state,
+        marker,
+        entry,
+        'reasoning tool-result classification failed internally',
+        State.get(target) and 'active' or state.phase
+      )
+    end
+    return unpack(values, 1, values.n)
   end)
 
   local clear = state.methods.clear
@@ -1035,6 +1867,81 @@ local function install(chat, phase)
   end
   state.callbacks.on_before_submit = on_before_submit
   chat:add_callback('on_before_submit', on_before_submit)
+
+  local on_submitted = function(callback_chat, data)
+    local current = chat_for(state)
+    if
+      not current
+      or callback_chat ~= current
+      or not state.submitting
+      or state.submit_epoch ~= state.epoch
+      or not recoverable_phase[state.phase]
+    then
+      return
+    end
+    state.request_generation = state.request_generation + 1
+    state.completion_classified = false
+    state.observed_call_ids[state.request_generation] = {}
+    state.construction_lease = {
+      valid = true,
+      epoch = state.epoch,
+      generation = state.request_generation,
+      payload = type(data) == 'table' and data.payload or nil,
+      consumed = false,
+      phase = state.phase,
+      consecutive_violations = state.consecutive_violations,
+    }
+    local fallback = state.fallback_lease
+    if fallback and fallback.epoch == state.epoch and fallback.generation < state.request_generation then
+      fallback.valid = false
+      state.fallback_lease = nil
+    end
+    if state.resume_attempt and state.resume_attempt.epoch == state.epoch then
+      state.resume_attempt.confirmed = true
+      state.resume_attempt.generation = state.request_generation
+    end
+  end
+  state.callbacks.on_submitted = on_submitted
+  chat:add_callback('on_submitted', on_submitted)
+
+  local on_ready = function(callback_chat)
+    local current = chat_for(state)
+    if current and callback_chat == current then
+      schedule_fallback(state)
+    end
+  end
+  state.callbacks.on_ready = on_ready
+  chat:add_callback('on_ready', on_ready)
+
+  local on_cancelled = function(callback_chat)
+    local current = chat_for(state)
+    if not current or callback_chat ~= current then
+      return
+    end
+    local token = state.active_request_token
+    invalidate_marker(state.fallback_lease)
+    invalidate_marker(state.construction_lease)
+    invalidate_marker(token)
+    invalidate_marker(state.resume_attempt)
+    state.fallback_lease = nil
+    state.construction_lease = nil
+    state.active_request_token = nil
+    state.request_handle = nil
+    state.resume_attempt = nil
+    state.completion_classified = true
+    state.epoch = state.epoch + 1
+    if type(current.remove_tagged_message) == 'function' then
+      pcall(current.remove_tagged_message, current, Constants.corrective_tag)
+    end
+    state.pending_stop_token = {
+      valid = true,
+      token = token,
+      cleanup_epoch = state.epoch,
+      generation = state.request_generation,
+    }
+  end
+  state.callbacks.on_cancelled = on_cancelled
+  chat:add_callback('on_cancelled', on_cancelled)
   return state
 end
 
@@ -1238,9 +2145,10 @@ function M.uninstall(chat)
     return false
   end
   Terminal.clear(chat)
-  local callback = state.callbacks.on_before_submit
-  if callback and type(chat.remove_callback) == 'function' then
-    chat:remove_callback('on_before_submit', callback)
+  if type(chat.remove_callback) == 'function' then
+    for event, callback in pairs(state.callbacks) do
+      chat:remove_callback(event, callback)
+    end
   end
   for _, slot in pairs(state.methods) do
     restore_method(slot)

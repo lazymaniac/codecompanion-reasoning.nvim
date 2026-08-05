@@ -8,6 +8,7 @@ local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
 local host_adapters = require('codecompanion.adapters')
 local host_config = require('codecompanion.config')
+local host_hash = require('codecompanion.utils.hash')
 
 local T
 local eq = MiniTest.expect.equality
@@ -71,6 +72,15 @@ local function new_chat(opts)
     outputs = {},
     reset_opts = {},
     events = {},
+    requests = {},
+    add_message = 0,
+    remove_tagged = 0,
+    checkpoint = 0,
+    ready = 0,
+    parse_chat = 0,
+    parse_tokens = 0,
+    parse_meta = 0,
+    compacting = 0,
   }
   local methods = callback_methods()
   local function record(event)
@@ -100,25 +110,120 @@ local function new_chat(opts)
     local payload = { messages = self.messages, marker = {} }
     calls.callback_payload = payload
     self:dispatch('on_submitted', { payload = payload })
-    if self.adapter.type == 'http' then
-      return self:_submit_http(payload)
+    if self.fixture_skip_http then
+      return
     end
-    return self:_submit_acp(payload)
+    local result
+    if self.adapter.type == 'http' then
+      result = self:_submit_http(payload)
+    else
+      result = self:_submit_acp(payload)
+    end
+    if self.fixture_after_transport_error then
+      error('fixture post-transport submit failed')
+    end
+    return result
   end
   methods._submit_http = function(self, payload)
     calls.http = calls.http + 1
     calls.transport_payload = payload
+    calls.request_self = self
+    if self.fixture_http_throw then
+      error('fixture http construction failed')
+    end
+    local handle_status = 'pending'
     local handle = {
+      id = 'request-' .. tostring(calls.http),
+      status = function()
+        return handle_status
+      end,
       cancel = function()
+        handle_status = 'cancelled'
         calls.request_cancel = calls.request_cancel + 1
         record('request_cancel')
         if self.fixture_on_request_cancel then
           self.fixture_on_request_cancel(self)
         end
       end,
+      set_status = function(value)
+        handle_status = value
+      end,
     }
+    local output, reasoning, tool_calls, meta = {}, {}, {}, {}
+    local adapter = self.adapter
+    local function process_chunk(data)
+      if adapter.features and adapter.features.tokens then
+        local token_count = host_adapters.call_handler(adapter, 'parse_tokens', data)
+        if token_count then
+          self.tokens = token_count
+        end
+      end
+      local result = host_adapters.call_handler(adapter, 'parse_chat', data, tool_calls)
+      local parse_meta = host_adapters.get_handler(adapter, 'parse_meta')
+      if result and result.extra and type(parse_meta) == 'function' then
+        result = parse_meta(adapter, result)
+      end
+      if not (result and result.status) then
+        return
+      end
+      self.status = result.status
+      if result.status == 'success' then
+        if result.output and result.output.role then
+          self._last_role = 'assistant'
+        end
+        if result.output and result.output.reasoning then
+          table.insert(reasoning, result.output.reasoning)
+          self:add_buf_message({ role = 'assistant', content = result.output.reasoning.content or '' }, {
+            type = self.MESSAGE_TYPES.REASONING_MESSAGE,
+          })
+        end
+        if result.output and result.output.meta then
+          if result.output.meta.compaction then
+            self:_set_status('compacting', 'Compacting the chat...')
+            calls.compacting = calls.compacting + 1
+          end
+          meta = vim.tbl_deep_extend('force', meta, result.output.meta)
+        end
+        if result.output and result.output.content then
+          table.insert(output, result.output.content)
+          self:add_buf_message({ role = 'assistant', content = result.output.content }, {
+            type = self.MESSAGE_TYPES.LLM_MESSAGE,
+          })
+        end
+      elseif result.status == 'error' then
+        self:done(output)
+      end
+    end
+    local request = {
+      self = self,
+      payload = payload,
+      handle = handle,
+      on_chunk = function(data)
+        handle_status = 'streaming'
+        process_chunk(data)
+      end,
+      on_done = function(data)
+        handle_status = 'success'
+        if data and not (adapter.opts and adapter.opts.stream) then
+          process_chunk(data)
+        end
+        self:done(output, reasoning, tool_calls, meta)
+      end,
+      on_error = function(error_value)
+        handle_status = 'error'
+        if self.status == 'cancelling' then
+          return
+        end
+        self.status = 'error'
+        calls.last_http_error = error_value
+        self:done(output)
+      end,
+    }
+    table.insert(calls.requests, request)
+    if self.fixture_sync_send then
+      self.fixture_sync_send(request)
+    end
     self.current_request = handle
-    return handle
   end
   methods._submit_acp = function(self, payload)
     calls.acp = calls.acp + 1
@@ -129,8 +234,50 @@ local function new_chat(opts)
       end,
     }
   end
-  methods.done = function(self, output, reasoning, tool_calls, meta)
+  methods.add_message = function(self, data, message_opts)
+    calls.add_message = calls.add_message + 1
+    local message = vim.deepcopy(data)
+    message._meta = message._meta or (message_opts and vim.deepcopy(message_opts._meta))
+    message.visible = message.visible ~= nil and message.visible or (message_opts and message_opts.visible)
+    table.insert(self.messages, message)
+    return message
+  end
+  methods.remove_tagged_message = function(self, tag)
+    calls.remove_tagged = calls.remove_tagged + 1
+    for index = #self.messages, 1, -1 do
+      local message = self.messages[index]
+      if message._meta and message._meta.tag == tag then
+        table.remove(self.messages, index)
+      end
+    end
+  end
+  methods.checkpoint = function()
+    calls.checkpoint = calls.checkpoint + 1
+  end
+  methods.ready_for_input = function(self, ready_opts)
+    calls.ready = calls.ready + 1
+    if not (ready_opts and ready_opts.auto_submit) then
+      self:dispatch('on_ready')
+    end
+  end
+  methods.tools_done = function(self, ready_opts)
+    return self:ready_for_input(ready_opts)
+  end
+  methods._set_status = function(self, status)
+    self.status = status
+  end
+  methods.done = function(self, output, reasoning, tool_calls, meta, done_opts)
     calls.done = calls.done + 1
+    calls.last_done = {
+      output = output,
+      reasoning = reasoning,
+      tool_calls = tool_calls,
+      meta = meta,
+      opts = done_opts,
+    }
+    if self.fixture_done_error then
+      error('fixture preserved done failed')
+    end
     self.current_request = nil
     local reasoning_content
     if type(reasoning) == 'table' and not vim.tbl_isempty(reasoning) then
@@ -163,7 +310,14 @@ local function new_chat(opts)
           visible = false,
         })
         self.tools:execute(self, formatted)
+        return
       end
+    end
+    if self.fixture_done_submit then
+      self:submit({ auto_submit = true })
+    end
+    if not self.fixture_skip_ready then
+      self:ready_for_input()
     end
   end
   methods.stop = function(self)
@@ -184,6 +338,9 @@ local function new_chat(opts)
     end
     calls.adapter_exit = calls.adapter_exit + 1
     record('adapter_exit')
+    vim.schedule(function()
+      self:done(nil, nil, nil, nil, { status = 'stopped' })
+    end)
   end
   methods.add_buf_message = function(_, data, message_opts)
     table.insert(calls.notices, { data = data, opts = message_opts })
@@ -201,21 +358,24 @@ local function new_chat(opts)
       for_user = args.for_user,
     })
     local function_call = tool.function_call or {}
+    local output = host_adapters.call_handler(self.adapter, 'format_response', function_call, args.for_llm)
+    if not output then
+      return
+    end
+    output._meta = { cycle = self.cycle }
+    output._meta.id = host_hash.hash({ role = output.role, content = output.content })
+    output.opts = vim.tbl_extend('force', output.opts or {}, { visible = true })
     local existing
     for _, message in ipairs(self.messages) do
-      if message.tool_call_id == function_call.id then
+      if message.tools and message.tools.call_id == function_call.id then
         existing = message
         break
       end
     end
     if existing then
-      existing.content = existing.content == '' and args.for_llm or (existing.content .. '\n\n' .. args.for_llm)
+      existing.content = existing.content == '' and output.content or (existing.content .. '\n\n' .. output.content)
     else
-      table.insert(self.messages, {
-        role = 'tool',
-        tool_call_id = function_call.id,
-        content = args.for_llm,
-      })
+      table.insert(self.messages, output)
     end
     if args.for_user ~= '' then
       self:add_buf_message({ role = 'assistant', content = args.for_user or args.for_llm }, {
@@ -283,6 +443,7 @@ local function new_chat(opts)
       table.insert(calls.reset_opts, vim.deepcopy(reset_opts or {}))
       if self.chat then
         self.chat.tool_orchestrator = nil
+        self.chat:tools_done(reset_opts)
       end
     end,
   }
@@ -291,23 +452,55 @@ local function new_chat(opts)
     adapter = {
       type = opts.adapter_type or 'http',
       name = opts.adapter_name or 'fixture_http',
+      features = { tokens = true },
+      opts = { stream = true },
       handlers = {
         lifecycle = {},
         response = {
           build_reasoning = function(_, reasoning)
             return reasoning
           end,
+          parse_chat = function(_, data, extracted_tools)
+            calls.parse_chat = calls.parse_chat + 1
+            if type(data) == 'table' and type(data.tool_calls) == 'table' then
+              vim.list_extend(extracted_tools, data.tool_calls)
+            end
+            return data
+          end,
+          parse_tokens = function(_, data)
+            calls.parse_tokens = calls.parse_tokens + 1
+            return data and data.tokens or nil
+          end,
+          parse_meta = function(_, result)
+            calls.parse_meta = calls.parse_meta + 1
+            return result
+          end,
         },
         tools = {
           format_calls = function(_, tool_calls)
             return tool_calls
           end,
+          format_response = function(self, tool_call, output)
+            return {
+              role = self.roles and self.roles.tool or 'tool',
+              tools = {
+                id = tool_call.id,
+                call_id = tool_call.call_id or tool_call.id,
+                name = tool_call['function'] and tool_call['function'].name,
+              },
+              content = output,
+              opts = { visible = false },
+            }
+          end,
         },
       },
+      roles = { tool = 'tool' },
     },
     bufnr = vim.api.nvim_create_buf(false, true),
     callbacks = {},
+    cycle = 1,
     current_request = nil,
+    id = 'fixture-chat',
     messages = {},
     MESSAGE_TYPES = {
       LLM_MESSAGE = 'llm_message',
@@ -317,6 +510,8 @@ local function new_chat(opts)
       USER_MESSAGE = 'user_message',
     },
     restore = methods.restore,
+    status = 'success',
+    tokens = 0,
     subscribers = {
       stop = function(self)
         self.stopped = true
@@ -409,6 +604,7 @@ local function frame_args(action)
     perspectives = { { name = 'correctness', purpose = 'Check the result' } },
     temporal_required = false,
     branching_required = false,
+    branching_rationale = 'The task is analytical rather than a choice among alternatives',
   }
 end
 
@@ -445,6 +641,33 @@ local function controlled_chat(phase)
   Control.reconcile(chat)
   Control._get(chat).phase = phase
   return chat, calls, Control._get(chat)
+end
+
+local function submit_request(chat, calls)
+  chat:submit({ auto_submit = true })
+  return calls.requests[#calls.requests]
+end
+
+local function drain_scheduled()
+  vim.wait(10, function()
+    return false
+  end, 1)
+end
+
+local function record_protocol_result(chat, call, result)
+  chat.tool_orchestrator = nil
+  chat:add_tool_output({
+    name = call['function'].name,
+    function_call = call,
+  }, type(result) == 'string' and result or vim.json.encode(result.data), '')
+end
+
+local function execute_protocol_call(chat, call, phase)
+  chat.tools:execute(chat, { call })
+  local operation = Constants.operation_by_tool[call['function'].name]
+  local result = Protocol.call(operation, chat, vim.deepcopy(call['function'].arguments), phase)
+  record_protocol_result(chat, call, result)
+  return result
 end
 
 local function install_legacy_guard(chat)
@@ -904,7 +1127,8 @@ T['blocks command mutation on live ACP and replaced tools boundaries'] = functio
   drifted:done(nil, nil, { { id = 'foreign', ['function'] = { name = 'external' } } })
   eq(foreign_execute, 0)
 
-  local during = attach_all(new_chat())
+  local during, during_calls = new_chat()
+  attach_all(during)
   Control.reconcile(during)
   local during_foreign = 0
   during.adapter.handlers.tools.format_calls = function(_, tool_calls)
@@ -913,11 +1137,18 @@ T['blocks command mutation on live ACP and replaced tools boundaries'] = functio
     end
     return tool_calls
   end
-  during:done(nil, nil, { { id = 'during', ['function'] = { name = 'external' } } })
+  local during_request = submit_request(during, during_calls)
+  -- Use the bound transport callback, matching the only authenticated completion path.
+  during_request.on_chunk({
+    status = 'success',
+    tool_calls = { { id = 'during', ['function'] = { name = 'external' } } },
+  })
+  during_request.on_done()
   eq(during_foreign, 0)
   eq(Control.phase(during), 'blocked')
 
-  local replaced_during = attach_all(new_chat())
+  local replaced_during, replaced_calls = new_chat()
+  attach_all(replaced_during)
   Control.reconcile(replaced_during)
   local replaced_foreign = 0
   replaced_during.adapter.handlers.tools.format_calls = function(_, tool_calls)
@@ -928,11 +1159,17 @@ T['blocks command mutation on live ACP and replaced tools boundaries'] = functio
     }
     return tool_calls
   end
-  replaced_during:done(nil, nil, { { id = 'during-replace', ['function'] = { name = 'external' } } })
+  local replaced_request = submit_request(replaced_during, replaced_calls)
+  replaced_request.on_chunk({
+    status = 'success',
+    tool_calls = { { id = 'during-replace', ['function'] = { name = 'external' } } },
+  })
+  replaced_request.on_done()
   eq(replaced_foreign, 0)
   eq(Control.phase(replaced_during), 'blocked')
 
-  local legacy_during = attach_all(new_chat())
+  local legacy_during, legacy_calls = new_chat()
+  attach_all(legacy_during)
   Control.reconcile(legacy_during)
   local legacy_foreign = 0
   legacy_during.adapter.handlers = {
@@ -945,7 +1182,8 @@ T['blocks command mutation on live ACP and replaced tools boundaries'] = functio
       end,
     },
   }
-  legacy_during:done(nil, nil, { { id = 'legacy-during', ['function'] = { name = 'external' } } })
+  local legacy_request = submit_request(legacy_during, legacy_calls)
+  legacy_request.self:done(nil, nil, { { id = 'legacy-during', ['function'] = { name = 'external' } } })
   eq(legacy_foreign, 0)
   eq(Control.phase(legacy_during), 'blocked')
 
@@ -974,7 +1212,8 @@ T['blocks command mutation on live ACP and replaced tools boundaries'] = functio
     swap_during.adapter = second_adapter
     return reasoning
   end
-  swap_during:done(nil, { 'private chain' }, {
+  local swap_request = submit_request(swap_during, swap_calls)
+  swap_request.self:done(nil, { 'private chain' }, {
     { id = 'reasoning-swap', ['function'] = { name = 'external' } },
   })
   eq(build_calls, 0)
@@ -1013,7 +1252,7 @@ T['clear and close invalidate request tool and prepared-final activity'] = funct
   local closed, close_calls = new_chat()
   attach_all(closed)
   Control.reconcile(closed)
-  closed:_submit_http({})
+  closed:submit({ auto_submit = true })
   closed.tool_orchestrator = {
     cancel = function()
       close_calls.orchestrator_cancel = close_calls.orchestrator_cancel + 1
@@ -1071,14 +1310,16 @@ T['clear and close invalidate request tool and prepared-final activity'] = funct
   eq(orphan_calls.orchestrator_cancel, 1)
 end
 
-T['restores submitting after preserved submit errors and exposes total placeholders'] = function()
+T['halts safely after preserved submit errors and exposes total placeholders'] = function()
   local chat = attach_all(new_chat())
   Control.reconcile(chat)
   chat.fixture_submit_error = true
-  MiniTest.expect.error(function()
-    chat:submit({ auto_submit = true })
-  end, 'fixture submit failed')
-  eq(Control._get(chat).submitting, false)
+  chat:submit({ auto_submit = true })
+  local state = Control._get(chat)
+  eq(state.submitting, false)
+  eq(state.phase, 'halted')
+  eq(state.resume_phase, 'armed')
+  eq(state.consecutive_violations, 0)
   eq({ Control.stage_final(chat, {}, {}) }, { nil, 'not available in this lifecycle build' })
   eq({ Control.resume(chat) }, { nil, 'not available in this lifecycle build' })
 end
@@ -1106,15 +1347,21 @@ T['suppresses model prose while preserving tool system and user traffic'] = func
   local chat, calls = controlled_chat('active')
   chat.messages = { { role = 'user', content = 'inspect the project' } }
   local tool_calls = { formatted_call('external-1', 'read_file', { path = 'README.md' }) }
-  chat:done({ 'free-form answer' }, { 'private chain' }, tool_calls, { tokens = 12 })
+  local request = submit_request(chat, calls)
+  request.on_chunk({
+    status = 'success',
+    output = { content = 'free-form answer', reasoning = { content = 'private chain' } },
+    tool_calls = tool_calls,
+  })
+  request.on_done()
   eq(calls.execute, 1)
   eq(calls.last_calls, tool_calls)
-  eq(#chat.messages, 3)
+  eq(#chat.messages, 2)
   eq(
     vim.tbl_map(function(message)
       return message.role
     end, chat.messages),
-    { 'user', 'assistant', 'assistant' }
+    { 'user', 'assistant' }
   )
   local encoded = vim.json.encode(chat.messages)
   eq(encoded:find('free%-form answer') == nil, true)
@@ -1122,9 +1369,16 @@ T['suppresses model prose while preserving tool system and user traffic'] = func
 
   local zero, zero_calls = controlled_chat('active')
   zero.messages = { { role = 'user', content = 'continue' } }
-  zero:done({ 'unstructured' }, { 'hidden' }, nil, { tokens = 2 })
+  zero.fixture_skip_ready = true
+  local zero_request = submit_request(zero, zero_calls)
+  zero_request.on_chunk({
+    status = 'success',
+    output = { content = 'unstructured', reasoning = { content = 'hidden' } },
+  })
+  zero_request.on_done()
   eq(zero_calls.done, 1)
-  eq(zero.messages, { { role = 'user', content = 'continue' } })
+  eq(zero.messages[1], { role = 'user', content = 'continue' })
+  eq(zero.messages[2]._meta.tag, Constants.corrective_tag)
 end
 
 T['delegates external batches unchanged and authenticates unresolved deep copies only in scope'] = function()
@@ -1163,7 +1417,7 @@ T['delegates external batches unchanged and authenticates unresolved deep copies
   local copied = unresolved_calls.outputs[1].tool.function_call
   eq(copied == original, false)
   eq(unresolved_state.call_tokens[copied], unresolved_state.call_tokens[original])
-  eq(unresolved_state.call_tokens[original].status, 'external')
+  eq(unresolved_state.call_tokens[original].status, 'classified')
   eq(unresolved_state.executing_scope, nil)
   eq(unresolved_state.consecutive_violations, 0)
 end
@@ -1192,6 +1446,148 @@ T['preflights exact reasoning transitions without changing delegated host shapes
   eq(empty_calls.reset, 1)
   eq(decoded_tool_payloads(empty_chat)[1].code, 'transition_invalid')
   eq(empty_state.phase, 'armed')
+end
+
+T['classifies accepted recorded protocol output and resets recovery state'] = function()
+  local chat, _, state = controlled_chat('armed')
+  state.consecutive_violations = 2
+  state.fallback_lease = { valid = true, epoch = state.epoch, generation = state.request_generation }
+  chat:add_message({ role = 'system', content = 'old correction' }, {
+    visible = false,
+    _meta = { tag = Constants.corrective_tag },
+  })
+
+  local call = formatted_call('accepted-frame', 'reasoning_frame', frame_args())
+  local result = execute_protocol_call(chat, call, 'armed')
+  eq(result.status, 'success')
+  eq(state.call_tokens[call].status, 'classified')
+  eq(state.phase, 'active')
+  eq(state.consecutive_violations, 0)
+  eq(state.fallback_lease, nil)
+  eq(#chat.messages, 1)
+  eq(vim.json.decode(chat.messages[1].content), result.data)
+  eq(chat.messages[1]._meta.id, host_hash.hash({ role = chat.messages[1].role, content = chat.messages[1].content }))
+end
+
+T['counts each recorded rejection once and halts on the third'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  local function reject(id)
+    local call = formatted_call(id, 'reasoning_frame', { action = 'start' })
+    local result = execute_protocol_call(chat, call, 'armed')
+    eq(result.status, 'error')
+    chat:add_tool_output({ name = 'reasoning_frame', function_call = call }, vim.json.encode(result.data), '')
+    return call, result
+  end
+
+  local first = reject('rejected-1')
+  eq(state.call_tokens[first].status, 'classified')
+  eq(state.consecutive_violations, 1)
+  eq(state.fallback_lease.generation, 0)
+  eq(calls.add_message, 1)
+  eq(calls.remove_tagged, 1)
+
+  state.request_generation = 1
+  state.observed_call_ids[1] = {}
+  reject('rejected-2')
+  eq(state.consecutive_violations, 2)
+  eq(state.fallback_lease.generation, 1)
+  eq(calls.add_message, 2)
+  eq(calls.remove_tagged, 2)
+
+  state.request_generation = 2
+  state.observed_call_ids[2] = {}
+  reject('rejected-3')
+  eq(state.consecutive_violations, 3)
+  eq(state.phase, 'halted')
+  eq(state.resume_phase, 'armed')
+  eq(state.fallback_lease, nil)
+  eq(chat.subscribers.stopped, true)
+  eq(calls.remove_tagged, 3)
+  eq(#calls.notices, 1)
+  eq(calls.notices[1].data.content:find(Constants.resume_command, 1, true) ~= nil, true)
+end
+
+T['rewrites malformed known results and treats resolver failures as internal'] = function()
+  local malformed, _, malformed_state = controlled_chat('armed')
+  local malformed_call = formatted_call('post-malformed', 'reasoning_frame', '{not-json')
+  malformed.tools:execute(malformed, { malformed_call })
+  record_protocol_result(malformed, malformed_call, 'raw host resolver error')
+  local malformed_payload = decoded_tool_payloads(malformed)[1]
+  eq(malformed_payload.code, 'reasoning_call_malformed')
+  eq(malformed_payload.committed, false)
+  eq(malformed_payload.diagnostic, {
+    path = 'arguments',
+    constraint = 'json_object',
+    expected = 'object',
+    actual = 'invalid_json',
+  })
+  eq(malformed_state.consecutive_violations, 1)
+  eq(malformed_state.call_tokens[malformed_call].status, 'classified')
+
+  local broken, _, broken_state = controlled_chat('armed')
+  local broken_call = formatted_call('post-internal', 'reasoning_frame', frame_args())
+  broken.tools:execute(broken, { broken_call })
+  record_protocol_result(broken, broken_call, 'raw command traceback')
+  local internal = decoded_tool_payloads(broken)[1]
+  eq(internal.code, 'internal_error')
+  eq(internal.committed, false)
+  eq(broken_state.phase, 'halted')
+  eq(broken_state.consecutive_violations, 0)
+end
+
+T['detects post-callback success tampering against committed state'] = function()
+  local chat, _, state = controlled_chat('armed')
+  chat:add_callback('on_tool_output', function(_, args)
+    local payload = vim.json.decode(args.for_llm)
+    if payload.artifact then
+      payload.artifact.data.objective = 'hostile rewrite'
+      args.for_llm = vim.json.encode(payload)
+    end
+  end)
+  local call = formatted_call('tampered-frame', 'reasoning_frame', frame_args())
+  local result = execute_protocol_call(chat, call, 'armed')
+  eq(result.status, 'success')
+  local recorded = decoded_tool_payloads(chat)[1]
+  eq(recorded.code, 'internal_error')
+  eq(recorded.committed, false)
+  eq(state.phase, 'halted')
+  eq(state.resume_phase, 'active')
+  eq(state.consecutive_violations, 0)
+  eq(State.get(chat).artifacts_by_id.F1.data.objective, frame_args().objective)
+end
+
+T['classifies only the newly appended segment for a reused call ID'] = function()
+  local chat, _, state = controlled_chat('armed')
+  local first = formatted_call('reused-post-record', 'reasoning_frame', frame_args())
+  execute_protocol_call(chat, first, 'armed')
+  local prefix = chat.messages[1].content
+
+  state.request_generation = 1
+  state.observed_call_ids[1] = {}
+  local second_args = {
+    items = {
+      {
+        kind = 'observation',
+        statement = 'The host records one exact result segment',
+        source = 'tests/control_test.lua',
+        confidence = 'high',
+        falsifier = 'A second message is inserted instead',
+        perspective = 'correctness',
+        addresses_unknowns = {},
+        supports = {},
+        contradicts = {},
+        qualifies = {},
+        supersedes_id = '',
+      },
+    },
+  }
+  local second = formatted_call('reused-post-record', 'reasoning_evidence', second_args)
+  local result = execute_protocol_call(chat, second, 'active')
+  eq(result.status, 'success')
+  eq(#chat.messages, 1)
+  eq(chat.messages[1].content, prefix .. '\n\n' .. vim.json.encode(result.data))
+  eq(state.call_tokens[second].status, 'classified')
+  eq(state.phase, 'active')
 end
 
 T['matches protocol transition failures across every enforcing phase'] = function()
@@ -1348,7 +1744,7 @@ T['claims identical unresolved external copies in host order'] = function()
     local copied = output.tool.function_call
     eq(copied == batch[index], false)
     eq(state.call_tokens[copied], state.call_tokens[batch[index]])
-    eq(state.call_tokens[copied].status, 'external')
+    eq(state.call_tokens[copied].status, 'classified')
   end
   eq(state.executing_scope, nil)
   eq(state.consecutive_violations, 0)
@@ -1511,7 +1907,12 @@ T['settles formatted calls when the formatter drifts the live tool boundary'] = 
       end
       return tool_calls
     end
-    chat:done(nil, nil, { formatted_call('formatter-' .. mode, 'read_file', {}) })
+    local request = submit_request(chat, calls)
+    request.on_chunk({
+      status = 'success',
+      tool_calls = { formatted_call('formatter-' .. mode, 'read_file', {}) },
+    })
+    request.on_done()
     eq(calls.done, 1)
     eq(calls.execute, 0)
     eq(calls.autocmds, 0)
@@ -1627,6 +2028,652 @@ T['invalidates runtime ownership drift and rejects trusted callback redirects'] 
   chat.tools.tools_config.reasoning_frame = authentic
   Control.reconcile(chat)
   eq(Control.phase(chat), 'armed')
+end
+
+T['classifies every successful zero-call completion exactly once'] = function()
+  for _, case in ipairs({
+    {
+      name = 'text',
+      chunks = { { status = 'success', output = { content = 'unstructured answer' } } },
+    },
+    {
+      name = 'reasoning',
+      chunks = { { status = 'success', output = { reasoning = { content = 'private chain' } } } },
+    },
+    {
+      name = 'metadata',
+      chunks = { { status = 'success', extra = true, output = { meta = { tokens = 4 } } } },
+    },
+    { name = 'empty', chunks = {} },
+  }) do
+    local chat, calls, state = controlled_chat('armed')
+    chat.fixture_skip_ready = true
+    local request = submit_request(chat, calls)
+    eq(request ~= nil, true)
+    for _, chunk in ipairs(case.chunks) do
+      request.on_chunk(chunk)
+    end
+    request.on_done()
+    request.on_done()
+    eq(state.request_generation, 1)
+    eq(state.completion_classified, true)
+    eq(state.active_request_token, nil)
+    eq(state.consecutive_violations, 1)
+    eq(state.fallback_lease ~= nil, true)
+    eq(state.fallback_lease.generation, 1)
+    eq(calls.done, 1)
+    eq(chat.current_request, nil)
+    eq(#chat.messages, 1)
+    eq(chat.messages[1].role, 'system')
+    eq(chat.messages[1].visible, false)
+    eq(chat.messages[1]._meta.tag, Constants.corrective_tag)
+    eq(chat.messages[1].content:find('completion_missing', 1, true) ~= nil, true)
+    eq(#calls.notices, 0)
+  end
+end
+
+T['does not count stopped or transport-error cleanup completions'] = function()
+  local stopped, stopped_calls, stopped_state = controlled_chat('armed')
+  stopped.fixture_skip_ready = true
+  local stopped_request = submit_request(stopped, stopped_calls)
+  stopped_request.self:done({ 'partial' }, nil, nil, { tokens = 1 }, { status = 'stopped' })
+  stopped_request.self:done(nil, nil, nil, nil, { status = 'stopped' })
+  eq(stopped_calls.done, 1)
+  eq(stopped_state.consecutive_violations, 0)
+  eq(stopped_state.completion_classified, true)
+  eq(stopped_state.fallback_lease, nil)
+
+  local failed, failed_calls, failed_state = controlled_chat('armed')
+  failed.fixture_skip_ready = true
+  local failed_request = submit_request(failed, failed_calls)
+  failed_request.on_error({ message = 'transport failed' })
+  failed_request.on_done()
+  eq(failed_calls.done, 1)
+  eq(failed_state.consecutive_violations, 0)
+  eq(failed_state.completion_classified, true)
+  eq(failed_state.fallback_lease, nil)
+end
+
+T['keeps tool-bearing and external results budget-neutral'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  state.consecutive_violations = 2
+  chat.fixture_skip_ready = true
+  local external = formatted_call('request-external', 'read_file', { path = 'README.md' })
+  local request = submit_request(chat, calls)
+  request.on_chunk({
+    status = 'success',
+    output = { content = 'free-form alongside tool' },
+    tool_calls = { external },
+  })
+  request.on_done()
+  eq(calls.execute, 1)
+  eq(calls.last_calls[1], external)
+  eq(state.consecutive_violations, 2)
+  eq(state.fallback_lease, nil)
+  eq(vim.json.encode(chat.messages):find('free%-form alongside tool'), nil)
+
+  chat:add_tool_output({ name = 'read_file', function_call = external }, 'external success', '')
+  eq(state.consecutive_violations, 2)
+  eq(state.fallback_lease, nil)
+  eq(state.call_tokens[external].status, 'classified')
+
+  chat.tool_orchestrator = nil
+  local failing = formatted_call('request-external-failure', 'run_command', {})
+  chat.tools:execute(chat, { failing })
+  chat:add_tool_output({ name = 'run_command', function_call = failing }, 'external failure', '')
+  eq(state.consecutive_violations, 2)
+  eq(state.fallback_lease, nil)
+  eq(state.call_tokens[failing].status, 'classified')
+end
+
+T['binds one exact submitted payload to one request token'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat:_submit_http({ direct = true })
+  eq(calls.http, 0)
+
+  local nested_callback = 0
+  chat:add_callback('on_submitted', function(inner)
+    inner:submit({
+      auto_submit = true,
+      callback = function()
+        nested_callback = nested_callback + 1
+      end,
+    })
+  end)
+  local request = submit_request(chat, calls)
+  eq(request ~= nil, true)
+  eq(calls.http, 1)
+  eq(calls.request_self == chat, false)
+  eq(calls.callback_payload == calls.transport_payload, true)
+  eq(state.request_generation, 1)
+  eq(state.construction_lease, nil)
+  eq(state.active_request_token ~= nil, true)
+  eq(state.active_request_token.handle, request.handle)
+  eq(nested_callback, 1)
+
+  chat:_submit_http(calls.callback_payload)
+  chat:_submit_http(vim.deepcopy(calls.callback_payload))
+  eq(calls.http, 1)
+  eq(state.request_generation, 1)
+end
+
+T['invalidates construction when clear wins inside on_submitted'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat:add_callback('on_submitted', function(inner)
+    inner:clear()
+  end)
+  chat:submit({ auto_submit = true })
+  eq(calls.http, 0)
+  eq(calls.clear, 1)
+  eq(state.phase, 'dormant')
+  eq(state.construction_lease, nil)
+  eq(state.active_request_token, nil)
+  eq(chat.current_request, nil)
+end
+
+T['preserves clear when a pre-existing submitted callback wins first'] = function()
+  local chat, calls = new_chat()
+  attach_all(chat)
+  chat:add_callback('on_submitted', function(inner)
+    inner:clear()
+  end)
+  Control.reconcile(chat)
+  local state = Control._get(chat)
+  chat:submit({ auto_submit = true })
+  eq(calls.clear, 1)
+  eq(calls.http, 0)
+  eq(state.phase, 'dormant')
+  eq(state.construction_lease, nil)
+  eq(state.active_request_token, nil)
+  eq(state.completion_classified, true)
+end
+
+T['settles synchronous completion before the request handle assignment'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat.fixture_skip_ready = true
+  chat.fixture_sync_send = function(request)
+    request.on_done()
+  end
+  chat:submit({ auto_submit = true })
+  eq(calls.http, 1)
+  eq(calls.done, 1)
+  eq(state.request_generation, 1)
+  eq(state.completion_classified, true)
+  eq(state.consecutive_violations, 1)
+  eq(state.active_request_token, nil)
+  eq(state.request_handle, nil)
+  eq(chat.current_request, nil)
+  eq(calls.requests[1].handle:status(), 'success')
+end
+
+T['halts internally when HTTP construction throws or disappears'] = function()
+  for _, mode in ipairs({ 'throw', 'missing' }) do
+    local chat, calls, state = controlled_chat('armed')
+    if mode == 'throw' then
+      chat.fixture_http_throw = true
+    else
+      chat.fixture_skip_http = true
+    end
+    chat:submit({ auto_submit = true })
+    eq(state.phase, 'halted')
+    eq(state.resume_phase, 'armed')
+    eq(state.consecutive_violations, 0)
+    eq(state.completion_classified, true)
+    eq(state.construction_lease, nil)
+    eq(state.active_request_token, nil)
+    eq(state.request_handle, nil)
+    eq(chat.current_request, nil)
+    eq(calls.http, mode == 'throw' and 1 or 0)
+  end
+end
+
+T['drops stale request callbacks after clear and a newer successful handle'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat.fixture_skip_ready = true
+  local request_a = submit_request(chat, calls)
+  eq(state.request_generation, 1)
+  chat:clear()
+  attach_all(chat)
+  Control.reconcile(chat)
+  local request_b = submit_request(chat, calls)
+  request_b.handle:set_status('success')
+  local before = {
+    parse_chat = calls.parse_chat,
+    parse_tokens = calls.parse_tokens,
+    parse_meta = calls.parse_meta,
+    done = calls.done,
+    notices = #calls.notices,
+    compacting = calls.compacting,
+  }
+
+  request_a.on_chunk({
+    status = 'success',
+    tokens = 99,
+    extra = true,
+    output = {
+      content = 'stale content',
+      reasoning = { content = 'stale reasoning' },
+      meta = { compaction = true },
+    },
+  })
+  request_a.on_error({ message = 'stale error' })
+  request_a.on_done()
+  eq(calls.parse_chat, before.parse_chat)
+  eq(calls.parse_tokens, before.parse_tokens)
+  eq(calls.parse_meta, before.parse_meta)
+  eq(calls.done, before.done)
+  eq(#calls.notices, before.notices)
+  eq(calls.compacting, before.compacting)
+  eq(chat.status, 'success')
+  eq(vim.json.encode(chat.messages):find('stale', 1, true), nil)
+
+  request_b.on_chunk({ status = 'success', tokens = 7, output = { content = 'current content' } })
+  request_b.on_done()
+  eq(calls.parse_chat, before.parse_chat + 1)
+  eq(calls.parse_tokens, before.parse_tokens + 1)
+  eq(calls.done, before.done + 1)
+  eq(state.completion_classified, true)
+  eq(state.consecutive_violations, 1)
+  eq(state.active_request_token, nil)
+  eq(chat.tokens, 7)
+end
+
+T['schedules one owed fallback and consumes it only after confirmed submission'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat.fixture_skip_ready = true
+  local request = submit_request(chat, calls)
+  request.on_done()
+  local lease = state.fallback_lease
+  eq(lease ~= nil, true)
+
+  chat.tool_orchestrator = {}
+  local callback_count = 0
+  chat:submit({
+    auto_submit = true,
+    callback = function()
+      callback_count = callback_count + 1
+    end,
+  })
+  eq(callback_count, 1)
+  eq(calls.submit, 1)
+  eq(state.fallback_lease, lease)
+  chat.tool_orchestrator = nil
+
+  chat:dispatch('on_ready')
+  chat:dispatch('on_ready')
+  drain_scheduled()
+  eq(calls.submit, 2)
+  eq(calls.http, 2)
+  eq(state.request_generation, 2)
+  eq(state.fallback_lease, nil)
+  eq(state.active_request_token ~= nil, true)
+end
+
+T['cancellation removes correction lease and authenticates only its stopped cleanup'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat.fixture_skip_ready = true
+  local request_a = submit_request(chat, calls)
+  request_a.on_done()
+  eq(state.fallback_lease ~= nil, true)
+  eq(#chat.messages, 1)
+  chat:stop()
+  eq(state.fallback_lease, nil)
+  eq(#chat.messages, 0)
+  drain_scheduled()
+  eq(calls.done, 2)
+  eq(state.pending_stop_token, nil)
+  eq(calls.submit, 1)
+
+  local direct, direct_calls = controlled_chat('armed')
+  direct:done({ 'forged' }, nil, { formatted_call('forged-done', 'read_file', {}) })
+  eq(direct_calls.done, 0)
+  eq(direct_calls.execute, 0)
+
+  local delayed, delayed_calls, delayed_state = controlled_chat('armed')
+  delayed.fixture_skip_ready = true
+  submit_request(delayed, delayed_calls)
+  delayed:stop()
+  local request_b = submit_request(delayed, delayed_calls)
+  drain_scheduled()
+  eq(delayed_calls.done, 0)
+  eq(delayed_state.active_request_token ~= nil, true)
+  request_b.on_done()
+  eq(delayed_calls.done, 1)
+  eq(delayed_state.completion_classified, true)
+end
+
+T['restores the pre-request budget and cancels live handles on construction failure'] = function()
+  local synchronous, _, sync_state = controlled_chat('armed')
+  synchronous.fixture_sync_send = function(request)
+    request.on_done()
+    error('send failed after callback')
+  end
+  synchronous:submit({ auto_submit = true })
+  eq(sync_state.phase, 'halted')
+  eq(sync_state.resume_phase, 'armed')
+  eq(sync_state.consecutive_violations, 0)
+  eq(sync_state.fallback_lease, nil)
+  eq(#synchronous.messages, 0)
+
+  local late, late_calls, late_state = controlled_chat('armed')
+  late.fixture_after_transport_error = true
+  late:submit({ auto_submit = true })
+  eq(late_state.phase, 'halted')
+  eq(late_state.resume_phase, 'armed')
+  eq(late_state.consecutive_violations, 0)
+  eq(late_calls.request_cancel, 1)
+  eq(late.current_request, nil)
+  eq(late_state.active_request_token, nil)
+
+  local completion, completion_calls, completion_state = controlled_chat('armed')
+  completion_state.consecutive_violations = 1
+  completion.fixture_done_error = true
+  local completion_request = submit_request(completion, completion_calls)
+  completion_request.on_done()
+  eq(completion_state.phase, 'halted')
+  eq(completion_state.resume_phase, 'armed')
+  eq(completion_state.consecutive_violations, 1)
+  eq(completion_state.fallback_lease, nil)
+end
+
+T['bounds preflight rejections through the same correction budget'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  for generation = 0, 2 do
+    state.request_generation = generation
+    state.observed_call_ids[generation] = {}
+    chat.tools:execute(chat, {
+      formatted_call('preflight-' .. generation, 'reasoning_options', {}),
+    })
+    eq(state.consecutive_violations, generation + 1)
+  end
+  eq(state.phase, 'halted')
+  eq(state.resume_phase, 'armed')
+  eq(state.fallback_lease, nil)
+  eq(chat.subscribers.stopped, true)
+  eq(calls.add_message, 2)
+  eq(calls.remove_tagged, 3)
+  eq(#calls.notices, 1)
+end
+
+T['drops stale call-table results even when a new generation reuses the ID'] = function()
+  local chat, calls, state = controlled_chat('armed')
+  chat.fixture_skip_ready = true
+  local old_call = formatted_call('reused-after-clear', 'read_file', {})
+  local request_a = submit_request(chat, calls)
+  request_a.self:done(nil, nil, { old_call })
+  eq(state.call_tokens[old_call].status, 'external')
+
+  chat:clear()
+  attach_all(chat)
+  Control.reconcile(chat)
+  local new_call = formatted_call('reused-after-clear', 'read_file', {})
+  local request_b = submit_request(chat, calls)
+  request_b.self:done(nil, nil, { new_call })
+  eq(state.call_tokens[new_call].status, 'external')
+  chat:add_tool_output({ name = 'read_file', function_call = old_call }, 'late A', '')
+  eq(#calls.outputs, 0)
+  eq(state.phase, 'armed')
+  chat:add_tool_output({ name = 'read_file', function_call = new_call }, 'current B', '')
+  eq(#calls.outputs, 1)
+  eq(state.call_tokens[new_call].status, 'classified')
+end
+
+T['repairs missing throwing and prefix-corrupted result recording'] = function()
+  local missing, _, missing_state = controlled_chat('armed')
+  missing.adapter.handlers.tools.format_response = function()
+    return nil
+  end
+  local missing_call = formatted_call('missing-result', 'reasoning_frame', frame_args())
+  missing.tools:execute(missing, { missing_call })
+  local missing_result = Protocol.call('frame', missing, frame_args(), 'armed')
+  record_protocol_result(missing, missing_call, missing_result)
+  eq(missing_state.phase, 'halted')
+  eq(#missing.messages, 1)
+  eq(missing.messages[1].tools.id, 'missing-result')
+  eq(missing.messages[1].tools.call_id, 'missing-result')
+  eq(vim.json.decode(missing.messages[1].content).code, 'internal_error')
+
+  local throwing, _, throwing_state = controlled_chat('armed')
+  throwing:add_callback('on_tool_output', function()
+    error('host callback failed')
+  end)
+  local throwing_call = formatted_call('throwing-result', 'reasoning_frame', frame_args())
+  throwing.tools:execute(throwing, { throwing_call })
+  local throwing_result = Protocol.call('frame', throwing, frame_args(), 'armed')
+  record_protocol_result(throwing, throwing_call, throwing_result)
+  eq(throwing_state.phase, 'halted')
+  eq(vim.json.decode(throwing.messages[1].content).code, 'internal_error')
+
+  local corrupted, _, corrupted_state = controlled_chat('armed')
+  local first = formatted_call('corrupt-prefix', 'reasoning_frame', frame_args())
+  execute_protocol_call(corrupted, first, 'armed')
+  local prefix = corrupted.messages[1].content
+  corrupted_state.request_generation = 1
+  corrupted_state.observed_call_ids[1] = {}
+  corrupted:add_callback('on_tool_output', function()
+    corrupted.messages[1].content = 'hostile prefix'
+  end)
+  local second = formatted_call('corrupt-prefix', 'reasoning_evidence', {
+    items = {
+      {
+        kind = 'observation',
+        statement = 'Result prefixes are immutable',
+        source = 'tests/control_test.lua',
+        confidence = 'high',
+        falsifier = 'The prior segment changes',
+        perspective = 'correctness',
+        addresses_unknowns = {},
+        supports = {},
+        contradicts = {},
+        qualifies = {},
+        supersedes_id = '',
+      },
+    },
+  })
+  local result = execute_protocol_call(corrupted, second, 'active')
+  eq(result.status, 'success')
+  eq(corrupted_state.phase, 'halted')
+  eq(corrupted.messages[1].content:sub(1, #prefix + 2), prefix .. '\n\n')
+  local delta = corrupted.messages[1].content:sub(#prefix + 3)
+  eq(vim.json.decode(delta).code, 'internal_error')
+  eq(
+    corrupted.messages[1]._meta.id,
+    host_hash.hash({ role = corrupted.messages[1].role, content = corrupted.messages[1].content })
+  )
+end
+
+T['supports Responses call IDs and freezes response callback ingress'] = function()
+  local responses, _, responses_state = controlled_chat('armed')
+  local call = formatted_call('response-item-id', 'reasoning_frame', frame_args())
+  call.call_id = 'response-call-id'
+  execute_protocol_call(responses, call, 'armed')
+  eq(responses_state.call_tokens[call].status, 'classified')
+  eq(responses.messages[1].tools.id, 'response-item-id')
+  eq(responses.messages[1].tools.call_id, 'response-call-id')
+
+  local guarded, guarded_calls = controlled_chat('armed')
+  guarded.fixture_skip_ready = true
+  local original_parse = guarded.adapter.handlers.response.parse_chat
+  guarded.adapter.handlers.response.parse_chat = function(adapter, data, tools)
+    adapter.handlers.response.parse_chat = function()
+      guarded_calls.external_side_effect = guarded_calls.external_side_effect + 1
+    end
+    return original_parse(adapter, data, tools)
+  end
+  local request = submit_request(guarded, guarded_calls)
+  request.on_chunk({ status = 'success', output = {} })
+  eq(guarded_calls.parse_chat, 1)
+  guarded:clear()
+  request.on_chunk({ status = 'success', output = { content = 'stale bypass' } })
+  eq(guarded_calls.parse_chat, 1)
+  eq(guarded_calls.external_side_effect, 0)
+
+  local legacy, legacy_calls = new_chat()
+  legacy.adapter.handlers = {
+    chat_output = function(_, data, extracted_tools)
+      legacy_calls.parse_chat = legacy_calls.parse_chat + 1
+      if type(data.tool_calls) == 'table' then
+        vim.list_extend(extracted_tools, data.tool_calls)
+      end
+      return data
+    end,
+    tokens = function(_, data)
+      legacy_calls.parse_tokens = legacy_calls.parse_tokens + 1
+      return data.tokens
+    end,
+    parse_message_meta = function(_, result)
+      legacy_calls.parse_meta = legacy_calls.parse_meta + 1
+      return result
+    end,
+    tools = {
+      format_tool_calls = function(_, tool_calls)
+        return tool_calls
+      end,
+      output_response = function(_, tool_call, output)
+        return {
+          role = 'tool',
+          tools = { id = tool_call.id, call_id = tool_call.id },
+          content = output,
+        }
+      end,
+    },
+  }
+  attach_all(legacy)
+  Control.reconcile(legacy)
+  legacy.fixture_skip_ready = true
+  local legacy_request = submit_request(legacy, legacy_calls)
+  local legacy_call = formatted_call('legacy-response', 'read_file', {})
+  legacy_request.on_chunk({
+    status = 'success',
+    tokens = 4,
+    output = {},
+    tool_calls = { legacy_call },
+  })
+  legacy_request.on_done()
+  eq(legacy_calls.parse_chat, 1)
+  eq(legacy_calls.parse_tokens, 1)
+  eq(legacy_calls.execute, 1)
+  eq(legacy_calls.last_calls[1], legacy_call)
+end
+
+T['rejects collection order and success-error direction rewrites'] = function()
+  local collection, _, collection_state = controlled_chat('armed')
+  execute_protocol_call(collection, formatted_call('collection-frame', 'reasoning_frame', frame_args()), 'armed')
+  collection_state.request_generation = 1
+  collection_state.observed_call_ids[1] = {}
+  collection:add_callback('on_tool_output', function(_, args)
+    local payload = vim.json.decode(args.for_llm)
+    if type(payload.artifacts) == 'table' and #payload.artifacts == 2 then
+      payload.artifacts[1], payload.artifacts[2] = payload.artifacts[2], payload.artifacts[1]
+      args.for_llm = vim.json.encode(payload)
+    end
+  end)
+  local evidence = formatted_call('collection-evidence', 'reasoning_evidence', {
+    items = {
+      {
+        kind = 'observation',
+        statement = 'The first result preserves order',
+        source = 'tests/control_test.lua:1',
+        confidence = 'high',
+        falsifier = 'The second item is emitted first',
+        perspective = 'correctness',
+        addresses_unknowns = { 'Which boundary can drift' },
+        supports = {},
+        contradicts = {},
+        qualifies = {},
+        supersedes_id = '',
+      },
+      {
+        kind = 'observation',
+        statement = 'The second result preserves order',
+        source = 'tests/control_test.lua:2',
+        confidence = 'high',
+        falsifier = 'The first item is emitted second',
+        perspective = 'correctness',
+        addresses_unknowns = {},
+        supports = {},
+        contradicts = {},
+        qualifies = {},
+        supersedes_id = '',
+      },
+    },
+  })
+  eq(execute_protocol_call(collection, evidence, 'active').status, 'success')
+  eq(collection_state.phase, 'halted')
+  eq(collection_state.consecutive_violations, 0)
+  eq(decoded_tool_payloads(collection)[2].code, 'internal_error')
+
+  local success_to_error, _, success_state = controlled_chat('armed')
+  success_to_error:add_callback('on_tool_output', function(_, args)
+    local payload = vim.json.decode(args.for_llm)
+    if payload.artifact then
+      args.for_llm = vim.json.encode(
+        Protocol.failure(
+          'frame_incomplete',
+          'forged rejection',
+          {},
+          Protocol.transition(State.get(success_to_error), 'armed')
+        ).data
+      )
+    end
+  end)
+  local accepted = formatted_call('success-to-error', 'reasoning_frame', frame_args())
+  eq(execute_protocol_call(success_to_error, accepted, 'armed').status, 'success')
+  eq(success_state.phase, 'halted')
+  eq(success_state.resume_phase, 'active')
+  eq(decoded_tool_payloads(success_to_error)[1].code, 'internal_error')
+
+  local error_to_success, _, error_state = controlled_chat('armed')
+  error_to_success:add_callback('on_tool_output', function(_, args)
+    local payload = vim.json.decode(args.for_llm)
+    if payload.committed == false then
+      args.for_llm = vim.json.encode({
+        workspace_id = 'W-forged',
+        artifact = { id = 'F-forged', kind = 'frame', status = 'active', data = {}, relations = {} },
+        progress = { frame = 1 },
+        unmet_gates = {},
+        next_action = { tool = 'reasoning_evidence', reason = 'forged' },
+      })
+    end
+  end)
+  local rejected = formatted_call('error-to-success', 'reasoning_frame', { action = 'start' })
+  eq(execute_protocol_call(error_to_success, rejected, 'armed').status, 'error')
+  eq(error_state.phase, 'halted')
+  eq(error_state.consecutive_violations, 0)
+  eq(decoded_tool_payloads(error_to_success)[1].code, 'internal_error')
+end
+
+T['halts structured internal result codes without spending retry budget'] = function()
+  for _, code in ipairs({ 'internal_error', 'render_internal' }) do
+    local chat, _, state = controlled_chat('armed')
+    state.consecutive_violations = 2
+    local call = formatted_call('structured-' .. code, 'reasoning_frame', frame_args())
+    chat.tools:execute(chat, { call })
+    record_protocol_result(chat, call, {
+      status = 'error',
+      data = Protocol.failure(code, 'internal failure', {}, Protocol.transition(nil, 'armed')).data,
+    })
+    eq(state.phase, 'halted')
+    eq(state.resume_phase, 'armed')
+    eq(state.consecutive_violations, 2)
+    eq(state.fallback_lease, nil)
+  end
+
+  local reframing, _, reframe_state = controlled_chat('reframing')
+  local reframe_call = formatted_call('structured-reframe', 'reasoning_frame', frame_args('revise'))
+  reframing.tools:execute(reframing, { reframe_call })
+  record_protocol_result(reframing, reframe_call, {
+    status = 'error',
+    data = Protocol.failure(
+      'internal_error',
+      'reframe resolver failed',
+      {},
+      Protocol.transition(State.get(reframing), 'reframing')
+    ).data,
+  })
+  eq(reframe_state.phase, 'halted')
+  eq(reframe_state.resume_phase, 'reframing')
+  eq(reframe_state.consecutive_violations, 0)
 end
 
 return T
