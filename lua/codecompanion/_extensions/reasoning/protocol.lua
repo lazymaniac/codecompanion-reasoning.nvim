@@ -227,7 +227,7 @@ function M.frame(chat, args)
   if workspace.frame_id then
     State.supersede(workspace, workspace.frame_id, frame.id)
   end
-  workspace.frame_id = frame.id
+  State.set_frame(workspace, frame.id)
   return success(workspace, frame)
 end
 
@@ -461,7 +461,7 @@ function M.evidence(chat, args)
     local artifact = artifacts[index]
     for _, field in ipairs({ 'supports', 'contradicts', 'qualifies' }) do
       for _, id in ipairs(item[field]) do
-        State.add_relation(artifact, field, id)
+        State.add_relation(workspace, artifact, field, id)
       end
     end
     if item.supersedes_id ~= '' then
@@ -610,14 +610,14 @@ function M.options(chat, args)
     supersedes_branch_id = args.supersedes_branch_id,
   }
   local branch = assert(State.add(workspace, 'branch', branch_data))
-  State.add_relation(branch, 'depends_on', workspace.frame_id)
+  State.add_relation(workspace, branch, 'depends_on', workspace.frame_id)
   local options = {}
   for _, option in ipairs(prepared) do
     local artifact = assert(State.add(workspace, 'option', option))
-    table.insert(branch.data.option_ids, artifact.id)
-    State.add_relation(artifact, 'depends_on', branch.id)
+    State.append_data(workspace, branch, 'option_ids', artifact.id)
+    State.add_relation(workspace, artifact, 'depends_on', branch.id)
     for _, id in ipairs(option.evidence_ids) do
-      State.add_relation(artifact, 'supports', id)
+      State.add_relation(workspace, artifact, 'supports', id)
     end
     table.insert(options, artifact)
   end
@@ -1092,22 +1092,22 @@ function M.review(chat, args)
   review_data.frame_id = workspace.frame_id
   local review = assert(State.add(workspace, 'review', review_data))
   for _, id in ipairs(args.target_ids) do
-    State.add_relation(review, 'depends_on', id)
+    State.add_relation(workspace, review, 'depends_on', id)
   end
   if #args.stress_tests > 0 then
     for _, id in ipairs(args.target_ids) do
-      State.add_relation(review, 'tests', id)
+      State.add_relation(workspace, review, 'tests', id)
     end
   end
   for _, id in ipairs(args.defense.evidence_ids) do
-    State.add_relation(review, 'supports', id)
+    State.add_relation(workspace, review, 'supports', id)
   end
   for _, resolution in ipairs(args.contradiction_resolutions) do
-    State.add_relation(review, 'qualifies', resolution.left_id)
-    State.add_relation(review, 'qualifies', resolution.right_id)
+    State.add_relation(workspace, review, 'qualifies', resolution.left_id)
+    State.add_relation(workspace, review, 'qualifies', resolution.right_id)
     for _, id in ipairs(resolution.evidence_ids) do
       if not vim.tbl_contains(review.relations.supports, id) then
-        State.add_relation(review, 'supports', id)
+        State.add_relation(workspace, review, 'supports', id)
       end
     end
   end
@@ -1123,11 +1123,11 @@ function M.review(chat, args)
         end
       end
     elseif verdict.status == 'revise' then
-      workspace.open_revisions[verdict.target_id] = review.id
+      State.open_revision(workspace, verdict.target_id, review.id)
     end
   end
   for key in pairs(contradiction_pairs) do
-    workspace.resolved_contradictions[key] = review.id
+    State.resolve_contradiction(workspace, key, review.id)
   end
   return success(workspace, review)
 end
@@ -1647,27 +1647,27 @@ function M.synthesis(chat, args)
   local synthesis_data = vim.deepcopy(args)
   synthesis_data.frame_id = workspace.frame_id
   local synthesis_artifact = assert(State.add(workspace, 'synthesis', synthesis_data))
-  State.add_relation(synthesis_artifact, 'depends_on', workspace.frame_id)
+  State.add_relation(workspace, synthesis_artifact, 'depends_on', workspace.frame_id)
   local recorded_support = {}
   for _, id in ipairs(args.support_ids) do
     if not recorded_support[id] then
-      State.add_relation(synthesis_artifact, 'supports', id)
+      State.add_relation(workspace, synthesis_artifact, 'supports', id)
       recorded_support[id] = true
     end
   end
   for _, result in ipairs(args.criterion_results) do
     for _, id in ipairs(result.evidence_ids) do
       if not recorded_support[id] then
-        State.add_relation(synthesis_artifact, 'supports', id)
+        State.add_relation(workspace, synthesis_artifact, 'supports', id)
         recorded_support[id] = true
       end
     end
   end
   for _, id in ipairs(args.selected_option_ids) do
-    State.add_relation(synthesis_artifact, 'depends_on', id)
+    State.add_relation(workspace, synthesis_artifact, 'depends_on', id)
   end
   for _, id in ipairs(args.review_ids) do
-    State.add_relation(synthesis_artifact, 'depends_on', id)
+    State.add_relation(workspace, synthesis_artifact, 'depends_on', id)
   end
   local revised = {}
   for _, target_id in ipairs(workspace.artifact_order) do
