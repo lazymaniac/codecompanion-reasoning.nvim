@@ -141,6 +141,7 @@ local function new_chat(opts)
       error('fixture http construction failed')
     end
     local handle_status = 'pending'
+    local on_request_cancel = self.fixture_on_request_cancel
     local handle = {
       id = 'request-' .. tostring(calls.http),
       status = function()
@@ -150,8 +151,8 @@ local function new_chat(opts)
         handle_status = 'cancelled'
         calls.request_cancel = calls.request_cancel + 1
         record('request_cancel')
-        if self.fixture_on_request_cancel then
-          self.fixture_on_request_cancel(self)
+        if on_request_cancel then
+          on_request_cancel()
         end
       end,
       set_status = function(value)
@@ -422,12 +423,24 @@ local function new_chat(opts)
   end
   methods.clear = function(self)
     calls.clear = calls.clear + 1
+    record('host_clear')
+    self.cycle = 1
+    self.header_line = 1
     self.messages = {}
     self.tool_registry.in_use = {}
     if self.fixture_clear_render and vim.api.nvim_buf_is_valid(self.bufnr) then
       vim.bo[self.bufnr].modifiable = true
       vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, { 'host cleared render' })
       vim.bo[self.bufnr].modifiable = false
+    end
+    if self.fixture_clear_error then
+      error('fixture clear failed')
+    end
+    if self.fixture_clear_returns then
+      return self.fixture_clear_returns()
+    end
+    if self.fixture_on_clear then
+      self.fixture_on_clear(self)
     end
   end
   methods.close = function(self)
@@ -483,6 +496,7 @@ local function new_chat(opts)
     end,
     reset = function(self, reset_opts)
       calls.reset = calls.reset + 1
+      record('tools_reset')
       table.insert(calls.reset_opts, vim.deepcopy(reset_opts or {}))
       if self.chat then
         self.chat.tool_orchestrator = nil
@@ -913,11 +927,15 @@ T['reconciliation is idempotent and controller state is collectible'] = function
   local wrappers = {
     submit = rawget(chat, 'submit'),
     http = rawget(chat, '_submit_http'),
+    acp = rawget(chat, '_submit_acp'),
+    http = rawget(chat, '_submit_http'),
     execute = rawget(chat.tools, 'execute'),
     before = state.callbacks.on_before_submit,
   }
   Control.reconcile(chat)
   eq(rawget(chat, 'submit'), wrappers.submit)
+  eq(rawget(chat, '_submit_http'), wrappers.http)
+  eq(rawget(chat, '_submit_acp'), wrappers.acp)
   eq(rawget(chat, '_submit_http'), wrappers.http)
   eq(rawget(chat.tools, 'execute'), wrappers.execute)
   eq(Control._get(chat).callbacks.on_before_submit, wrappers.before)
@@ -1452,6 +1470,403 @@ T['clear and close invalidate request tool and prepared-final activity'] = funct
   orphan:close()
   eq(orphan_calls.stop, 0)
   eq(orphan_calls.orchestrator_cancel, 1)
+end
+
+T['clear resets one lifecycle without fabricating a generation'] = function()
+  local chat, calls, state = controlled_chat('active')
+  local other = {}
+  local other_workspace = State.begin(other)
+  chat.fixture_skip_ready = true
+  local resume_during_clear
+  chat.fixture_on_request_cancel = function()
+    resume_during_clear = Control.resume(chat)
+    chat:submit({ auto_submit = true })
+    chat:done(nil, nil, nil, nil, { status = 'stopped' })
+  end
+  local request = submit_request(chat, calls)
+  local generation = state.request_generation
+  local epoch = state.epoch
+  local active = state.active_request_token
+  local pending_token = { valid = true }
+  local pending = { valid = true, token = pending_token }
+  local fallback = { valid = true }
+  local construction = { valid = true, consumed = false }
+  local resume = { valid = true }
+  local stage = { state = 'prepared' }
+  local scope = { valid = true }
+  local observed = state.observed_call_ids
+  chat.tools.chat = chat
+  state.pending_stop_token = pending
+  state.fallback_lease = fallback
+  state.construction_lease = construction
+  state.resume_attempt = resume
+  state.executing_scope = scope
+  state.staged_final = { stage = stage }
+  table.insert(chat.messages, {
+    role = 'system',
+    content = 'remove correction',
+    _meta = { tag = Constants.corrective_tag },
+  })
+  chat.tool_orchestrator = {
+    cancel = function()
+      calls.orchestrator_cancel = calls.orchestrator_cancel + 1
+      table.insert(calls.events, 'orchestrator_cancel')
+      chat:submit({ auto_submit = true })
+      chat.tool_orchestrator = nil
+      chat.tools:reset({ auto_submit = false })
+    end,
+  }
+  chat.cycle = 7
+  chat.header_line = 23
+  chat.fixture_clear_render = true
+  state.phase = 'halted'
+  state.resume_phase = 'active'
+  set_resume_input(chat, 'do not resume during clear', calls)
+  local clear_event = 0
+  chat.fixture_on_clear = function(inner)
+    clear_event = clear_event + 1
+    eq(Control.clear(inner), false)
+  end
+
+  chat:clear()
+
+  eq(calls.clear, 1)
+  eq(calls.request_cancel, 1)
+  eq(calls.orchestrator_cancel, 1)
+  eq(calls.reset, 1)
+  eq(calls.submit, 1)
+  eq(calls.done, 0)
+  eq(calls.restore, 0)
+  eq(calls.parser_messages, nil)
+  eq(resume_during_clear, false)
+  eq(clear_event, 1)
+  eq(calls.events, { 'request_cancel', 'orchestrator_cancel', 'tools_reset', 'host_clear' })
+  eq(state.phase, 'dormant')
+  eq(state.request_generation, generation)
+  eq(state.epoch, epoch + 1)
+  eq(state.active_request_token, nil)
+  eq(state.pending_stop_token, nil)
+  eq(state.fallback_lease, nil)
+  eq(state.construction_lease, nil)
+  eq(state.resume_attempt, nil)
+  eq(state.executing_scope, nil)
+  eq(state.staged_final, nil)
+  eq(state.completion_classified, true)
+  eq(state.clearing, false)
+  eq(active.valid, false)
+  eq(pending.valid, false)
+  eq(pending_token.valid, false)
+  eq(fallback.valid, false)
+  eq(construction.valid, false)
+  eq(construction.consumed, true)
+  eq(resume.valid, false)
+  eq(scope.valid, false)
+  eq(state.observed_call_ids, observed)
+  eq(stage.state, 'discarded')
+  eq(State.get(chat), nil)
+  eq(State.get(other), other_workspace)
+  eq(chat.current_request, nil)
+  eq(chat.tool_orchestrator, nil)
+  eq(chat.cycle, 1)
+  eq(chat.header_line, 1)
+  eq(chat.messages, {})
+  eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'host cleared render' })
+  eq(request.handle:status(), 'cancelled')
+end
+
+T['clear preserves host returns and always releases its reentrancy guard'] = function()
+  local chat, calls, state = controlled_chat('active')
+  chat.fixture_clear_returns = function()
+    return nil, 'tail', false
+  end
+  local first, second, third = chat:clear()
+  eq({ first, second, third }, { nil, 'tail', false })
+  eq(state.clearing, false)
+  eq(state.phase, 'dormant')
+  eq(calls.clear, 1)
+
+  attach_all(chat)
+  Control.reconcile(chat)
+  chat.fixture_clear_returns = nil
+  chat.fixture_clear_error = true
+  local ok, err = pcall(chat.clear, chat)
+  eq(ok, false)
+  eq(type(err) == 'string' and err:find('fixture clear failed', 1, true) ~= nil, true)
+  eq(state.clearing, false)
+  eq(state.phase, 'dormant')
+  eq(State.get(chat), nil)
+  eq(calls.clear, 2)
+end
+
+T['dormant wrappers pass ordinary activity until the fifth tool rearms'] = function()
+  local chat, calls, state = controlled_chat('active')
+  chat:clear()
+  local generation = state.request_generation
+
+  chat:submit({ auto_submit = true })
+  eq(calls.submit, 1)
+  eq(calls.http, 1)
+  eq(state.request_generation, generation)
+  local request = calls.requests[#calls.requests]
+  request.on_done()
+  eq(calls.done, 1)
+
+  local external = formatted_call('ordinary-after-clear', 'read_file', {})
+  chat:add_tool_output({ name = 'read_file', function_call = external }, 'ordinary result', '')
+  eq(#calls.outputs, 1)
+  chat.tools:execute(chat, { external })
+  eq(calls.execute, 1)
+  chat.tool_orchestrator = nil
+
+  for index = 1, #Constants.tool_names - 1 do
+    chat.tool_registry.in_use[Constants.tool_names[index]] = true
+    Control.reconcile(chat)
+    eq(state.phase, 'dormant')
+    eq(Control.phase(chat), nil)
+  end
+  chat.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = true
+  Control.reconcile(chat)
+  eq(state.phase, 'armed')
+  eq(Control.phase(chat), 'armed')
+  eq(State.get(chat), nil)
+end
+
+T['dormant fifth attachment reconciles ownership before delegation'] = function()
+  local chat, calls, state = controlled_chat('active')
+  chat:clear()
+  attach_all(chat)
+  chat.tools.tools_config.reasoning_frame = {
+    cmds = {
+      function()
+        calls.external_side_effect = calls.external_side_effect + 1
+      end,
+    },
+  }
+
+  chat:submit({ auto_submit = true })
+  chat.tools:execute(chat, { formatted_call('forged-dormant', 'reasoning_frame', frame_args()) })
+
+  eq(calls.submit, 0)
+  eq(calls.execute, 0)
+  eq(calls.external_side_effect, 0)
+  eq(state.phase, 'dormant')
+  eq(state.boundary_issue, 'tool_ownership')
+  eq(Control.phase(chat), 'blocked')
+  eq(State.get(chat), nil)
+end
+
+T['dormant submit lease blocks a clear-winning host continuation'] = function()
+  local chat, calls, state = controlled_chat('active')
+  chat:clear()
+  local uninstalled
+  chat:add_callback('on_submitted', function(inner)
+    inner:clear()
+    uninstalled = Control.uninstall(inner)
+  end)
+
+  chat:submit({ auto_submit = true })
+
+  eq(calls.submit, 1)
+  eq(calls.http, 0)
+  eq(calls.clear, 2)
+  eq(uninstalled, false)
+  eq(state.phase, 'dormant')
+  eq(state.clear_during_submit, false)
+  eq(#state.dormant_submit_stack, 0)
+  eq(chat.current_request, nil)
+  eq(Control._get(chat), state)
+end
+
+T['uninstall refuses every unsettled owner and preserves accepted state when safe'] = function()
+  local blockers = {
+    closed = function(_, state)
+      state.closed = true
+    end,
+    current_request = function(chat)
+      chat.current_request = {}
+    end,
+    request_handle = function(_, state)
+      state.request_handle = {}
+    end,
+    active_request = function(_, state)
+      state.active_request_token = {}
+    end,
+    pending_stop = function(_, state)
+      state.pending_stop_token = {}
+    end,
+    executing = function(_, state)
+      state.executing_scope = {}
+    end,
+    orchestrator = function(chat)
+      chat.tool_orchestrator = {}
+    end,
+    fallback = function(_, state)
+      state.fallback_lease = {}
+    end,
+    construction = function(_, state)
+      state.construction_lease = {}
+    end,
+    resume = function(_, state)
+      state.resume_attempt = {}
+    end,
+    staged = function(_, state)
+      state.staged_final = { stage = { state = 'prepared' } }
+    end,
+    submitting = function(_, state)
+      state.submitting = true
+    end,
+    processing_done = function(_, state)
+      state.processing_done = true
+    end,
+    clearing = function(_, state)
+      state.clearing = true
+    end,
+    cleared_submission = function(_, state)
+      state.clear_during_submit = true
+    end,
+    protected_submission = function(_, state)
+      state.protected_submit_depth = 1
+    end,
+    unclassified = function(_, state)
+      state.completion_classified = false
+    end,
+  }
+
+  for name, block in pairs(blockers) do
+    Control._reset()
+    State._reset()
+    local chat = attach_all(new_chat())
+    Control.reconcile(chat)
+    local state = Control._get(chat)
+    local wrapper = rawget(chat, 'submit')
+    block(chat, state)
+    eq(Control.uninstall(chat), false)
+    eq(Control._get(chat), state)
+    eq(rawget(chat, 'submit'), wrapper)
+    eq(resume_command_exists(chat), true)
+  end
+
+  Control._reset()
+  State._reset()
+  local chat = attach_all(new_chat())
+  local workspace = start_workspace(chat, false)
+  Control.reconcile(chat)
+  eq(Control.uninstall(chat), true)
+  eq(Control.uninstall(chat), false)
+  eq(Control._get(chat), nil)
+  eq(State.get(chat), workspace)
+  eq(resume_command_exists(chat), false)
+  eq(#(chat.callbacks.on_before_submit or {}), 0)
+end
+
+T['uninstall refuses wrapper drift but accepts an exact terminal overlay'] = function()
+  local drifted = attach_all(new_chat())
+  Control.reconcile(drifted)
+  local state = Control._get(drifted)
+  local replacement = function() end
+  rawset(drifted, 'done', replacement)
+  eq(Control.uninstall(drifted), false)
+  eq(Control._get(drifted), state)
+  eq(rawget(drifted, 'done'), replacement)
+  eq(resume_command_exists(drifted), true)
+  eq(#(drifted.callbacks.on_before_submit or {}), 1)
+
+  Control._reset()
+  local overlaid = attach_all(new_chat())
+  Control.reconcile(overlaid)
+  overlaid:clear()
+  eq(install_legacy_guard(overlaid), true)
+  local guard = rawget(overlaid, '_codecompanion_reasoning_terminal_guard')
+  guard.had_raw_submit = false
+  eq(Control.uninstall(overlaid), false)
+  eq(Control._get(overlaid) ~= nil, true)
+  guard.had_raw_submit = true
+  eq(Control.uninstall(overlaid), true)
+  eq(Control._get(overlaid), nil)
+  eq(rawget(overlaid, '_codecompanion_reasoning_terminal_guard'), nil)
+end
+
+T['close leaves inert tombstones and cleans controller-owned state'] = function()
+  local chat, calls = new_chat()
+  attach_all(chat)
+  start_workspace(chat, false)
+  Control.reconcile(chat)
+  local state = Control._get(chat)
+  local wrappers = {
+    submit = rawget(chat, 'submit'),
+    done = rawget(chat, 'done'),
+    buffer = rawget(chat, 'add_buf_message'),
+    output = rawget(chat, 'add_tool_output'),
+    clear = rawget(chat, 'clear'),
+    close = rawget(chat, 'close'),
+    execute = rawget(chat.tools, 'execute'),
+  }
+  chat.tool_orchestrator = {
+    cancel = function()
+      calls.orchestrator_cancel = calls.orchestrator_cancel + 1
+      chat.tool_orchestrator = nil
+    end,
+  }
+
+  chat:close()
+
+  eq(state.closed, true)
+  eq(State.get(chat), nil)
+  eq(Control._get(chat), state)
+  eq(resume_command_exists(chat), false)
+  eq(rawget(chat, 'submit'), wrappers.submit)
+  eq(rawget(chat, 'done'), wrappers.done)
+  eq(rawget(chat, 'add_buf_message'), wrappers.buffer)
+  eq(rawget(chat, 'add_tool_output'), wrappers.output)
+  eq(rawget(chat, 'clear'), wrappers.clear)
+  eq(rawget(chat, 'close'), wrappers.close)
+  eq(rawget(chat.tools, 'execute'), wrappers.execute)
+  eq(calls.orchestrator_cancel, 1)
+  eq(Control.uninstall(chat), false)
+
+  local before = vim.deepcopy(calls)
+  local callback = 0
+  chat:submit({
+    callback = function()
+      callback = callback + 1
+    end,
+  })
+  chat:_submit_http({ late = true })
+  chat:_submit_acp({ late = true })
+  chat:done()
+  chat:add_buf_message({ role = 'assistant', content = 'late prose' }, { type = chat.MESSAGE_TYPES.LLM_MESSAGE })
+  chat:add_tool_output({}, 'late output', 'late output')
+  chat.tools:execute(chat, {})
+  chat:clear()
+  chat:close()
+  chat:dispatch('on_ready')
+  drain_scheduled()
+  eq(callback, 0)
+  eq(calls.submit, before.submit)
+  eq(calls.http, before.http)
+  eq(calls.acp, before.acp)
+  eq(calls.done, before.done)
+  eq(#calls.notices, #before.notices)
+  eq(#calls.outputs, #before.outputs)
+  eq(calls.execute, before.execute)
+  eq(calls.clear, before.clear)
+  eq(calls.close, before.close)
+  eq(#(chat.callbacks.on_before_submit or {}), 0)
+  eq(#(chat.callbacks.on_submitted or {}), 0)
+  eq(#(chat.callbacks.on_ready or {}), 0)
+  eq(#(chat.callbacks.on_cancelled or {}), 0)
+  eq(#(chat.callbacks.on_closed or {}), 0)
+end
+
+T['explicit clear removes a partial-chat legacy terminal guard'] = function()
+  local chat = new_chat()
+  eq(install_legacy_guard(chat), true)
+  eq(rawget(chat, '_codecompanion_reasoning_terminal_guard') ~= nil, true)
+
+  eq(Control.clear(chat), false)
+
+  eq(rawget(chat, '_codecompanion_reasoning_terminal_guard'), nil)
+  eq(State.get(chat), nil)
 end
 
 T['halts safely after preserved submit errors and exposes total placeholders'] = function()
@@ -2320,18 +2735,31 @@ end
 T['preserves clear when a pre-existing submitted callback wins first'] = function()
   local chat, calls = new_chat()
   attach_all(chat)
+  local cleared = false
   chat:add_callback('on_submitted', function(inner)
-    inner:clear()
+    if not cleared then
+      cleared = true
+      inner:clear()
+    end
+  end)
+  local nested = false
+  chat:add_callback('on_submitted', function(inner)
+    if cleared and not nested then
+      nested = true
+      inner:submit({ auto_submit = true })
+    end
   end)
   Control.reconcile(chat)
   local state = Control._get(chat)
   chat:submit({ auto_submit = true })
   eq(calls.clear, 1)
+  eq(calls.submit, 2)
   eq(calls.http, 0)
   eq(state.phase, 'dormant')
   eq(state.construction_lease, nil)
   eq(state.active_request_token, nil)
   eq(state.completion_classified, true)
+  eq(state.clear_during_submit, false)
 end
 
 T['settles synchronous completion before the request handle assignment'] = function()
@@ -3738,8 +4166,7 @@ T['does not overwrite lifecycle invalidation during final history or buffer emis
     eq(state.phase == 'finalized', false)
     eq(state.staged_final, nil)
     eq(stage.state, 'rolled_back')
-    eq(State.find(State.get(chat), 'S1'), nil)
-    eq(State.get(chat).counts_by_kind.synthesis, nil)
+    eq(State.get(chat), nil)
     eq(vim.api.nvim_buf_get_lines(chat.bufnr, 0, -1, false), { 'before invalidated emission' })
     local internal = 0
     local rendered = 0
@@ -3754,7 +4181,7 @@ T['does not overwrite lifecycle invalidation during final history or buffer emis
       end
     end
     eq(rendered, 0)
-    eq(internal, 1)
+    eq(internal, 0)
   end
 end
 

@@ -11,6 +11,7 @@ local owns_tool_config = require('codecompanion._extensions.reasoning').owns_too
 local M = {}
 local controllers = setmetatable({}, { __mode = 'k' })
 local unsupported_notified = setmetatable({}, { __mode = 'k' })
+local terminal_guard_key = '_codecompanion_reasoning_terminal_guard'
 local suppressing_phase = {
   armed = true,
   active = true,
@@ -37,6 +38,7 @@ local function new_state(chat, phase)
     observed_call_ids = {},
     staged_final = nil,
     closed = false,
+    closed_cleaned = false,
     epoch = 0,
     next_request_token = 0,
     construction_lease = nil,
@@ -47,6 +49,10 @@ local function new_state(chat, phase)
     request_handle = nil,
     resume_attempt = nil,
     submitting = false,
+    clear_during_submit = false,
+    invalidated_submissions = setmetatable({}, { __mode = 'k' }),
+    dormant_submit_stack = {},
+    protected_submit_depth = 0,
     submit_epoch = nil,
     submit_prior_violations = nil,
     clearing = false,
@@ -75,6 +81,15 @@ local function delete_resume_command(state)
   end
   state.resume_command_installed = false
   state.resume_command = nil
+end
+
+local function remove_controller_callbacks(state, chat)
+  if type(chat.remove_callback) ~= 'function' then
+    return
+  end
+  for event, callback in pairs(state.callbacks) do
+    chat:remove_callback(event, callback)
+  end
 end
 
 local function resume_command_present(state)
@@ -156,6 +171,10 @@ local function complete_tool_set(chat)
   return attached_tool_set(chat) and reasoning_tools_owned(chat)
 end
 
+local function dormant_passthrough(state, chat)
+  return not state.closed and not state.clearing and state.phase == 'dormant' and not attached_tool_set(chat)
+end
+
 local function live_tools_match(chat, state)
   local execute = state and state.methods.execute
   return execute ~= nil and execute.target_ref[1] ~= nil and chat.tools == execute.target_ref[1]
@@ -169,6 +188,29 @@ local function wrappers_intact(state)
     local target = slot.target_ref[1]
     if not target or rawget(target, slot.key) ~= slot.wrapper then
       return false
+    end
+  end
+  return true
+end
+
+local function wrappers_owned_for_uninstall(state, chat)
+  if not state or not live_tools_match(chat, state) then
+    return false
+  end
+  local guard = rawget(chat, terminal_guard_key)
+  for _, slot in pairs(state.methods) do
+    local target = slot.target_ref[1]
+    local current = target and rawget(target, slot.key) or nil
+    if current ~= slot.wrapper then
+      local terminal_overlay = slot.key == 'submit'
+        and target == chat
+        and type(guard) == 'table'
+        and current == guard.wrapper
+        and guard.original == slot.wrapper
+        and guard.had_raw_submit == true
+      if not terminal_overlay then
+        return false
+      end
     end
   end
   return true
@@ -240,6 +282,148 @@ local function invalidate_runtime(state, chat, opts)
     end
     chat.tool_orchestrator = nil
   end
+end
+
+local function reset_for_clear(state, chat)
+  local token = state.active_request_token
+  local pending = state.pending_stop_token
+  local construction = state.construction_lease
+
+  invalidate_marker(token)
+  invalidate_marker(pending)
+  invalidate_marker(pending and pending.token)
+  invalidate_marker(construction)
+  if construction then
+    construction.consumed = true
+    if type(construction.payload) == 'table' then
+      state.invalidated_submissions[construction.payload] = true
+    end
+  end
+  invalidate_marker(state.fallback_lease)
+  invalidate_marker(state.resume_attempt)
+  invalidate_marker(state.executing_scope)
+  for _, marker in pairs(state.call_tokens) do
+    invalidate_marker(marker)
+  end
+  for _, lease in ipairs(state.dormant_submit_stack) do
+    invalidate_marker(lease)
+    for payload in pairs(lease.payloads) do
+      state.invalidated_submissions[payload] = true
+    end
+  end
+
+  state.active_request_token = nil
+  state.pending_stop_token = nil
+  state.construction_lease = nil
+  state.fallback_lease = nil
+  state.resume_attempt = nil
+  state.executing_scope = nil
+  Terminal.clear(chat)
+  state.epoch = state.epoch + 1
+  state.clear_during_submit = state.submitting or state.protected_submit_depth > 0 or #state.dormant_submit_stack > 0
+  state.submitting = false
+  state.submit_epoch = nil
+  state.submit_prior_violations = nil
+  state.completion_classified = true
+  state.processing_done = false
+  local staged = state.staged_final
+  if staged and staged.stage and staged.stage.state == 'committed' then
+    pcall(State.rollback_final, chat, staged.stage)
+  end
+  discard_stage(state)
+  if type(chat.remove_tagged_message) == 'function' then
+    pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+  end
+
+  local request = chat.current_request or (token and token.handle) or state.request_handle
+  local orchestrator = chat.tool_orchestrator
+  chat.current_request = nil
+  chat.tool_orchestrator = nil
+  state.request_handle = nil
+  if request and type(request.cancel) == 'function' then
+    pcall(request.cancel, request)
+  end
+  if orchestrator and type(orchestrator.cancel) == 'function' then
+    pcall(orchestrator.cancel, orchestrator)
+  end
+
+  State.clear(chat)
+  state.consecutive_violations = 0
+  state.resume_phase = 'active'
+  state.suspended_phase = nil
+  state.unsupported_adapter = false
+  state.boundary_issue = nil
+  state.halt_notified = false
+  state.phase = 'dormant'
+  unsupported_notified[chat] = nil
+  return true
+end
+
+local function begin_close(state, chat)
+  if state.closed then
+    return false
+  end
+  state.closed = true
+  Terminal.clear(chat)
+
+  local pending = state.pending_stop_token
+  local construction = state.construction_lease
+  invalidate_marker(state.active_request_token)
+  invalidate_marker(pending)
+  invalidate_marker(pending and pending.token)
+  invalidate_marker(construction)
+  if construction then
+    construction.consumed = true
+  end
+  invalidate_marker(state.fallback_lease)
+  invalidate_marker(state.resume_attempt)
+  invalidate_marker(state.executing_scope)
+  for _, marker in pairs(state.call_tokens) do
+    invalidate_marker(marker)
+  end
+  for _, lease in ipairs(state.dormant_submit_stack) do
+    invalidate_marker(lease)
+  end
+
+  state.active_request_token = nil
+  state.pending_stop_token = nil
+  state.construction_lease = nil
+  state.fallback_lease = nil
+  state.resume_attempt = nil
+  state.executing_scope = nil
+  state.epoch = state.epoch + 1
+  state.submitting = false
+  state.submit_epoch = nil
+  state.submit_prior_violations = nil
+  state.completion_classified = true
+  state.processing_done = false
+  local staged = state.staged_final
+  if staged and staged.stage and staged.stage.state == 'committed' then
+    pcall(State.rollback_final, chat, staged.stage)
+  end
+  discard_stage(state)
+  if type(chat.remove_tagged_message) == 'function' then
+    pcall(chat.remove_tagged_message, chat, Constants.corrective_tag)
+  end
+  return true
+end
+
+local function cleanup_closed(state, chat)
+  if state.closed_cleaned then
+    return false
+  end
+  local orchestrator = chat.tool_orchestrator
+  chat.tool_orchestrator = nil
+  if orchestrator and type(orchestrator.cancel) == 'function' then
+    pcall(orchestrator.cancel, orchestrator)
+  end
+  chat.current_request = nil
+  state.request_handle = nil
+  remove_controller_callbacks(state, chat)
+  delete_resume_command(state)
+  State.clear(chat)
+  state.closed_cleaned = true
+  return true
 end
 
 local function original_method(state, key, chat)
@@ -1501,6 +1685,20 @@ local function commit_and_emit_final(state, staged, marker, entry, candidates)
   end, debug.traceback)
   if not emitted then
     log:error('[reasoning control] final emission failed: %s', emission_error)
+    if state.closed and State.get(chat) == nil then
+      local history_restored = restore_final_history(chat, snapshots.history)
+      local buffer_restored = true
+      if vim.api.nvim_buf_is_valid(snapshots.buffer.bufnr) then
+        buffer_restored = restore_final_buffer(snapshots.buffer)
+      end
+      if not history_restored or not buffer_restored then
+        log:error('[reasoning control] close-time final emission compensation failed')
+      end
+      if state.staged_final == staged then
+        state.staged_final = nil
+      end
+      return
+    end
     local cleared = host_clear_consumed_final(state, chat, snapshots.history)
     local invalidated = lifecycle_consumed_final(state, staged, marker)
     if not cleared then
@@ -2164,10 +2362,33 @@ local function install(chat, phase)
     if not current or current ~= target then
       return
     end
+    if state.closed or state.clearing then
+      return
+    end
+    if dormant_passthrough(state, current) then
+      local lease = {
+        valid = true,
+        payloads = setmetatable({}, { __mode = 'k' }),
+      }
+      table.insert(state.dormant_submit_stack, lease)
+      local extra = packed(...)
+      local result = packed(xpcall(function()
+        return submit.original(target, opts, unpack(extra, 1, extra.n))
+      end, debug.traceback))
+      lease.valid = false
+      assert(state.dormant_submit_stack[#state.dormant_submit_stack] == lease, 'dormant submit lease order changed')
+      table.remove(state.dormant_submit_stack)
+      if #state.dormant_submit_stack == 0 and state.protected_submit_depth == 0 then
+        state.clear_during_submit = false
+      end
+      if not result[1] then
+        error(result[2], 0)
+      end
+      return unpack(result, 2, result.n)
+    end
     M.reconcile(current)
     if
-      state.closed
-      or state.unsupported_adapter
+      state.unsupported_adapter
       or state.boundary_issue ~= nil
       or not complete_tool_set(current)
       or not live_tools_match(current, state)
@@ -2193,10 +2414,15 @@ local function install(chat, phase)
     state.submit_prior_violations = prior_violations
     state.submit_epoch = prior_epoch
     state.submitting = true
+    state.protected_submit_depth = state.protected_submit_depth + 1
     local ok, values = xpcall(function()
       return packed(submit.original(current, opts, unpack(extra, 1, extra.n)))
     end, debug.traceback)
+    state.protected_submit_depth = state.protected_submit_depth - 1
     state.submitting = false
+    if state.protected_submit_depth == 0 and #state.dormant_submit_stack == 0 then
+      state.clear_during_submit = false
+    end
     if not ok then
       log:error('[reasoning control] preserved submit failed: %s', values)
       if not state.closed and state.phase ~= 'dormant' then
@@ -2231,10 +2457,18 @@ local function install(chat, phase)
     if not current or current ~= target then
       return
     end
+    if state.closed or state.clearing then
+      return
+    end
+    if state.invalidated_submissions[payload] then
+      return
+    end
+    if dormant_passthrough(state, current) then
+      return submit_http.original(target, payload, ...)
+    end
     M.reconcile(current)
     if
-      state.closed
-      or state.unsupported_adapter
+      state.unsupported_adapter
       or state.boundary_issue ~= nil
       or not complete_tool_set(current)
       or not live_tools_match(current, state)
@@ -2297,10 +2531,16 @@ local function install(chat, phase)
   end)
 
   local submit_acp = state.methods._submit_acp
-  install_wrapper(submit_acp, function(target)
+  install_wrapper(submit_acp, function(target, ...)
     local current = chat_for(state)
     if not current or current ~= target then
       return
+    end
+    if state.closed or state.clearing then
+      return
+    end
+    if dormant_passthrough(state, current) then
+      return submit_acp.original(target, ...)
     end
     M.reconcile(current)
     return blocked_submit(current)
@@ -2308,6 +2548,13 @@ local function install(chat, phase)
 
   local done = state.methods.done
   install_wrapper(done, function(target, ...)
+    local current = chat_for(state)
+    if not current or current ~= target or state.closed or state.clearing then
+      return
+    end
+    if dormant_passthrough(state, current) then
+      return done.original(target, ...)
+    end
     if state.processing_done or not callbacks_allowed(target, state) then
       return
     end
@@ -2338,18 +2585,19 @@ local function install(chat, phase)
 
   local add_buf_message = state.methods.add_buf_message
   install_wrapper(add_buf_message, function(target, data, opts, ...)
+    local current = chat_for(state)
+    if not current or current ~= target or state.closed or state.clearing then
+      return
+    end
     local kind = type(opts) == 'table' and opts.type or nil
     local scope = state.executing_scope
     if
-      not state.closed
-      and (
-        (
-          suppressing_phase[state.phase]
-          and (kind == target.MESSAGE_TYPES.LLM_MESSAGE or kind == target.MESSAGE_TYPES.REASONING_MESSAGE)
-        )
-        or (state.phase == 'finalizing' and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
-        or (scope and scope.settling and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
+      (
+        suppressing_phase[state.phase]
+        and (kind == target.MESSAGE_TYPES.LLM_MESSAGE or kind == target.MESSAGE_TYPES.REASONING_MESSAGE)
       )
+      or (state.phase == 'finalizing' and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
+      or (scope and scope.settling and kind == target.MESSAGE_TYPES.TOOL_MESSAGE)
     then
       return
     end
@@ -2531,58 +2779,58 @@ local function install(chat, phase)
 
   local clear = state.methods.clear
   install_wrapper(clear, function(target, ...)
-    if state.clearing then
-      return clear.original(target, ...)
+    local current = chat_for(state)
+    if not current or current ~= target or state.closed or state.clearing then
+      return
     end
     state.clearing = true
-    invalidate_runtime(state, target)
-    State.clear(target)
-    state.phase = 'dormant'
-    state.suspended_phase = nil
-    state.resume_phase = 'active'
-    state.boundary_issue = nil
     local extra = packed(...)
-    local ok, values = xpcall(function()
-      return packed(clear.original(target, unpack(extra, 1, extra.n)))
-    end, debug.traceback)
+    local result = packed(xpcall(function()
+      reset_for_clear(state, target)
+      return clear.original(target, unpack(extra, 1, extra.n))
+    end, debug.traceback))
     state.clearing = false
-    if not ok then
-      error(values, 0)
+    if not result[1] then
+      error(result[2], 0)
     end
-    return unpack(values, 1, values.n)
+    return unpack(result, 2, result.n)
   end)
 
   local close = state.methods.close
   install_wrapper(close, function(target, ...)
-    if state.closed then
+    local current = chat_for(state)
+    if not current or current ~= target or not begin_close(state, target) then
       return
     end
-    state.closed = true
-    delete_resume_command(state)
-    local host_will_stop = target.current_request ~= nil
-    invalidate_runtime(state, target, {
-      preserve_host_request = host_will_stop,
-      preserve_host_orchestrator = host_will_stop,
-    })
-    return close.original(target, ...)
+    local extra = packed(...)
+    local result = packed(xpcall(function()
+      return close.original(target, unpack(extra, 1, extra.n))
+    end, debug.traceback))
+    cleanup_closed(state, target)
+    if not result[1] then
+      error(result[2], 0)
+    end
+    return unpack(result, 2, result.n)
   end)
 
   local execute = state.methods.execute
   install_wrapper(execute, function(target, host_chat, calls, ...)
     local current = chat_for(state)
-    if
-      not current
-      or host_chat ~= current
-      or target ~= current.tools
-      or state.executing_scope ~= nil
-      or current.tool_orchestrator ~= nil
-    then
+    if not current or host_chat ~= current or target ~= current.tools then
+      return
+    end
+    if state.closed or state.clearing then
+      return
+    end
+    if dormant_passthrough(state, current) then
+      return execute.original(target, host_chat, calls, ...)
+    end
+    if state.executing_scope ~= nil or current.tool_orchestrator ~= nil then
       return
     end
     M.reconcile(current)
     if
-      state.closed
-      or state.unsupported_adapter
+      state.unsupported_adapter
       or not current.adapter
       or current.adapter.type ~= 'http'
       or not live_tools_match(current, state)
@@ -2621,6 +2869,9 @@ local function install(chat, phase)
     if not current or callback_chat ~= current then
       return false
     end
+    if state.closed or state.clearing or dormant_passthrough(state, current) then
+      return
+    end
     M.reconcile(current)
     if
       state.closed
@@ -2645,9 +2896,36 @@ local function install(chat, phase)
 
   local on_submitted = function(callback_chat, data)
     local current = chat_for(state)
+    local payload = type(data) == 'table' and data.payload or nil
+    local dormant_lease = state.dormant_submit_stack[#state.dormant_submit_stack]
+    if
+      current
+      and callback_chat == current
+      and state.phase == 'dormant'
+      and dormant_lease
+      and type(payload) == 'table'
+    then
+      dormant_lease.payloads[payload] = true
+      if state.clear_during_submit or dormant_lease.valid == false then
+        state.invalidated_submissions[payload] = true
+      end
+      return
+    end
+    if
+      current
+      and callback_chat == current
+      and state.clear_during_submit
+      and state.phase == 'dormant'
+      and type(payload) == 'table'
+    then
+      state.invalidated_submissions[payload] = true
+      return
+    end
     if
       not current
       or callback_chat ~= current
+      or state.closed
+      or state.clearing
       or not state.submitting
       or state.submit_epoch ~= state.epoch
       or not recoverable_phase[state.phase]
@@ -2681,7 +2959,7 @@ local function install(chat, phase)
 
   local on_ready = function(callback_chat)
     local current = chat_for(state)
-    if current and callback_chat == current then
+    if current and callback_chat == current and not state.closed and not state.clearing then
       schedule_fallback(state)
     end
   end
@@ -2690,7 +2968,7 @@ local function install(chat, phase)
 
   local on_cancelled = function(callback_chat)
     local current = chat_for(state)
-    if not current or callback_chat ~= current then
+    if not current or callback_chat ~= current or state.closed or state.clearing then
       return
     end
     local token = state.active_request_token
@@ -2717,6 +2995,17 @@ local function install(chat, phase)
   end
   state.callbacks.on_cancelled = on_cancelled
   chat:add_callback('on_cancelled', on_cancelled)
+
+  local on_closed = function(callback_chat)
+    local current = chat_for(state)
+    if not current or callback_chat ~= current then
+      return
+    end
+    begin_close(state, current)
+    cleanup_closed(state, current)
+  end
+  state.callbacks.on_closed = on_closed
+  chat:add_callback('on_closed', on_closed)
   if not state.resume_command_installed then
     block_boundary(
       chat,
@@ -2817,6 +3106,11 @@ function M.reconcile(chat)
     state.suspended_phase = nil
     state.unsupported_adapter = false
     unsupported_notified[chat] = nil
+  end
+
+  if state.phase == 'dormant' and not attached then
+    state.boundary_issue = nil
+    return state
   end
 
   if not attached then
@@ -3017,7 +3311,7 @@ end
 
 function M.resume(chat)
   local state = type(chat) == 'table' and controllers[chat] or nil
-  if not state or state.closed then
+  if not state or state.closed or state.clearing then
     return false
   end
   M.reconcile(chat)
@@ -3156,31 +3450,55 @@ function M.resume(chat)
 end
 
 function M.clear(chat)
-  State.clear(chat)
   local state = controllers[chat]
-  if state then
-    if not state.clearing then
-      invalidate_runtime(state, chat)
-    end
-    state.phase = 'dormant'
-    state.suspended_phase = nil
-    state.resume_phase = 'active'
-    state.boundary_issue = nil
+  if not state or state.closed then
+    Terminal.clear(chat)
+    State.clear(chat)
+    return false
   end
+  if state.clearing then
+    return false
+  end
+  state.clearing = true
+  local ok, result = xpcall(function()
+    return reset_for_clear(state, chat)
+  end, debug.traceback)
+  state.clearing = false
+  if not ok then
+    error(result, 0)
+  end
+  return result
 end
 
 function M.uninstall(chat)
   local state = controllers[chat]
-  if not state then
+  if
+    not state
+    or state.closed
+    or state.clearing
+    or state.processing_done
+    or state.submitting
+    or state.clear_during_submit
+    or #state.dormant_submit_stack > 0
+    or state.protected_submit_depth > 0
+    or not state.completion_classified
+    or chat.current_request ~= nil
+    or state.request_handle ~= nil
+    or state.active_request_token ~= nil
+    or state.pending_stop_token ~= nil
+    or state.executing_scope ~= nil
+    or chat.tool_orchestrator ~= nil
+    or state.fallback_lease ~= nil
+    or state.construction_lease ~= nil
+    or state.resume_attempt ~= nil
+    or state.staged_final ~= nil
+    or not wrappers_owned_for_uninstall(state, chat)
+  then
     return false
   end
   Terminal.clear(chat)
   delete_resume_command(state)
-  if type(chat.remove_callback) == 'function' then
-    for event, callback in pairs(state.callbacks) do
-      chat:remove_callback(event, callback)
-    end
-  end
+  remove_controller_callbacks(state, chat)
   for _, slot in pairs(state.methods) do
     restore_method(slot)
   end
@@ -3208,10 +3526,19 @@ function M._reset()
   end
   for _, chat in ipairs(chats) do
     local state = controllers[chat]
-    if state then
+    if state and not state.closed then
       invalidate_runtime(state, chat)
     end
-    M.uninstall(chat)
+    if state then
+      Terminal.clear(chat)
+      delete_resume_command(state)
+      remove_controller_callbacks(state, chat)
+      for _, slot in pairs(state.methods) do
+        restore_method(slot)
+      end
+      controllers[chat] = nil
+      unsupported_notified[chat] = nil
+    end
   end
   controllers = setmetatable({}, { __mode = 'k' })
   unsupported_notified = setmetatable({}, { __mode = 'k' })
