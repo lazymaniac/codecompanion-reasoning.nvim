@@ -1,8 +1,19 @@
 # CodeCompanion Structured Reasoning
 
-Five deterministic tools for guiding difficult analysis, diagnosis, design, decisions, and planning in [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
+Five deterministic tools for guiding difficult analysis, diagnosis, design,
+decisions, and planning in
+[CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
-The extension keeps concise, inspectable reasoning artifacts and enforces structural gates between them. It is intentionally not an autonomous agent framework: it does not expose private chain-of-thought, call secondary models, inspect files, manage sessions, or claim that a well-formed argument is factually true.
+Attaching all five tools to a supported HTTP chat synchronously arms a
+chat-local, fail-closed protocol. Free-form model output can no longer bypass
+the structure: accepted artifacts are the only source of a final answer, and
+the extension renders that answer deterministically after the matching host
+tool result is recorded.
+
+The model still has room to investigate. CodeCompanion project searches, file
+reads, commands, diagnostics, and other external tools remain unrestricted
+before the frame and between reasoning artifacts. Their success or failure is
+neutral to the protocol's recovery budget.
 
 ## When it helps
 
@@ -29,8 +40,16 @@ The practical tradeoff is latency and tokens. Use `standard` depth for moderatel
 ## Requirements
 
 - Neovim supported by CodeCompanion
-- CodeCompanion.nvim v19.22.0 or a compatible current extension/tool API
+- CodeCompanion.nvim v19.22.0; the lifecycle integration is pinned to this host
+  contract
+- A tool-capable HTTP adapter
 - A tool-capable chat model
+
+ACP is explicitly unsupported for fail-closed enforcement because
+CodeCompanion v19.22.0 does not transmit registered client-tool schemas through
+that transport. Attaching on ACP reports the limitation without claiming that
+the chat is protected. Switching an armed chat from HTTP to ACP blocks
+submission until it returns to a supported HTTP adapter.
 
 ## Installation
 
@@ -61,9 +80,29 @@ Add `@{reasoning}` to a chat when needed. To attach it to every chat, set `auto_
 Frame -> Evidence <-> Options <-> Review -> Synthesis
 ```
 
-Each call is atomic. An accepted or rejected call returns one deterministic `next_action`; the model should call exactly that one reasoning tool next and satisfy its reason. A successful final synthesis returns `next_action.tool = "none"`, which is a terminal signal rather than a registered tool.
+Once all five reasoning tools are attached to an HTTP chat:
 
-The workspace is scoped to the active chat and bounded in memory. An explicit frame revision reopens an accepted final. A frame replacement deliberately discards the old workspace and starts a new one.
+1. External project tools may run before framing and between artifacts without
+   a count or retry limit from this extension.
+2. The first reasoning call must be `reasoning_frame` with `action = "start"`.
+3. Every later reasoning call must be the sole call in its completion and must
+   match the authoritative transition returned by the protocol. External-only
+   completions remain allowed.
+4. Model prose and private reasoning blocks are suppressed. A completion with
+   no tool call, a mixed reasoning batch, or an out-of-order reasoning call is
+   a protocol violation rather than an alternate answer path.
+5. A final synthesis is staged, recorded by CodeCompanion as a tool result,
+   committed atomically, and rendered once. It starts no post-final model
+   request.
+
+Each reasoning call is atomic. Accepted and rejected results carry one
+deterministic `next_action`; rejected batches do not partially mutate the
+workspace. The workspace is scoped to the active chat and bounded in memory.
+
+Attaching fewer than all five tools is outside the fail-closed guarantee. That
+partial/individual-tool path retains the legacy one-shot terminal behavior for
+compatibility. The legacy submit wrapper is never installed on a controlled
+complete-tool chat, so the two lifecycle mechanisms cannot stack.
 
 ## Tools
 
@@ -269,7 +308,10 @@ Records an optional checkpoint or attempts a gated final result.
 }
 ```
 
-Checkpoint mode records valid progress without claiming completion. Final mode is accepted only after every applicable gate passes.
+Checkpoint mode records valid progress without claiming completion and is
+permitted only when the authoritative `next_action` is
+`reasoning_synthesis`. Final mode is accepted only after every applicable gate
+passes.
 
 ## Structural gates
 
@@ -296,7 +338,36 @@ These are structural checks. They establish traceability and coverage, not factu
 
 ## Error and revision semantics
 
-Expected failures return a stable error code, affected artifact IDs, and the corrective `next_action`. A rejected final synthesis also reports its unmet gates. Failed batches never partially mutate the workspace.
+Expected failures return a stable error code, `committed = false`, affected
+artifact IDs, a safe field-level diagnostic, and the corrective `next_action`.
+A rejected final synthesis also reports its unmet gates. Failed batches never
+partially mutate the workspace, and IDs from rejected artifacts never exist.
+
+For example:
+
+```json
+{
+  "code": "evidence_invalid",
+  "committed": false,
+  "artifact_ids": [],
+  "diagnostic": {
+    "path": "items",
+    "constraint": "max_items",
+    "expected": 8,
+    "actual": 10
+  },
+  "next_action": {
+    "tool": "reasoning_evidence",
+    "reason": "Record a bounded evidence batch"
+  }
+}
+```
+
+Each of consecutive violations one and two receives one bounded corrective
+request. The third halts automatic execution without starting a fourth
+request. To recover, enter nonblank unsent text in the chat buffer and run the
+buffer-local `:CodeCompanionReasoningResume` command. A bare `chat.submit()`
+remains blocked because host subscribers and approval modes also use it.
 
 Artifacts use stable prefixes:
 
@@ -307,9 +378,76 @@ Artifacts use stable prefixes:
 - `R`: review
 - `S`: synthesis
 
-Evidence, branch sets, and synthesis checkpoints are replaced append-only: the previous artifact remains with `status = "superseded"`. Frame revision does the same while keeping the workspace; frame replacement resets it. Review may retract artifacts or open a revision requirement.
+Evidence, branch sets, and synthesis checkpoints are replaced append-only: the
+previous artifact remains with `status = "superseded"`. Frame revision does
+the same while keeping the workspace; frame replacement resets it. Review may
+retract artifacts or open a revision requirement.
 
-After an accepted final, automatic submission is stopped at the chat boundary, including CodeCompanion YOLO approval mode. Only an explicit `reasoning_frame` `revise` or `replace` call reopens the workspace.
+After an accepted final, ordinary and automatic submission remain blocked,
+including CodeCompanion YOLO approval mode. Running
+`:CodeCompanionReasoningResume` with nonblank unsent input enters reframing;
+only `reasoning_frame` with `action = "revise"` or `action = "replace"` can
+return the chat to active reasoning. External investigation may continue while
+reframing, but prose and other reasoning operations remain fail-closed.
+
+## Deterministic final output
+
+Final synthesis is validated and staged without allocating its artifact. Only
+after CodeCompanion records the matching host tool result does the extension
+commit the artifact and append one assistant message. No second model request
+can elaborate or replace it.
+
+The renderer orders the conclusion, selected branch, supporting evidence,
+adversarial review, success criteria, optional reflection sections, and
+confidence. Its Markdown has this shape:
+
+```markdown
+## Conclusion
+
+Use a checksummed journal with truncation recovery
+
+## Selected solution
+
+- **O1 — journal:** Append mutations to a checksummed journal
+
+## Supporting evidence
+
+- **E1:** Replay restores committed entries _(source: tests/recovery\.lua:10; confidence: high)_
+
+## Adversarial review
+
+- **R1**
+  - Challenge (counterexample; targets: O1): Torn records can break replay
+  - Verdict (O1): keep
+
+## Success criteria
+
+- **Survives restart** — passed: Partial\-record recovery is covered _(evidence: E1)_
+
+## Trade-offs
+
+- Higher write amplification
+
+## Uncertainties
+
+- Disk\-full behavior still needs platform testing
+
+## Blind spots
+
+- Network filesystems were not evaluated
+
+## Next actions
+
+- Implement behind the cache interface
+
+## Confidence
+
+medium
+```
+
+The four reflection sections are omitted when empty. Model-supplied
+Markdown-significant characters and HTML metacharacters are escaped before
+rendering.
 
 ## Configuration
 
@@ -335,6 +473,10 @@ opts = {
 
 All limits must be positive integers. Unknown or invalid options fail setup atomically.
 
+The automatic recovery budget is fixed at three consecutive violations. It is
+intentionally not configurable, so the documented fail-closed boundary cannot
+be weakened by local options.
+
 The extension preserves existing CodeCompanion configuration for other tools, groups, system prompts, and display settings. It registers exactly the five tools above in the `reasoning` group and does not replace CodeCompanion's host system prompt.
 
 ## Privacy and scope
@@ -346,17 +488,24 @@ The extension performs no:
 - session persistence or restoration;
 - project-memory access;
 - file discovery or filesystem operations;
-- commands, pickers, popups, or other UI;
+- pickers, popups, or other UI beyond its buffer-local resume command;
 - secondary model calls;
 - hidden capture or display of private chain-of-thought.
 
-Use CodeCompanion's built-in tools and groups for file operations, user interaction, memory, general agent behavior, and chat/session features.
+`:CodeCompanionReasoningResume` is the extension's sole UI command. Use
+CodeCompanion's built-in tools and groups for project search, file reads,
+commands, diagnostics, user interaction, memory, general agent behavior, and
+chat/session features. The controller does not restrict those external tools.
 
 ## Breaking migration
 
 This rewrite removes `chain_of_thoughts_agent`, `tree_of_thoughts_agent`, `graph_of_thoughts_agent`, `meta_agent`, `add_tools`, `ask_user`, `reflect_on_progress`, `list_files`, `project_knowledge`, and `initialize_project_knowledge`.
 
-It also removes the replacement system prompt, sessions, restoration, titles, commands, pickers, popup UI, project-memory files, and compatibility entry points. Existing configurations should enable the `reasoning` extension and use the `@{reasoning}` group instead.
+It also removes the replacement system prompt, sessions, restoration, titles,
+legacy commands, pickers, popup UI, project-memory files, and compatibility
+entry points. Existing configurations should enable the `reasoning` extension
+and use the `@{reasoning}` group instead. The only new command is the
+buffer-local fail-closed recovery command described above.
 
 ## Development
 
@@ -365,7 +514,9 @@ make format
 make test
 ```
 
-On the first run, `make test` clones Plenary, MiniTest, and CodeCompanion v19.22.0 into `deps/`. To test another compatible checkout:
+On the first run, `make test` clones Plenary, MiniTest, and CodeCompanion
+v19.22.0 into `deps/`. To investigate compatibility with a local CodeCompanion
+checkout while keeping v19.22.0 as the supported target:
 
 ```sh
 CODECOMPANION_PATH=/path/to/codecompanion.nvim make test

@@ -476,3 +476,7 @@ The rewrite is complete when:
 - Repeated tool calls add latency and tokens, so the group is intended for difficult problems rather than routine requests.
 - The tools do not implement multi-sample search, independent critic models, formal proof checking, or durable memory.
 - Benefit must be evaluated per model and task. The optional harness measures this instead of assuming it.
+- The fail-closed lifecycle, bounded recovery, deterministic rendering, and
+  authoritative transition enforcement are provided only for supported HTTP
+  chats by the superseding 2026-08-05 design. Prompt sequencing is guidance,
+  not the enforcement boundary, and ACP remains unsupported by this controller.
