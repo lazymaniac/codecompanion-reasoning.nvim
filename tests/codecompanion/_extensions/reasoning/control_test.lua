@@ -10,6 +10,7 @@ local host_adapters = require('codecompanion.adapters')
 local host_config = require('codecompanion.config')
 local host_hash = require('codecompanion.utils.hash')
 local host_parser = require('codecompanion.interactions.chat.parser')
+local canonical_parser_messages = host_parser.messages
 
 local T
 local eq = MiniTest.expect.equality
@@ -17,7 +18,6 @@ local created_buffers = {}
 local original_global_adapter
 local original_test_adapter
 local original_host_config
-local original_parser_messages
 local original_commit_final = State.commit_final
 local original_rollback_final = State.rollback_final
 local canonical_tool_configs
@@ -807,7 +807,7 @@ T = MiniTest.new_set({
       Control._reset()
       State._reset()
       original_host_config = vim.deepcopy(host_config.config)
-      original_parser_messages = host_parser.messages
+      host_parser.messages = canonical_parser_messages
       Extension.setup()
       canonical_tool_configs = {}
       for _, name in ipairs(Constants.tool_names) do
@@ -823,7 +823,7 @@ T = MiniTest.new_set({
       vim.g.codecompanion_adapter = original_global_adapter
       host_config.adapters.reasoning_control_test_acp = original_test_adapter
       host_config.config = original_host_config
-      host_parser.messages = original_parser_messages
+      host_parser.messages = canonical_parser_messages
       State.commit_final = original_commit_final
       State.rollback_final = original_rollback_final
       canonical_tool_configs = nil

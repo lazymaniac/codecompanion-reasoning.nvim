@@ -2391,6 +2391,27 @@ end
 function M.call(operation, chat, args, lifecycle_phase)
   local tools_by_operation = Constants.tool_by_operation
   local workspace = State.get(chat)
+  local transition_allowed = not lifecycle_phase or Transition.allowed(workspace, lifecycle_phase, operation, args)
+  local function reject_transition()
+    local expected = Transition.next(workspace, lifecycle_phase)
+    return failure(
+      'transition_invalid',
+      'the reasoning operation does not match the authoritative transition',
+      {},
+      expected,
+      {
+        path = 'tool',
+        constraint = 'authoritative_transition',
+        expected = expected and expected.tool or 'none',
+        actual = tools_by_operation[operation] or 'unknown_operation',
+      }
+    )
+  end
+
+  if lifecycle_phase == 'reframing' and not transition_allowed then
+    return reject_transition()
+  end
+
   local explicit_reframe = operation == 'frame'
     and type(args) == 'table'
     and vim.tbl_contains({ 'revise', 'replace' }, args.action)
@@ -2406,20 +2427,8 @@ function M.call(operation, chat, args, lifecycle_phase)
     end
   end
 
-  if lifecycle_phase and not Transition.allowed(workspace, lifecycle_phase, operation, args) then
-    local expected = Transition.next(workspace, lifecycle_phase)
-    return failure(
-      'transition_invalid',
-      'the reasoning operation does not match the authoritative transition',
-      {},
-      expected,
-      {
-        path = 'tool',
-        constraint = 'authoritative_transition',
-        expected = expected and expected.tool or 'none',
-        actual = tools_by_operation[operation] or 'unknown_operation',
-      }
-    )
+  if not transition_allowed then
+    return reject_transition()
   end
 
   local handler = M[operation]

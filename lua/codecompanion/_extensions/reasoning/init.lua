@@ -104,6 +104,7 @@ end
 
 function M.setup(user_options)
   local options = Config.setup(user_options)
+  require('codecompanion._extensions.reasoning.control').setup_autocmds()
   local tools = require('codecompanion.config').interactions.chat.tools
   tools.groups = tools.groups or {}
   tools.opts = tools.opts or {}

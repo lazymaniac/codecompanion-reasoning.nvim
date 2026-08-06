@@ -1,5 +1,6 @@
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Adapters = require('codecompanion.adapters')
+local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
@@ -1103,16 +1104,18 @@ local function accepted_payload(state, marker, payload)
     return false
   end
 
+  local synthesis_arguments = marker.operation == 'synthesis'
+      and type(marker.decoded_arguments) == 'table'
+      and marker.decoded_arguments
+    or nil
+  local final_synthesis = synthesis_arguments and synthesis_arguments.mode == 'final'
   local expected = {
     workspace_id = workspace.id,
     artifact = vim.deepcopy(primary),
     progress = vim.deepcopy(workspace.counts_by_kind),
-    unmet_gates = marker.operation == 'synthesis'
-        and type(marker.decoded_arguments) == 'table'
-        and marker.decoded_arguments.mode == 'final'
-        and {}
-      or Protocol.final_gates(workspace, nil),
-    next_action = Protocol.transition(workspace, 'active'),
+    unmet_gates = final_synthesis and {} or Protocol.final_gates(workspace, synthesis_arguments),
+    next_action = synthesis_arguments and Guidance.next(workspace, synthesis_arguments)
+      or Protocol.transition(workspace, 'active'),
   }
   if expected_collection then
     expected.artifacts = vim.deepcopy(expected_collection)
@@ -1801,7 +1804,7 @@ local function transition_failure(operation, chat, args, phase, actual_tool)
   if phase == 'finalized' then
     return Protocol.call('evidence', chat, {}, phase).data
   end
-  if operation then
+  if operation and phase ~= 'reframing' then
     local result = Protocol.call(operation, chat, args, phase)
     if result.status == 'error' then
       return result.data
@@ -3028,7 +3031,10 @@ function M.setup_autocmds()
     },
     callback = function(event)
       local bufnr = event.data and event.data.bufnr
-      local chat = type(bufnr) == 'number' and require('codecompanion').buf_get_chat(bufnr) or nil
+      if type(bufnr) ~= 'number' or not vim.api.nvim_buf_is_valid(bufnr) then
+        return
+      end
+      local chat = require('codecompanion').buf_get_chat(bufnr)
       if not chat then
         return
       end
@@ -3526,22 +3532,22 @@ function M._reset()
   end
   for _, chat in ipairs(chats) do
     local state = controllers[chat]
-    if state and not state.closed then
-      invalidate_runtime(state, chat)
-    end
-    if state then
-      Terminal.clear(chat)
-      delete_resume_command(state)
-      remove_controller_callbacks(state, chat)
-      for _, slot in pairs(state.methods) do
-        restore_method(slot)
+    if state and not M.uninstall(chat) then
+      if not state.closed then
+        begin_close(state, chat)
       end
-      controllers[chat] = nil
-      unsupported_notified[chat] = nil
+      local request = chat.current_request or state.request_handle
+      chat.current_request = nil
+      state.request_handle = nil
+      if request and type(request.cancel) == 'function' then
+        pcall(request.cancel, request)
+      end
+      cleanup_closed(state, chat)
     end
   end
   controllers = setmetatable({}, { __mode = 'k' })
   unsupported_notified = setmetatable({}, { __mode = 'k' })
+  pcall(vim.api.nvim_del_augroup_by_name, Constants.augroup)
 end
 
 return M

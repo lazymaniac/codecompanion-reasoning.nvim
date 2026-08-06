@@ -1,4 +1,6 @@
 local CodeCompanion = require('codecompanion')
+local Constants = require('codecompanion._extensions.reasoning.constants')
+local Control = require('codecompanion._extensions.reasoning.control')
 local Extension = require('codecompanion._extensions.reasoning')
 local Extensions = require('codecompanion._extensions')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
@@ -10,19 +12,37 @@ local config = require('codecompanion.config')
 local original_config
 local original_exports
 local original_reasoning_options
+local original_buf_get_chat
+local original_control_reconcile
+local original_control_clear
+local created_buffers = {}
 local T = MiniTest.new_set({
   hooks = {
     pre_case = function()
+      Control._reset()
       original_config = vim.deepcopy(config.config)
       original_exports = vim.deepcopy(Extensions._exports)
       original_reasoning_options = ReasoningConfig.get()
+      original_buf_get_chat = CodeCompanion.buf_get_chat
+      original_control_reconcile = Control.reconcile
+      original_control_clear = Control.clear
       State._reset()
     end,
     post_case = function()
+      CodeCompanion.buf_get_chat = original_buf_get_chat
+      Control.reconcile = original_control_reconcile
+      Control.clear = original_control_clear
+      Control._reset()
       config.config = original_config
       Extensions._exports = original_exports
       ReasoningConfig.setup(original_reasoning_options)
       State._reset()
+      for _, bufnr in ipairs(created_buffers) do
+        if vim.api.nvim_buf_is_valid(bufnr) then
+          vim.api.nvim_buf_delete(bufnr, { force = true })
+        end
+      end
+      created_buffers = {}
     end,
   },
 })
@@ -35,6 +55,69 @@ local names = {
   'reasoning_review',
   'reasoning_synthesis',
 }
+
+local function new_control_chat()
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  table.insert(created_buffers, bufnr)
+  local callbacks = {}
+  local chat = {
+    adapter = { type = 'http', name = 'init-test-http' },
+    bufnr = bufnr,
+    callbacks = callbacks,
+    current_request = nil,
+    messages = {},
+    tool_orchestrator = nil,
+    tool_registry = { in_use = {} },
+    MESSAGE_TYPES = {
+      LLM_MESSAGE = 'llm',
+      REASONING_MESSAGE = 'reasoning',
+      SYSTEM_MESSAGE = 'system',
+      TOOL_MESSAGE = 'tool',
+    },
+  }
+  for _, name in ipairs(names) do
+    chat.tool_registry.in_use[name] = true
+  end
+  function chat:add_callback(event, callback)
+    callbacks[event] = callbacks[event] or {}
+    table.insert(callbacks[event], callback)
+  end
+  function chat:remove_callback(event, callback)
+    for index = #(callbacks[event] or {}), 1, -1 do
+      if callbacks[event][index] == callback then
+        table.remove(callbacks[event], index)
+      end
+    end
+  end
+  function chat:submit()
+    self.original_submit_count = (self.original_submit_count or 0) + 1
+  end
+  function chat:_submit_http() end
+  function chat:_submit_acp() end
+  function chat:done()
+    self.original_done_count = (self.original_done_count or 0) + 1
+  end
+  function chat:add_buf_message() end
+  function chat:add_tool_output() end
+  function chat:clear() end
+  function chat:close() end
+  function chat:remove_tagged_message() end
+  chat.tools = {
+    execute = function() end,
+    tools_config = config.interactions.chat.tools,
+  }
+  return chat
+end
+
+local function autocmd_pattern_counts()
+  local counts = {}
+  for _, autocmd in ipairs(vim.api.nvim_get_autocmds({ group = Constants.augroup })) do
+    for pattern in string.gmatch(autocmd.pattern or '', '[^,]+') do
+      counts[pattern] = (counts[pattern] or 0) + 1
+    end
+  end
+  return counts
+end
 
 T['loads through CodeCompanion setup and resolves all schemas'] = function()
   local host_prompt = function()
@@ -298,11 +381,13 @@ end
 T['rejects invalid setup atomically'] = function()
   Extension.setup({ default_depth = 'standard' })
   local tools_before = vim.deepcopy(config.interactions.chat.tools)
+  local autocmds_before = vim.api.nvim_get_autocmds({ group = Constants.augroup })
   MiniTest.expect.error(function()
     Extension.setup({ default_depth = 'extreme' })
   end, 'default_depth')
   eq(config.interactions.chat.tools, tools_before)
   eq(ReasoningConfig.get().default_depth, 'standard')
+  eq(vim.api.nvim_get_autocmds({ group = Constants.augroup }), autocmds_before)
 end
 
 T['repeated setup does not reset active reasoning state'] = function()
@@ -326,6 +411,135 @@ T['repeated setup does not reset active reasoning state'] = function()
   Extension.setup()
   eq(State.get(chat), workspace)
   eq(State.find(workspace, 'F1').data.objective, 'Preserve this workspace')
+end
+
+T['installs one lifecycle callback per event and routes only valid chat buffers'] = function()
+  Extension.setup()
+  Extension.setup()
+
+  local patterns = autocmd_pattern_counts()
+  eq(patterns.CodeCompanionChatToolAdded, 1)
+  eq(patterns.CodeCompanionChatAdapter, 1)
+  eq(patterns.CodeCompanionChatCleared, 1)
+
+  local chat = {}
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  table.insert(created_buffers, bufnr)
+  local lookups = 0
+  local reconciled = {}
+  local cleared = {}
+  CodeCompanion.buf_get_chat = function(candidate)
+    lookups = lookups + 1
+    return candidate == bufnr and chat or nil
+  end
+  Control.reconcile = function(candidate)
+    table.insert(reconciled, candidate)
+  end
+  Control.clear = function(candidate)
+    table.insert(cleared, candidate)
+  end
+
+  for _, pattern in ipairs({ 'CodeCompanionChatToolAdded', 'CodeCompanionChatAdapter' }) do
+    vim.api.nvim_exec_autocmds('User', { pattern = pattern, data = { bufnr = bufnr } })
+  end
+  vim.api.nvim_exec_autocmds('User', {
+    pattern = 'CodeCompanionChatCleared',
+    data = { bufnr = bufnr },
+  })
+  eq(reconciled, { chat, chat })
+  eq(cleared, { chat })
+  eq(lookups, 3)
+
+  vim.api.nvim_exec_autocmds('User', { pattern = 'CodeCompanionChatToolAdded', data = {} })
+  local deleted = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_delete(deleted, { force = true })
+  vim.api.nvim_exec_autocmds('User', {
+    pattern = 'CodeCompanionChatAdapter',
+    data = { bufnr = deleted },
+  })
+  eq(reconciled, { chat, chat })
+  eq(cleared, { chat })
+  eq(lookups, 3)
+end
+
+T['repeated valid setup preserves a live controller'] = function()
+  Extension.setup()
+  local chat = new_control_chat()
+  local state = Control.reconcile(chat)
+  eq(type(state), 'table')
+  local submit = rawget(chat, 'submit')
+
+  Extension.setup()
+  Extension.setup()
+
+  eq(Control._get(chat), state)
+  eq(Control._count(), 1)
+  eq(rawget(chat, 'submit'), submit)
+end
+
+T['_reset removes lifecycle callbacks'] = function()
+  Extension.setup()
+  eq(type(vim.api.nvim_get_autocmds({ group = Constants.augroup })), 'table')
+  Control._reset()
+  MiniTest.expect.error(function()
+    vim.api.nvim_get_autocmds({ group = Constants.augroup })
+  end, "Invalid 'group'")
+end
+
+T['_reset restores settled controllers and tombstones busy controllers'] = function()
+  Extension.setup()
+  local settled = new_control_chat()
+  local settled_state = Control.reconcile(settled)
+  local settled_submit_original = settled_state.methods.submit.original
+  local settled_execute_original = settled_state.methods.execute.original
+
+  local busy = new_control_chat()
+  local busy_state = Control.reconcile(busy)
+  local busy_submit_wrapper = rawget(busy, 'submit')
+  local busy_done_wrapper = rawget(busy, 'done')
+  local busy_execute_wrapper = rawget(busy.tools, 'execute')
+  local request_cancels = 0
+  local orchestrator_cancels = 0
+  local handle = {
+    cancel = function()
+      request_cancels = request_cancels + 1
+      busy:submit({ auto_submit = true })
+      busy:done()
+    end,
+  }
+  busy.current_request = handle
+  busy_state.request_handle = handle
+  busy.tool_orchestrator = {
+    cancel = function()
+      orchestrator_cancels = orchestrator_cancels + 1
+      busy:submit({ auto_submit = true })
+      busy:done()
+    end,
+  }
+
+  Control._reset()
+
+  eq(rawget(settled, 'submit'), settled_submit_original)
+  eq(rawget(settled.tools, 'execute'), settled_execute_original)
+  eq(settled_state.closed, false)
+  eq(rawget(busy, 'submit'), busy_submit_wrapper)
+  eq(rawget(busy, 'done'), busy_done_wrapper)
+  eq(rawget(busy.tools, 'execute'), busy_execute_wrapper)
+  eq(busy_state.closed, true)
+  eq(busy_state.closed_cleaned, true)
+  eq(busy.current_request, nil)
+  eq(request_cancels, 1)
+  eq(orchestrator_cancels, 1)
+  eq(busy.original_submit_count, nil)
+  eq(busy.original_done_count, nil)
+  eq(Control._count(), 0)
+  eq(next(busy.callbacks.on_submitted or {}), nil)
+  eq(vim.api.nvim_buf_get_commands(busy.bufnr, {})[Constants.resume_command], nil)
+
+  busy:submit({ auto_submit = true })
+  busy:done()
+  eq(busy.original_submit_count, nil)
+  eq(busy.original_done_count, nil)
 end
 
 T['does not load or register legacy lifecycle surfaces'] = function()

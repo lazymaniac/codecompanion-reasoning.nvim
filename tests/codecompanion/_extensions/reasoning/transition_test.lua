@@ -154,6 +154,19 @@ T['permits only explicit revise or replace while reframing'] = function()
   eq(rejected.data.next_action.tool, 'reasoning_frame')
 end
 
+T['enforces reframing before the accepted-final shortcut'] = function()
+  local chat = final_workspace_fixture()
+  local workspace = State.get(chat)
+  local before = vim.deepcopy(workspace)
+
+  local rejected = Protocol.call('evidence', chat, { items = {} }, 'reframing')
+
+  eq(rejected.data.code, 'transition_invalid')
+  eq(rejected.data.next_action.tool, 'reasoning_frame')
+  eq(State.get(chat), workspace)
+  eq(workspace, before)
+end
+
 T['never treats replace as the first frame operation'] = function()
   local controlled = {}
   local rejected = Protocol.call('frame', controlled, frame_args('replace'), 'armed')
