@@ -1,6 +1,7 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
+local Tree = require('codecompanion._extensions.reasoning.tree')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 
 local T = MiniTest.new_set({
@@ -300,6 +301,38 @@ T['amend adds work without retiring anything'] = function()
   for _, id in ipairs(downstream) do
     eq(State.find(workspace, id).status, 'active')
   end
+end
+
+T['seeds one provisional sub-question per newly framed unknown'] = function()
+  local chat = {}
+  Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local workspace = State.get(chat)
+  eq(State.find(workspace, 'Q1').data.text, 'Expected write rate')
+  eq(State.find(workspace, 'Q1').data.provisional, true)
+  eq(State.find(workspace, 'Q1').data.parent_id, workspace.frame_id)
+  eq(Tree.root_split(workspace).child_ids, { 'Q1' })
+
+  local amended = valid_args('amend')
+  table.insert(amended.unknowns, 'Peak restart frequency')
+  eq(Protocol.call('frame', chat, amended, 'active').status, 'success')
+  eq(State.find(workspace, 'Q2').data.text, 'Peak restart frequency')
+  eq(Tree.root_split(workspace).child_ids, { 'Q1', 'Q2' })
+  eq(State.find(workspace, 'Q1').status, 'active')
+
+  eq(Protocol.call('frame', chat, amended, 'active').status, 'success')
+  eq(State.find(workspace, 'Q3'), nil)
+end
+
+T['reseeds unknowns when a revision retires the old tree'] = function()
+  local chat = {}
+  Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local workspace = State.get(chat)
+  local revised = valid_args('revise')
+  revised.objective = 'Explain the corrected failure'
+  eq(Protocol.call('frame', chat, revised, 'active').status, 'success')
+  eq(State.find(workspace, 'Q1').status, 'superseded')
+  eq(State.find(workspace, 'Q2').data.text, 'Expected write rate')
+  eq(Tree.root_split(workspace).child_ids, { 'Q2' })
 end
 
 T['amend rejects removals and identity changes'] = function()

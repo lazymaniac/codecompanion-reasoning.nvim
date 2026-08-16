@@ -137,6 +137,53 @@ local function amend_diagnostic_for(workspace, args)
   end
 end
 
+local function seed_unknowns(workspace, frame, existing_unknowns)
+  local seeded = {}
+  local known = normalized_set(existing_unknowns)
+  for _, unknown in ipairs(frame.data.unknowns or {}) do
+    if not known[normalized(unknown)] then
+      local artifact = State.add(workspace, 'question', {
+        parent_id = frame.id,
+        text = unknown,
+        kind = 'unknown',
+        acceptance_test = '',
+        resolution_kind = 'none',
+        provisional = true,
+        frame_id = frame.id,
+      })
+      if not artifact then
+        return nil
+      end
+      State.add_relation(workspace, artifact, 'depends_on', frame.id)
+      table.insert(seeded, artifact)
+    end
+  end
+  if #seeded == 0 then
+    return seeded
+  end
+  local record = Tree.root_split(workspace)
+  local key = frame.id
+  for _, frame_id in ipairs(workspace.frame_lineage or {}) do
+    if workspace.splits[frame_id] then
+      key = frame_id
+    end
+  end
+  local child_ids = record and vim.deepcopy(record.child_ids) or {}
+  for _, artifact in ipairs(seeded) do
+    table.insert(child_ids, artifact.id)
+  end
+  State.set_split(workspace, key, {
+    axis = record and record.axis or 'none',
+    composition = record and record.composition or 'all_of',
+    residual = record and record.residual or '',
+    residual_disposition = record and record.residual_disposition or 'none',
+    residual_covered_by = record and record.residual_covered_by or '',
+    seeded = true,
+    child_ids = child_ids,
+  })
+  return seeded
+end
+
 function M.frame(chat, args)
   if type(args) ~= 'table' then
     return failure(
@@ -410,6 +457,7 @@ function M.frame(chat, args)
       end
     end
   end
+  local previous_frame = existing and State.find(existing, existing.frame_id) or nil
   local workspace = existing
   if args.action == 'start' then
     workspace = State.begin(chat)
@@ -445,7 +493,27 @@ function M.frame(chat, args)
   for _, id in ipairs(downstream) do
     State.retire(workspace, id)
   end
-  return success(workspace, frame)
+  local previous_unknowns = args.action == 'amend' and previous_frame and previous_frame.data.unknowns or {}
+  local seeded = seed_unknowns(workspace, frame, previous_unknowns)
+  if not seeded then
+    return failure(
+      'limit_exceeded',
+      'the workspace artifact limit was reached while seeding framed unknowns',
+      {},
+      { tool = 'reasoning_frame', reason = 'Replace the workspace' },
+      Validation.diagnostic(
+        'workspace.artifacts',
+        'max_items',
+        Config.get().limits.max_artifacts,
+        #workspace.artifact_order
+      )
+    )
+  end
+  local result = success(workspace, frame)
+  if #seeded > 0 then
+    result.data.artifacts = vim.deepcopy(seeded)
+  end
+  return result
 end
 
 local function text_array_valid(value, minimum)
@@ -744,6 +812,55 @@ function M.evidence(chat, args)
         end
       end
     end
+  end
+
+  local seeded_by_text = {}
+  for _, node in ipairs(Tree.preorder(workspace)) do
+    if node.data.kind == 'unknown' and node.data.provisional then
+      seeded_by_text[normalized(node.data.text)] = node.id
+    end
+  end
+  for index, item in ipairs(prepared) do
+    local path = ('items[%d]'):format(index)
+    local addressed_questions = {}
+    local ordered_questions = {}
+    for reference_index, id in ipairs(item.addresses_questions or {}) do
+      local reference_path = ('%s.addresses_questions[%d]'):format(path, reference_index)
+      local artifact = State.find(workspace, id)
+      if
+        not artifact
+        or artifact.status ~= 'active'
+        or artifact.kind ~= 'question'
+        or not State.in_lineage(workspace, artifact.data.frame_id)
+      then
+        return failure(
+          'invalid_reference',
+          'addresses_questions must name active sub-questions',
+          { id },
+          'Use active sub-question IDs',
+          Validation.reference(workspace, id, reference_path, 'question')
+        )
+      end
+      if addressed_questions[id] then
+        return failure(
+          'evidence_invalid',
+          'addresses_questions contains a duplicate ID',
+          { id },
+          'Remove the duplicate reference',
+          Validation.diagnostic(reference_path, 'unique_items', true, Validation.artifact_ids({ id })[1])
+        )
+      end
+      addressed_questions[id] = true
+      table.insert(ordered_questions, id)
+    end
+    for _, unknown in ipairs(item.addresses_unknowns or {}) do
+      local seeded_id = seeded_by_text[normalized(unknown)]
+      if seeded_id and not addressed_questions[seeded_id] then
+        addressed_questions[seeded_id] = true
+        table.insert(ordered_questions, seeded_id)
+      end
+    end
+    item.addresses_questions = ordered_questions
   end
 
   if #workspace.artifact_order + #prepared > Config.get().limits.max_artifacts then

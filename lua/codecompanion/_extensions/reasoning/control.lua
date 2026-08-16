@@ -1029,7 +1029,7 @@ local function internal_result(state, marker, entry, message, resume_phase)
 end
 
 local accepted_shape = {
-  frame = { primary = 'frame' },
+  frame = { primary = 'frame', collection = 'question', collection_optional = true },
   evidence = { primary = 'evidence', collection = 'evidence', collection_required = true },
   options = { primary = 'branch', collection = 'option', collection_required = true },
   review = { primary = 'review' },
@@ -1064,8 +1064,9 @@ local function accepted_payload(state, marker, payload)
     return false
   end
   local clean_workspace = marker.operation == 'frame' and (marker.workspace == nil or marker.action == 'replace')
+  local reported_primary = type(payload.artifact) == 'table' and payload.artifact.id or nil
   if clean_workspace then
-    if workspace == marker.workspace or #workspace.artifact_order ~= 1 then
+    if workspace == marker.workspace or workspace.artifact_order[1] ~= reported_primary then
       return false
     end
   elseif workspace ~= marker.workspace then
@@ -1078,14 +1079,19 @@ local function accepted_payload(state, marker, payload)
     return false
   end
   local expected_collection
-  if shape.collection_required then
+  if shape.collection_required or shape.collection_optional then
     expected_collection = {}
     for _, artifact in ipairs(newly_allocated) do
       if artifact.kind == shape.collection then
         table.insert(expected_collection, artifact)
       end
     end
-    if #expected_collection == 0 or not vim.deep_equal(payload.artifacts, expected_collection) then
+    if #expected_collection == 0 then
+      if shape.collection_required or payload.artifacts ~= nil then
+        return false
+      end
+      expected_collection = nil
+    elseif not vim.deep_equal(payload.artifacts, expected_collection) then
       return false
     end
     if marker.operation == 'evidence' and primary ~= expected_collection[#expected_collection] then
