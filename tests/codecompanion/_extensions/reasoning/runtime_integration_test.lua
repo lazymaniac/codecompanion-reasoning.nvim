@@ -1281,6 +1281,82 @@ T['keeps the locked host buffer lifecycle coherent after rejected tool completio
   chat:clear()
 end
 
+T['blocks a premature final on open leaves and keeps amended work'] = function()
+  local chat = new_chat(40)
+  attach_group(chat, true)
+
+  local frame = complete_reasoning_request(chat, 'reasoning_frame', deep_frame_args(), 'tree-frame')
+  eq(frame.next_action.tool, 'reasoning_question')
+  eq(frame.open_items.tree, { total = 0, closed = 0, open = 0, max_depth = 0, root_split = false })
+
+  local split = complete_reasoning_request(chat, 'reasoning_question', deep_split_args(chat), 'tree-split')
+  eq(
+    vim.tbl_map(function(entry)
+      return entry.id
+    end, split.open_items.questions),
+    { 'Q1', 'Q2' }
+  )
+
+  -- An enforced chat never reaches the final gates with open leaves: the
+  -- preflight rejects the call against the authoritative transition first.
+  local premature = complete_reasoning_request(chat, 'reasoning_synthesis', synthesis_args(), 'tree-premature')
+  eq(premature.code, 'transition_invalid')
+  eq(premature.committed, false)
+  eq(premature.next_action, { tool = 'reasoning_evidence', reason = 'Gather evidence for sub-question Q1' })
+  eq(Control._get(chat).consecutive_violations, 1)
+  eq(vim.tbl_contains(Protocol.final_gates(State.get(chat), synthesis_args()), 'open_questions'), true)
+
+  -- The violation already queued one corrective request; answer that one.
+  local corrective = chat.requests[#chat.requests]
+  local recovered = complete_request(
+    chat,
+    corrective,
+    completion({ model_call('reasoning_evidence', deep_evidence_args(), 'tree-evidence') })
+  )
+  eq(vim.json.decode(recovered[1].for_llm).artifacts[2].id, 'E2')
+  eq(Control._get(chat).consecutive_violations, 0)
+
+  for index, id in ipairs({ 'Q1', 'Q2' }) do
+    complete_reasoning_request(
+      chat,
+      'reasoning_question',
+      question_args({
+        action = 'answer',
+        question_id = id,
+        answer = 'The cited observation closes ' .. id,
+        evidence_ids = { 'E' .. index },
+        confidence = 'high',
+      }),
+      'tree-close-' .. id
+    )
+  end
+
+  local workspace = State.get(chat)
+  local before = vim.deepcopy(workspace.artifact_order)
+  local amended = deep_frame_args()
+  amended.action = 'amend'
+  amended.unknowns = { 'Whether compaction survives a disk-full stall' }
+  local amend = complete_reasoning_request(chat, 'reasoning_frame', amended, 'tree-amend')
+  eq(amend.artifact.id, 'F2')
+  eq(amend.artifacts[1].id, 'Q3')
+  eq(amend.next_action.reason, 'Gather evidence for sub-question Q3')
+  for _, id in ipairs(before) do
+    eq(State.find(workspace, id).status ~= 'retracted', true)
+  end
+  eq(State.find(workspace, 'C1').status, 'active')
+  eq(State.find(workspace, 'E1').status, 'active')
+  eq(workspace.frame_lineage, { 'F1', 'F2' })
+  eq(amend.open_items.questions, {
+    {
+      id = 'Q3',
+      parent_id = 'F2',
+      depth = 1,
+      provisional = true,
+      text = 'Whether compaction survives a disk-full stall',
+    },
+  })
+end
+
 T['blocks ACP once and restores the suspended HTTP phase'] = function()
   local function unsupported_count(chat)
     return #vim.tbl_filter(function(entry)
