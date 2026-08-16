@@ -24,10 +24,16 @@ local unique_arrays = {
   ['reasoning_synthesis.uncertainties'] = true,
   ['reasoning_synthesis.blind_spots'] = true,
   ['reasoning_synthesis.next_actions'] = true,
+  ['reasoning_question.evidence_ids'] = true,
+  ['reasoning_evidence.items.addresses_questions'] = true,
 }
 
 local empty_text_allowed = {
   ['reasoning_review.verdicts.revision_instruction'] = true,
+  ['reasoning_question.residual'] = true,
+  ['reasoning_question.answer'] = true,
+  ['reasoning_question.justification'] = true,
+  ['reasoning_question.acceptance_test'] = true,
 }
 
 local artifact_id_paths = {
@@ -49,6 +55,11 @@ local artifact_id_paths = {
   ['reasoning_synthesis.support_ids'] = true,
   ['reasoning_synthesis.review_ids'] = true,
   ['reasoning_synthesis.criterion_results.evidence_ids'] = true,
+  ['reasoning_question.parent_id'] = true,
+  ['reasoning_question.question_id'] = true,
+  ['reasoning_question.residual_covered_by'] = true,
+  ['reasoning_question.evidence_ids'] = true,
+  ['reasoning_evidence.items.addresses_questions'] = true,
 }
 
 local function minimum(left, right)
@@ -98,6 +109,9 @@ function M.resolve(name, template)
   local parameters = resolved.schema['function'].parameters
   for field, node in pairs(parameters.properties) do
     visit(node, name .. '.' .. field, limits)
+  end
+  if name == 'reasoning_question' then
+    parameters.properties.child_questions.maxItems = limits.max_children
   end
   if name == 'reasoning_evidence' then
     local items = parameters.properties.items

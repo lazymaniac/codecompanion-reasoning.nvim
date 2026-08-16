@@ -3,25 +3,49 @@ local M = {}
 local defaults = {
   auto_attach = false,
   default_depth = 'deep',
+  strict_atomicity = true,
+  require_observation_for_closure = true,
+  judgment_requires_review = true,
   limits = {
-    max_artifacts = 192,
+    max_artifacts = 320,
     max_batch_items = 8,
     max_text_chars = 2000,
     max_array_items = 12,
+    max_children = 6,
+    max_questions = 64,
+    max_tree_depth = 4,
+    frontier_items = 12,
   },
+}
+
+local boolean_options = {
+  'auto_attach',
+  'strict_atomicity',
+  'require_observation_for_closure',
+  'judgment_requires_review',
+}
+
+local limit_minimums = {
+  max_children = 2,
+  max_array_items = 2,
 }
 
 local options = vim.deepcopy(defaults)
 
 local function validate(candidate)
-  local allowed_options = { auto_attach = true, default_depth = true, limits = true }
+  local allowed_options = { default_depth = true, limits = true }
+  for _, name in ipairs(boolean_options) do
+    allowed_options[name] = true
+  end
   for name in pairs(candidate) do
     if not allowed_options[name] then
       error('unknown option: ' .. name)
     end
   end
-  if type(candidate.auto_attach) ~= 'boolean' then
-    error('auto_attach must be a boolean')
+  for _, name in ipairs(boolean_options) do
+    if type(candidate[name]) ~= 'boolean' then
+      error(name .. ' must be a boolean')
+    end
   end
   if candidate.default_depth ~= 'standard' and candidate.default_depth ~= 'deep' then
     error("default_depth must be 'standard' or 'deep'")
@@ -29,12 +53,10 @@ local function validate(candidate)
   if type(candidate.limits) ~= 'table' then
     error('limits must be a table')
   end
-  local allowed_limits = {
-    max_artifacts = true,
-    max_batch_items = true,
-    max_text_chars = true,
-    max_array_items = true,
-  }
+  local allowed_limits = {}
+  for name in pairs(defaults.limits) do
+    allowed_limits[name] = true
+  end
   for name, value in pairs(candidate.limits) do
     if not allowed_limits[name] then
       error('unknown limit: ' .. name)
@@ -42,9 +64,10 @@ local function validate(candidate)
     if type(value) ~= 'number' or value < 1 or value % 1 ~= 0 then
       error(name .. ' must be a positive integer')
     end
-  end
-  if candidate.limits.max_array_items < 2 then
-    error('max_array_items must be at least 2')
+    local minimum = limit_minimums[name]
+    if minimum and value < minimum then
+      error(('%s must be at least %d'):format(name, minimum))
+    end
   end
 end
 

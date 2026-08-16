@@ -1,5 +1,6 @@
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Adapters = require('codecompanion.adapters')
+local HostConfig = require('codecompanion.config')
 local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
@@ -1028,11 +1029,18 @@ local function internal_result(state, marker, entry, message, resume_phase)
 end
 
 local accepted_shape = {
-  frame = { primary = 'frame' },
+  frame = { primary = 'frame', collection = 'question', collection_optional = true },
   evidence = { primary = 'evidence', collection = 'evidence', collection_required = true },
   options = { primary = 'branch', collection = 'option', collection_required = true },
   review = { primary = 'review' },
   synthesis = { primary = 'synthesis' },
+  question = {
+    by_action = {
+      split = { primary = 'question', collection = 'question', collection_required = true },
+      answer = { primary = 'closure' },
+      drop = { primary = 'closure' },
+    },
+  },
 }
 
 local function ordered_new_artifacts(workspace, marker, clean_workspace)
@@ -1049,12 +1057,16 @@ local function accepted_payload(state, marker, payload)
   local chat = chat_for(state)
   local workspace = chat and State.get(chat) or nil
   local shape = accepted_shape[marker.operation]
+  if shape and shape.by_action then
+    shape = shape.by_action[marker.action]
+  end
   if not workspace or not shape or type(payload) ~= 'table' then
     return false
   end
   local clean_workspace = marker.operation == 'frame' and (marker.workspace == nil or marker.action == 'replace')
+  local reported_primary = type(payload.artifact) == 'table' and payload.artifact.id or nil
   if clean_workspace then
-    if workspace == marker.workspace or #workspace.artifact_order ~= 1 then
+    if workspace == marker.workspace or workspace.artifact_order[1] ~= reported_primary then
       return false
     end
   elseif workspace ~= marker.workspace then
@@ -1067,14 +1079,19 @@ local function accepted_payload(state, marker, payload)
     return false
   end
   local expected_collection
-  if shape.collection_required then
+  if shape.collection_required or shape.collection_optional then
     expected_collection = {}
     for _, artifact in ipairs(newly_allocated) do
       if artifact.kind == shape.collection then
         table.insert(expected_collection, artifact)
       end
     end
-    if #expected_collection == 0 or not vim.deep_equal(payload.artifacts, expected_collection) then
+    if #expected_collection == 0 then
+      if shape.collection_required or payload.artifacts ~= nil then
+        return false
+      end
+      expected_collection = nil
+    elseif not vim.deep_equal(payload.artifacts, expected_collection) then
       return false
     end
     if marker.operation == 'evidence' and primary ~= expected_collection[#expected_collection] then
@@ -1114,6 +1131,7 @@ local function accepted_payload(state, marker, payload)
     artifact = vim.deepcopy(primary),
     progress = vim.deepcopy(workspace.counts_by_kind),
     unmet_gates = final_synthesis and {} or Protocol.final_gates(workspace, synthesis_arguments),
+    open_items = Protocol.frontier(workspace),
     next_action = synthesis_arguments and Guidance.next(workspace, synthesis_arguments)
       or Protocol.transition(workspace, 'active'),
   }
@@ -2211,6 +2229,16 @@ local function run_preserved_done(state, target, done, extra, classify)
       extra[4] = nil
     end
   end
+  if
+    classify
+    and suppressing_phase[state.phase]
+    and not has_tools
+    and not stopped
+    and not failed
+    and not target._btw
+  then
+    target._last_role = HostConfig.constants.LLM_ROLE
+  end
   state.processing_done = true
   local format_slot = extra[3] ~= nil and install_format_guard(target, state) or nil
   local ok, values = xpcall(function()
@@ -2593,6 +2621,14 @@ local function install(chat, phase)
       return
     end
     local kind = type(opts) == 'table' and opts.type or nil
+    if
+      state.processing_done
+      and type(data) == 'table'
+      and data.role == HostConfig.constants.USER_ROLE
+      and (data.content == nil or data.content == '')
+    then
+      opts = vim.tbl_extend('force', {}, type(opts) == 'table' and opts or {}, { force_role = true })
+    end
     local scope = state.executing_scope
     if
       (

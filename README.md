@@ -1,10 +1,10 @@
 # CodeCompanion Structured Reasoning
 
-Five deterministic tools for guiding difficult analysis, diagnosis, design,
+Six deterministic tools for guiding difficult analysis, diagnosis, design,
 decisions, and planning in
 [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
-Attaching all five tools to a supported HTTP chat synchronously arms a
+Attaching all six tools to a supported HTTP chat synchronously arms a
 chat-local, fail-closed protocol. Free-form model output can no longer bypass
 the structure: accepted artifacts are the only source of a final answer, and
 the extension renders that answer deterministically after the matching host
@@ -77,14 +77,18 @@ Add `@{reasoning}` to a chat when needed. To attach it to every chat, set `auto_
 ## Workflow
 
 ```text
-Frame -> Evidence <-> Options <-> Review -> Synthesis
+Frame -> Question(split) -> Evidence <-> Question(close) -> Options <-> Review -> Synthesis
 ```
 
-Once all five reasoning tools are attached to an HTTP chat:
+Once all six reasoning tools are attached to an HTTP chat:
 
 1. External project tools may run before framing and between artifacts without
    a count or retry limit from this extension.
 2. The first reasoning call must be `reasoning_frame` with `action = "start"`.
+   A deep frame, or any frame that declares unknowns, must then be decomposed
+   with `reasoning_question` before evidence is gathered. Every leaf must be
+   closed by cited active evidence, or explicitly dropped, before a final
+   synthesis is accepted.
 3. Every later reasoning call must be the sole call in its completion and must
    match the authoritative transition returned by the protocol. External-only
    completions remain allowed.
@@ -99,9 +103,11 @@ Each reasoning call is atomic. Accepted and rejected results carry one
 deterministic `next_action`; rejected batches do not partially mutate the
 workspace. The workspace is scoped to the active chat and bounded in memory.
 
-Attaching fewer than all five tools is outside the fail-closed guarantee. That
+Attaching fewer than all six tools is outside the fail-closed guarantee. That
 partial/individual-tool path retains the legacy one-shot terminal behavior for
-compatibility. The legacy submit wrapper is never installed on a controlled
+compatibility. A configuration that lists the pre-tree five tool names by hand
+now attaches an incomplete set: the controller stays dormant and the legacy
+guard applies, so add `reasoning_question` to keep enforcement. The legacy submit wrapper is never installed on a controlled
 complete-tool chat, so the two lifecycle mechanisms cannot stack.
 
 ## Tools
@@ -136,6 +142,65 @@ Starts, revises, or explicitly replaces a chat-local workspace.
 ```
 
 `problem_type` accepts `analysis`, `decision`, `diagnosis`, `design`, or `planning`. Decision, diagnosis, design, and planning frames require branching. Deep frames require at least two perspectives.
+
+`action` also accepts `amend`, which adds unknowns, success criteria,
+perspectives, and constraints to the active frame without retiring any existing
+artifact. Amend may not change the objective, problem type, or depth, and may
+not remove anything; those remain `revise` and `replace`, which still retire
+downstream work. Each newly framed unknown is seeded as a provisional
+sub-question. Reviews, branches, and checkpoints recorded under an earlier frame
+in the same amend lineage stay current.
+
+### `reasoning_question`
+
+Decomposes the problem into atomic sub-questions and closes each leaf.
+
+```json
+{
+  "action": "split",
+  "parent_id": "F1",
+  "axis": "component",
+  "composition": "all_of",
+  "residual": "",
+  "residual_disposition": "none",
+  "residual_covered_by": "",
+  "child_questions": [
+    {
+      "text": "Does replay restore committed writes?",
+      "kind": "sub_problem",
+      "acceptance_test": "Observe a replayed commit after restart",
+      "resolution_kind": "observation"
+    },
+    {
+      "text": "Does compaction bound retained entries?",
+      "kind": "sub_problem",
+      "acceptance_test": "Observe retained entries after compaction",
+      "resolution_kind": "observation"
+    }
+  ],
+  "question_id": "",
+  "answer": "",
+  "justification": "",
+  "drop_reason": "none",
+  "evidence_ids": [],
+  "acceptance_test": "",
+  "resolution_kind": "none",
+  "confidence": "none"
+}
+```
+
+A split needs two or more children with distinct text and distinct acceptance
+tests, a declared axis, a composition compatible with the parent, and a
+residual that is either empty or dispositioned as `covered_elsewhere` or
+`out_of_scope` against an active frame constraint. Under `strict_atomicity`, an
+acceptance test naming more than one observable is rejected as non-atomic.
+Depth, child count, and total sub-questions are bounded by configuration.
+
+`action = "answer"` closes one leaf with cited active evidence;
+`action = "drop"` closes it with a classified justification. A closure only
+counts while its cited evidence stays active, so retracting that evidence
+reopens the leaf and blocks the final again. Sub-question state is derived, not
+stored: a leaf is open when it has no active children and no valid closure.
 
 ### `reasoning_evidence`
 
@@ -313,11 +378,23 @@ permitted only when the authoritative `next_action` is
 `reasoning_synthesis`. Final mode is accepted only after every applicable gate
 passes.
 
+## Frontier
+
+Every accepted result, and every final blocked by the gates, carries
+`open_items`: the open leaves in pre-order with their depth and provisional
+flag, unsupported closures, open revisions, unresolved contradictions, and a
+tree summary. Lists are bounded by `frontier_items`, and anything dropped is
+reported in `truncated` rather than silently omitted.
+
 ## Structural gates
 
 Standard depth requires:
 
 - an active, structurally valid frame;
+- a root decomposition when the frame declares unknowns;
+- a valid closure for every open leaf, and no closure whose cited evidence went
+  inactive;
+- an active sub-question for every residual declared `covered_elsewhere`;
 - active evidence from at least one framed perspective;
 - cited evidence for every framed unknown;
 - competing branches when the frame requires them;
@@ -330,6 +407,7 @@ Standard depth requires:
 
 Deep depth additionally requires:
 
+- a root decomposition, whether or not the frame declares unknowns;
 - evidence from at least two framed perspectives;
 - a relevant `full` adversarial review;
 - cited, active support and review artifacts for the final result.
@@ -455,11 +533,18 @@ rendering.
 opts = {
   auto_attach = false,
   default_depth = 'deep',
+  strict_atomicity = true,
+  require_observation_for_closure = true,
+  judgment_requires_review = true,
   limits = {
-    max_artifacts = 192,
+    max_artifacts = 320,
     max_batch_items = 8,
     max_text_chars = 2000,
     max_array_items = 12,
+    max_children = 6,
+    max_questions = 64,
+    max_tree_depth = 4,
+    frontier_items = 12,
   },
 }
 ```
@@ -470,6 +555,16 @@ opts = {
 - `max_batch_items` bounds evidence records in one call.
 - `max_text_chars` bounds a single text field.
 - `max_array_items` bounds a general artifact array.
+- `max_children` bounds one split; `max_questions` bounds all active
+  sub-questions; `max_tree_depth` bounds how deep a split may nest.
+- `frontier_items` bounds each `open_items` list; dropped entries are counted in
+  `truncated`.
+- `strict_atomicity` rejects an acceptance test that names more than one
+  observable.
+- `require_observation_for_closure` requires at least one `observation` item
+  behind a leaf resolved by observation.
+- `judgment_requires_review` requires an adversarial review before a leaf
+  resolved by judgment can close.
 
 All limits must be positive integers. Unknown or invalid options fail setup atomically.
 
@@ -477,7 +572,7 @@ The automatic recovery budget is fixed at three consecutive violations. It is
 intentionally not configurable, so the documented fail-closed boundary cannot
 be weakened by local options.
 
-The extension preserves existing CodeCompanion configuration for other tools, groups, system prompts, and display settings. It registers exactly the five tools above in the `reasoning` group and does not replace CodeCompanion's host system prompt.
+The extension preserves existing CodeCompanion configuration for other tools, groups, system prompts, and display settings. It registers exactly the six tools above in the `reasoning` group and does not replace CodeCompanion's host system prompt.
 
 ## Privacy and scope
 

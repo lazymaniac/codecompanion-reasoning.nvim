@@ -4,6 +4,7 @@ local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
+local TreeFixture = require('support.tree_fixture')
 
 local T = MiniTest.new_set({
   hooks = {
@@ -54,6 +55,7 @@ local function prepared_chat()
     branching_rationale = 'Several storage strategies are viable',
   }
   eq(Frame.cmds[1]({ chat = chat }, frame, {}).status, 'success')
+  eq(TreeFixture.satisfy(chat), true)
   eq(Evidence.cmds[1]({ chat = chat }, evidence_args(), {}).status, 'success')
   return chat
 end

@@ -212,6 +212,56 @@ T['uses singular and plural headings for every branch type'] = function()
   end
 end
 
+T['renders resolved and dropped sub-questions in pre-order'] = function()
+  local workspace = fixture()
+  workspace.frame_lineage = { 'F1' }
+  workspace.splits = { F1 = { axis = 'component', composition = 'all_of', residual = '', child_ids = { 'Q1', 'Q2' } } }
+  local function push(value)
+    workspace.artifacts_by_id[value.id] = value
+    table.insert(workspace.artifact_order, value.id)
+    return value
+  end
+  push(artifact('Q1', 'question', {
+    parent_id = 'F1',
+    text = 'Does replay restore committed writes?',
+    kind = 'sub_problem',
+    provisional = false,
+  }))
+  push(artifact('Q2', 'question', {
+    parent_id = 'F1',
+    text = 'Does cluster failover matter?',
+    kind = 'sub_problem',
+    provisional = false,
+  }))
+  local answered = push(artifact('C1', 'closure', {
+    question_id = 'Q1',
+    action = 'answer',
+    answer = 'Replay restores every committed write.',
+    justification = '',
+    drop_reason = 'none',
+  }))
+  answered.relations.supports = { 'E1' }
+  push(artifact('C2', 'closure', {
+    question_id = 'Q2',
+    action = 'drop',
+    answer = '',
+    justification = 'Single node only',
+    drop_reason = 'out_of_scope',
+  }))
+
+  local markdown = Render.render(workspace, candidate())
+  eq(position(markdown, '## Resolved sub-questions') < position(markdown, '## Dropped sub-questions'), true)
+  eq(position(markdown, '## Dropped sub-questions') < position(markdown, '## Success criteria'), true)
+  position(markdown, '- **Q1 — Does replay restore committed writes?:** Replay restores every committed write')
+  position(markdown, '_(evidence: E1)_')
+  position(markdown, '- **Q2 — Does cluster failover matter?:** Single node only')
+end
+
+T['renders a tree-less workspace exactly as before'] = function()
+  local markdown = Render.render(fixture(), candidate())
+  eq(markdown:find('sub-questions', 1, true), nil)
+end
+
 T['omits empty optional sections'] = function()
   local final = candidate()
   final.selected_option_ids = {}

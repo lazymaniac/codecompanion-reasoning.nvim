@@ -13,6 +13,7 @@ local paths = {
   reasoning_options = '_extensions.reasoning.tools.options',
   reasoning_review = '_extensions.reasoning.tools.review',
   reasoning_synthesis = '_extensions.reasoning.tools.synthesis',
+  reasoning_question = '_extensions.reasoning.tools.question',
 }
 
 local descriptions = {
@@ -21,6 +22,7 @@ local descriptions = {
   reasoning_options = 'Create competing solutions, hypotheses, or scenarios',
   reasoning_review = 'Adversarially challenge and revise reasoning artifacts',
   reasoning_synthesis = 'Record a checkpoint or gated final synthesis',
+  reasoning_question = 'Split a problem into atomic sub-questions and close each leaf',
 }
 
 local function tool_callback(name)
@@ -124,6 +126,9 @@ Runtime rules:
 6. Rejected artifact IDs do not exist and must never be cited or reused.
 7. New user information requires reasoning_frame with action=revise or action=replace before downstream reasoning continues.
 8. The deterministic final answer may use only accepted artifacts and their validated references.
+9. Split the problem into atomic sub-questions before gathering evidence; a sub-question is atomic when one stated observation closes it.
+10. Every leaf must be closed by reasoning_question with cited active evidence, or explicitly dropped with justification, before any final synthesis.
+11. Work discovered mid-run uses reasoning_frame with action=amend, which adds unknowns, criteria, perspectives, and constraints while keeping every existing artifact.
 Treat each accepted result's next_action.tool as the protocol state transition. Call exactly one reasoning tool at a time; never batch reasoning calls. Satisfy next_action.reason before making the next reasoning call. Never repeat unchanged rejected arguments.
 Record decision-relevant observations, claims, and labelled assumptions with reasoning_evidence. Every item needs a concrete source and an observable result that would falsify or materially revise it. Link evidence to exact framed unknowns when it addresses them.
 For decisions, diagnoses, designs, and plans, use reasoning_options to maintain genuinely competing solutions, hypotheses, or scenarios. Do not select an option in the same call that invents it.

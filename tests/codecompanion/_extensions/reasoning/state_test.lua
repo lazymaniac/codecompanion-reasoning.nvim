@@ -101,6 +101,69 @@ T['tracks one revision for every externally visible mutation'] = function()
   eq(workspace.revision, 6)
 end
 
+T['allocates deterministic question and closure IDs'] = function()
+  local workspace = State.begin({})
+  eq(State.add(workspace, 'question', {}).id, 'Q1')
+  eq(State.add(workspace, 'question', {}).id, 'Q2')
+  eq(State.add(workspace, 'closure', {}).id, 'C1')
+  eq(workspace.counts_by_kind.question, 2)
+  eq(workspace.counts_by_kind.closure, 1)
+end
+
+T['tracks one revision for every tree mutation'] = function()
+  local workspace = State.begin({})
+  eq(workspace.frame_lineage, {})
+  eq(workspace.splits, {})
+  local frame = State.add(workspace, 'frame', {})
+  local before = workspace.revision
+
+  State.reset_lineage(workspace, frame.id)
+  eq(workspace.frame_lineage, { frame.id })
+  eq(workspace.revision, before + 1)
+
+  local amended = State.add(workspace, 'frame', {})
+  State.extend_lineage(workspace, amended.id)
+  eq(workspace.frame_lineage, { frame.id, amended.id })
+  eq(workspace.revision, before + 3)
+
+  State.set_split(workspace, frame.id, { axis = 'component', child_ids = { 'Q1', 'Q2' } })
+  eq(workspace.splits[frame.id].axis, 'component')
+  eq(workspace.revision, before + 4)
+
+  eq(State.in_lineage(workspace, frame.id), true)
+  eq(State.in_lineage(workspace, amended.id), true)
+  eq(State.in_lineage(workspace, 'F9'), false)
+  eq(State.in_lineage(workspace, nil), false)
+  eq(workspace.revision, before + 4)
+end
+
+T['resets the lineage without inheriting a replaced frame'] = function()
+  local workspace = State.begin({})
+  local first = State.add(workspace, 'frame', {})
+  State.reset_lineage(workspace, first.id)
+  State.extend_lineage(workspace, State.add(workspace, 'frame', {}).id)
+  local replacement = State.add(workspace, 'frame', {})
+  State.reset_lineage(workspace, replacement.id)
+  eq(workspace.frame_lineage, { replacement.id })
+  eq(State.in_lineage(workspace, first.id), false)
+end
+
+T['keeps final rollback independent of tree state'] = function()
+  local chat = {}
+  local workspace = State.begin(chat)
+  local frame = State.add(workspace, 'frame', {})
+  State.reset_lineage(workspace, frame.id)
+  State.set_split(workspace, frame.id, { axis = 'phase', child_ids = { 'Q1' } })
+  local stage = State.prepare_final(chat, { mode = 'final' }, {})
+  local before = workspace.revision
+  eq(State.commit_final(chat, stage).id, 'S1')
+
+  eq(State.rollback_final(chat, stage), true)
+  eq(workspace.revision, before)
+  eq(workspace.frame_lineage, { frame.id })
+  eq(workspace.splits[frame.id].axis, 'phase')
+end
+
 T['prepares and commits one revision-bound final'] = function()
   local chat = {}
   local workspace = State.begin(chat)

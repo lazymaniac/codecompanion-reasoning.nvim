@@ -3,6 +3,8 @@ local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
 local Frame = require('codecompanion._extensions.reasoning.tools.frame')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
+local Tree = require('codecompanion._extensions.reasoning.tree')
+local TreeFixture = require('support.tree_fixture')
 local Render = require('codecompanion._extensions.reasoning.render')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
@@ -30,7 +32,7 @@ local function contains(values, expected)
 end
 
 local function add_frame(chat, depth, branching, unknowns, temporal_required)
-  return Frame.cmds[1]({ chat = chat }, {
+  local result = Frame.cmds[1]({ chat = chat }, {
     action = 'start',
     objective = 'Choose a durable cache design',
     problem_type = branching and 'design' or 'analysis',
@@ -46,6 +48,10 @@ local function add_frame(chat, depth, branching, unknowns, temporal_required)
     branching_required = branching,
     branching_rationale = branching and 'Competing designs exist' or 'This analysis tests one claim',
   }, {})
+  if result.status == 'success' then
+    eq(TreeFixture.satisfy(chat), true)
+  end
+  return result
 end
 
 local function revise_frame(chat, temporal_required)
@@ -274,6 +280,212 @@ T['deep final requires two-perspective evidence to exist'] = function()
   local result = Synthesis.cmds[1]({ chat = deep_workspace({ one_perspective = true }) }, args, {})
   eq(result.data.code, 'synthesis_gate_failed')
   contains(result.data.unmet_gates, 'perspective_coverage_missing')
+end
+
+T['final reports every decomposition gate with its blockers'] = function()
+  local chat = {}
+  eq(
+    Frame.cmds[1]({ chat = chat }, {
+      action = 'start',
+      objective = 'Choose a durable cache design',
+      problem_type = 'analysis',
+      depth = 'deep',
+      constraints = { 'No external service' },
+      success_criteria = { 'Survives process restart', 'Bounded memory' },
+      unknowns = {},
+      perspectives = {
+        { name = 'correctness', purpose = 'Find recovery failures' },
+        { name = 'operations', purpose = 'Find lifecycle failures' },
+      },
+      temporal_required = false,
+      branching_required = false,
+      branching_rationale = 'This analysis tests one claim',
+    }, {}).status,
+    'success'
+  )
+  local args = final_args()
+  args.mode = 'checkpoint'
+  args.selected_option_ids, args.support_ids, args.review_ids, args.criterion_results = {}, {}, {}, {}
+  local blocked = Synthesis.cmds[1]({ chat = chat }, args, {})
+  contains(blocked.data.unmet_gates, 'decomposition_missing')
+
+  local workspace = State.get(chat)
+  eq(
+    Protocol.call(
+      'question',
+      chat,
+      TreeFixture.args({
+        parent_id = workspace.frame_id,
+        child_questions = {
+          {
+            text = 'Does compaction bound the journal?',
+            kind = 'sub_problem',
+            acceptance_test = 'Observe compaction output',
+            resolution_kind = 'observation',
+          },
+          {
+            text = 'Does replay restore the last commit?',
+            kind = 'sub_problem',
+            acceptance_test = 'Observe the restored commit',
+            resolution_kind = 'observation',
+          },
+        },
+      }),
+      nil
+    ).status,
+    'success'
+  )
+  eq(#Tree.open_leaves(workspace, {}), 2)
+  local open_gate = Synthesis.cmds[1]({ chat = chat }, args, {})
+  contains(open_gate.data.unmet_gates, 'open_questions')
+  eq(vim.tbl_contains(open_gate.data.unmet_gates, 'decomposition_missing'), false)
+  local gates, blockers = Protocol.final_gates(workspace, nil)
+  contains(gates, 'open_questions')
+  contains(blockers, 'Q1')
+  contains(blockers, 'Q2')
+end
+
+T['reports the frontier on accepted results and gate rejections'] = function()
+  local chat = {}
+  eq(
+    Frame.cmds[1]({ chat = chat }, {
+      action = 'start',
+      objective = 'Choose a durable cache design',
+      problem_type = 'analysis',
+      depth = 'standard',
+      constraints = { 'No external service' },
+      success_criteria = { 'Survives process restart', 'Bounded memory' },
+      unknowns = {},
+      perspectives = { { name = 'correctness', purpose = 'Find recovery failures' } },
+      temporal_required = false,
+      branching_required = false,
+      branching_rationale = 'This analysis tests one claim',
+    }, {}).status,
+    'success'
+  )
+  local workspace = State.get(chat)
+  local split = Protocol.call(
+    'question',
+    chat,
+    TreeFixture.args({
+      parent_id = workspace.frame_id,
+      child_questions = {
+        {
+          text = 'Does the journal replay?',
+          kind = 'sub_problem',
+          acceptance_test = 'Observe a replay',
+          resolution_kind = 'observation',
+        },
+        {
+          text = 'Does the snapshot load?',
+          kind = 'sub_problem',
+          acceptance_test = 'Observe a load',
+          resolution_kind = 'observation',
+        },
+      },
+    }),
+    nil
+  )
+  eq(split.status, 'success')
+  eq(split.data.open_items.questions, {
+    { id = 'Q1', parent_id = 'F1', depth = 1, provisional = false, text = 'Does the journal replay?' },
+    { id = 'Q2', parent_id = 'F1', depth = 1, provisional = false, text = 'Does the snapshot load?' },
+  })
+  eq(split.data.open_items.tree.open, 2)
+  eq(split.data.open_items.truncated, { questions = 0, unsupported_closures = 0 })
+
+  local args = final_args()
+  args.selected_option_ids, args.support_ids, args.review_ids = {}, {}, {}
+  for _, result in ipairs(args.criterion_results) do
+    result.evidence_ids = {}
+  end
+  local blocked = Synthesis.cmds[1]({ chat = chat }, args, {})
+  eq(blocked.data.code, 'synthesis_gate_failed')
+  eq(
+    vim.tbl_map(function(entry)
+      return entry.id
+    end, blocked.data.open_items.questions),
+    { 'Q1', 'Q2' }
+  )
+
+  Config.setup({ limits = { frontier_items = 1 } })
+  local truncated = Synthesis.cmds[1]({ chat = chat }, args, {})
+  eq(#truncated.data.open_items.questions, 1)
+  eq(truncated.data.open_items.truncated.questions, 1)
+end
+
+T['final reopens a leaf whose closure evidence is retracted'] = function()
+  local chat = {}
+  eq(
+    Frame.cmds[1]({ chat = chat }, {
+      action = 'start',
+      objective = 'Choose a durable cache design',
+      problem_type = 'analysis',
+      depth = 'standard',
+      constraints = { 'No external service' },
+      success_criteria = { 'Survives process restart', 'Bounded memory' },
+      unknowns = {},
+      perspectives = { { name = 'correctness', purpose = 'Find recovery failures' } },
+      temporal_required = false,
+      branching_required = false,
+      branching_rationale = 'This analysis tests one claim',
+    }, {}).status,
+    'success'
+  )
+  eq(add_evidence(chat, 'Restart loses process-local state', 'correctness').status, 'success')
+  local workspace = State.get(chat)
+  eq(
+    Protocol.call(
+      'question',
+      chat,
+      TreeFixture.args({
+        parent_id = workspace.frame_id,
+        child_questions = {
+          {
+            text = 'Does the journal replay?',
+            kind = 'sub_problem',
+            acceptance_test = 'Observe a replay',
+            resolution_kind = 'observation',
+          },
+          {
+            text = 'Does the snapshot load?',
+            kind = 'sub_problem',
+            acceptance_test = 'Observe a load',
+            resolution_kind = 'observation',
+          },
+        },
+      }),
+      nil
+    ).status,
+    'success'
+  )
+  for _, id in ipairs({ 'Q1', 'Q2' }) do
+    eq(
+      Protocol.call(
+        'question',
+        chat,
+        TreeFixture.args({
+          action = 'answer',
+          question_id = id,
+          answer = 'Closed by the recorded observation',
+          evidence_ids = { 'E1' },
+        }),
+        nil
+      ).status,
+      'success'
+    )
+  end
+  local args = final_args()
+  args.selected_option_ids, args.review_ids = {}, {}
+  args.support_ids = { 'E1' }
+  args.criterion_results[1].evidence_ids = { 'E1' }
+  args.criterion_results[2].evidence_ids = { 'E1' }
+  eq(Synthesis.cmds[1]({ chat = chat }, args, {}).status, 'success')
+
+  State.retract(workspace, 'E1')
+  local gates = Protocol.final_gates(workspace, nil)
+  contains(gates, 'closure_unsupported')
+  contains(gates, 'open_questions')
 end
 
 T['final requires evidence coverage for framed unknowns'] = function()
@@ -671,7 +883,8 @@ T['stale branches and reviews cannot satisfy a revised frame'] = function()
   local chat = deep_workspace()
   local revised = revise_frame(chat)
   eq(revised.status, 'success')
-  eq(revised.data.next_action.tool, 'reasoning_evidence')
+  eq(revised.data.next_action.tool, 'reasoning_question')
+  eq(TreeFixture.satisfy(chat), true)
   local stale = Synthesis.cmds[1]({ chat = chat }, final_args(), {})
   eq(stale.data.code, 'inactive_reference')
   eq(State.find(State.get(chat), 'B1').status, 'superseded')

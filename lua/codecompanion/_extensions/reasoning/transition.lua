@@ -52,7 +52,7 @@ function M.allowed(workspace, phase, operation, args)
     phase == 'active'
     and operation == 'frame'
     and type(args) == 'table'
-    and vim.tbl_contains({ 'revise', 'replace' }, args.action)
+    and vim.tbl_contains({ 'revise', 'replace', 'amend' }, args.action)
   then
     return workspace ~= nil
   end

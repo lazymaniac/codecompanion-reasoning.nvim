@@ -10,6 +10,7 @@ local known_actions = {
   reasoning_options = true,
   reasoning_review = true,
   reasoning_synthesis = true,
+  reasoning_question = true,
   none = true,
 }
 

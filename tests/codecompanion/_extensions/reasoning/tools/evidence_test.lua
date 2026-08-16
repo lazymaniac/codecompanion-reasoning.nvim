@@ -249,6 +249,54 @@ T['requires a falsifier and validates unknown coverage'] = function()
   eq(Evidence.cmds[1]({ chat = chat }, { items = { unknown } }, {}).data.code, 'evidence_invalid')
 end
 
+T['links evidence to sub-questions directly and through seeded unknowns'] = function()
+  local chat = framed_chat()
+  local workspace = State.get(chat)
+  local seeded = State.find(workspace, 'Q1')
+  eq(seeded.data.text, 'Expected write rate')
+  eq(seeded.data.provisional, true)
+
+  local mapped = evidence_item()
+  mapped.addresses_unknowns = { 'Expected write rate' }
+  local recorded = Evidence.cmds[1]({ chat = chat }, { items = { mapped } }, {})
+  eq(recorded.status, 'success')
+  eq(State.find(workspace, recorded.data.artifact.id).data.addresses_questions, { 'Q1' })
+
+  local direct = evidence_item('operations')
+  direct.statement = 'The write path is append-only'
+  direct.addresses_questions = { 'Q1' }
+  local linked = Evidence.cmds[1]({ chat = chat }, { items = { direct } }, {})
+  eq(linked.status, 'success')
+  eq(State.find(workspace, linked.data.artifact.id).data.addresses_questions, { 'Q1' })
+end
+
+T['rejects unavailable and duplicated sub-question links'] = function()
+  local chat = framed_chat()
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
+
+  local missing = evidence_item()
+  missing.addresses_questions = { 'Q9' }
+  local rejected = Evidence.cmds[1]({ chat = chat }, { items = { missing } }, {})
+  eq(rejected.data.code, 'invalid_reference')
+  eq(rejected.data.committed, false)
+  eq(rejected.data.diagnostic.path, 'items[1].addresses_questions[1]')
+
+  local duplicated = evidence_item()
+  duplicated.addresses_questions = { 'Q1', 'Q1' }
+  local duplicate = Evidence.cmds[1]({ chat = chat }, { items = { duplicated } }, {})
+  eq(duplicate.data.code, 'evidence_invalid')
+  eq(duplicate.data.diagnostic.constraint, 'unique_items')
+
+  eq(workspace.revision, before.revision)
+  eq(workspace.artifact_order, before.artifact_order)
+  eq(workspace.next_sequence, before.next_sequence)
+end
+
 T['enforces max_batch_items atomically'] = function()
   Config.setup({ limits = { max_batch_items = 1 } })
   local chat = framed_chat()

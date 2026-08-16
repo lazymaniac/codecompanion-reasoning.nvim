@@ -54,6 +54,7 @@ local names = {
   'reasoning_options',
   'reasoning_review',
   'reasoning_synthesis',
+  'reasoning_question',
 }
 
 local function new_control_chat()
@@ -358,6 +359,9 @@ T['defines the complete structured runtime contract without replacing the host s
     'Rejected artifact IDs do not exist',
     'New user information requires reasoning_frame with action=revise or action=replace',
     'The deterministic final answer may use only accepted artifacts',
+    'Split the problem into atomic sub-questions before gathering evidence',
+    'Every leaf must be closed by reasoning_question',
+    'Work discovered mid-run uses reasoning_frame with action=amend',
   }) do
     eq(prompt:find(rule, 1, true) ~= nil, true)
   end

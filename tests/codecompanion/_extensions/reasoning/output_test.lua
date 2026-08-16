@@ -49,6 +49,42 @@ T['serializes success for the model and bounds user output'] = function()
   eq(mock.calls[1].for_user, 'Recorded F1; next: reasoning_evidence')
 end
 
+T['accepts every registered reasoning tool as a next action'] = function()
+  for _, name in ipairs(require('codecompanion._extensions.reasoning.constants').tool_names) do
+    local mock = mock_meta()
+    Output.success({ name = 'reasoning_question' }, {
+      {
+        workspace_id = 'W1',
+        artifact = { id = 'Q2' },
+        open_items = { questions = { { id = 'Q2' } } },
+        next_action = { tool = name, reason = 'Continue the protocol' },
+      },
+    }, mock.meta)
+    local payload = vim.json.decode(mock.calls[1].for_llm)
+    eq(payload.next_action.tool, name)
+    eq(payload.open_items.questions[1].id, 'Q2')
+    eq(mock.calls[1].for_user, 'Recorded Q2; next: ' .. name)
+  end
+end
+
+T['passes the frontier through to the model payload'] = function()
+  local mock = mock_meta()
+  Output.error({ name = 'reasoning_synthesis' }, {
+    {
+      code = 'synthesis_gate_failed',
+      message = 'final synthesis is blocked by: open_questions',
+      artifact_ids = { 'Q1' },
+      committed = false,
+      unmet_gates = { 'open_questions' },
+      open_items = { questions = { { id = 'Q1', parent_id = 'F1', depth = 1, provisional = false, text = 'Leaf' } } },
+      next_action = { tool = 'reasoning_question', reason = 'Close sub-question Q1 with its cited evidence' },
+    },
+  }, mock.meta)
+  local payload = vim.json.decode(mock.calls[1].for_llm)
+  eq(payload.open_items.questions[1].id, 'Q1')
+  eq(payload.next_action.tool, 'reasoning_question')
+end
+
 T['serializes stable errors'] = function()
   local mock = mock_meta()
   Output.error({ name = 'reasoning_frame' }, {

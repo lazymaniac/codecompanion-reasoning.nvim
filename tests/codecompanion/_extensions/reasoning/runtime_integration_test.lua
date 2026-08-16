@@ -3,14 +3,17 @@ local Adapters = require('codecompanion.adapters')
 local CCConfig = require('codecompanion.config')
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Extension = require('codecompanion._extensions.reasoning')
+local TreeFixture = require('support.tree_fixture')
 local ToolRegistry = require('codecompanion.interactions.chat.tool_registry')
 local ToolRuntime = require('codecompanion.interactions.chat.tools')
+local Builder = require('codecompanion.interactions.chat.ui.builder')
 local Approvals = require('codecompanion.interactions.chat.tools.approvals')
 local Parser = require('codecompanion.interactions.chat.parser')
 local Log = require('codecompanion.utils.log')
 local Hash = require('codecompanion.utils.hash')
 local Utils = require('codecompanion.utils')
 local Control = require('codecompanion._extensions.reasoning.control')
+local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local Render = require('codecompanion._extensions.reasoning.render')
 local State = require('codecompanion._extensions.reasoning.state')
 local canonical_parser_messages = Parser.messages
@@ -21,6 +24,7 @@ local names = {
   'reasoning_options',
   'reasoning_review',
   'reasoning_synthesis',
+  'reasoning_question',
 }
 
 local buffers = {}
@@ -138,6 +142,7 @@ local function new_chat(id, opts)
     header_line = 1,
     parsers = {},
     _btw = nil,
+    _last_role = CCConfig.constants.USER_ROLE,
   }
   chat.adapter = {
     name = opts.adapter_name or 'reasoning_test',
@@ -390,6 +395,10 @@ local function new_chat(id, opts)
       end
       self.status = result.status
       if result.status == 'success' then
+        if result.output and result.output.role then
+          result.output.role = CCConfig.constants.LLM_ROLE
+          self._last_role = result.output.role
+        end
         if result.output and result.output.reasoning then
           table.insert(reasoning, result.output.reasoning)
           self:add_buf_message({ role = 'assistant', content = result.output.reasoning.content or '' }, {
@@ -551,9 +560,91 @@ local function new_chat(id, opts)
   return chat
 end
 
+local function enable_locked_context_lifecycle(chat)
+  local user_role = CCConfig.constants.USER_ROLE
+  local function set_modifiable(value)
+    vim.bo[chat.bufnr].modified = false
+    vim.bo[chat.bufnr].modifiable = value
+  end
+
+  chat.ui = {
+    folds = { create_reasoning_fold = function() end, create_tool_fold = function() end },
+    unlock_buf = function()
+      set_modifiable(true)
+    end,
+    lock_buf = function()
+      set_modifiable(false)
+    end,
+    last = function()
+      local last = vim.api.nvim_buf_line_count(chat.bufnr) - 1
+      local line = vim.api.nvim_buf_get_lines(chat.bufnr, last, last + 1, false)[1] or ''
+      return last, #line
+    end,
+    is_following = function()
+      return false
+    end,
+    move_cursor = function() end,
+    set_header = function(_, lines, role)
+      table.insert(lines, '## ' .. role)
+    end,
+    render_headers = function() end,
+  }
+  chat.builder = Builder.new({ chat = chat })
+  chat.builder.state.current_header_line = 0
+  vim.api.nvim_buf_set_lines(chat.bufnr, 0, -1, false, { '## Me', '', 'Investigate this failure.' })
+  chat:add_message({ role = user_role, content = 'Investigate this failure.' }, { visible = true })
+
+  function chat:add_buf_message(message, message_opts)
+    table.insert(self.buffer_messages, { message = vim.deepcopy(message), opts = vim.deepcopy(message_opts) })
+    return self.builder:add_message(message, message_opts)
+  end
+
+  function chat.context:render()
+    local visible = vim.tbl_filter(function(item)
+      return type(item) == 'table' and (type(item.opts) ~= 'table' or item.opts.visible ~= false)
+    end, self.items)
+    if #visible == 0 then
+      return
+    end
+    chat.context_render_count = (chat.context_render_count or 0) + 1
+    vim.api.nvim_buf_set_lines(chat.bufnr, chat.header_line + 1, chat.header_line + 1, false, {
+      '> Context:',
+      '> - ' .. visible[1].id,
+      '',
+    })
+    chat.context_render_success_count = (chat.context_render_success_count or 0) + 1
+  end
+
+  function chat:ready_for_input(ready_opts)
+    ready_opts = ready_opts or {}
+    if not ready_opts.auto_submit and self._last_role ~= user_role then
+      self.cycle = self.cycle + 1
+      self:add_buf_message({ role = user_role, content = '' })
+      self.header_line = (self.builder.state.current_header_line or 0) + 1
+      self.context:render()
+      self:dispatch('on_ready')
+    end
+    self.ui:unlock_buf()
+  end
+
+  local submit = chat.submit
+  function chat:submit(submit_opts)
+    local transports = self.http_count
+    local result = submit(self, submit_opts)
+    if
+      self.http_count > transports
+      and self.current_request
+      and not (type(submit_opts) == 'table' and submit_opts.auto_submit)
+    then
+      self.ui:lock_buf()
+    end
+    return result
+  end
+end
+
 local function assert_group_attached(chat)
   eq(chat.tool_registry.groups.reasoning, names)
-  eq(vim.tbl_count(chat.tool_registry.in_use), 5)
+  eq(vim.tbl_count(chat.tool_registry.in_use), #names)
   for _, name in ipairs(names) do
     eq(chat.tool_registry.in_use[name], true)
     eq(type(chat.tool_registry.schemas['<tool>' .. name .. '</tool>']), 'table')
@@ -630,6 +721,9 @@ end
 local function completion(calls, opts)
   opts = opts or {}
   local output = {}
+  if opts.role ~= nil then
+    output.role = opts.role
+  end
   if opts.content ~= nil then
     output.content = opts.content
   end
@@ -774,6 +868,30 @@ local function deep_frame_args()
   }
 end
 
+local function question_args(overrides)
+  return vim.tbl_extend('force', TreeFixture.args(), overrides or {})
+end
+
+local function deep_split_args(chat)
+  return question_args({
+    parent_id = State.get(chat).frame_id,
+    child_questions = {
+      {
+        text = 'Does a durable representation replay committed mutations?',
+        kind = 'sub_problem',
+        acceptance_test = 'Observe a replayed commit after restart',
+        resolution_kind = 'observation',
+      },
+      {
+        text = 'Does the retained journal stay bounded?',
+        kind = 'sub_problem',
+        acceptance_test = 'Observe retained entries after compaction',
+        resolution_kind = 'observation',
+      },
+    },
+  })
+end
+
 local function deep_evidence_args()
   return {
     items = {
@@ -785,6 +903,7 @@ local function deep_evidence_args()
         falsifier = 'Truncation recovery loses a committed mutation',
         perspective = 'correctness',
         addresses_unknowns = {},
+        addresses_questions = { 'Q1' },
         supports = {},
         contradicts = {},
         qualifies = {},
@@ -798,6 +917,7 @@ local function deep_evidence_args()
         falsifier = 'Retained entries grow after completed compaction',
         perspective = 'operations',
         addresses_unknowns = {},
+        addresses_questions = { 'Q2' },
         supports = {},
         contradicts = {},
         qualifies = {},
@@ -1093,6 +1213,150 @@ T['suppresses text reasoning and empty completions with one corrective retry eac
   end
 end
 
+T['keeps the locked host buffer lifecycle coherent after zero-call completions'] = function()
+  local variants = {
+    completion({}, { role = 'assistant', content = 'I will answer without the required frame.' }),
+    completion({}, { role = 'assistant', reasoning = 'I will reason without the required frame.' }),
+    completion(),
+  }
+
+  for index, data in ipairs(variants) do
+    local chat = new_chat(20 + index)
+    enable_locked_context_lifecycle(chat)
+    attach_group(chat, true)
+    chat.context:add({ id = '<buf>locked-context</buf>', opts = { visible = true } })
+
+    local request = submit_request(chat, { auto_submit = false })
+    eq(vim.bo[chat.bufnr].modifiable, false)
+    local _, queue = complete_request(chat, request, data, false)
+
+    eq(Control.phase(chat), 'armed')
+    eq(Control._get(chat).consecutive_violations, 1)
+    eq(chat.context_render_count, 1)
+    eq(chat.context_render_success_count, 1)
+    eq(vim.bo[chat.bufnr].modifiable, true)
+    eq(#chat.requests, 1)
+    eq(#vim.tbl_filter(function(entry)
+      local kind = entry.opts and entry.opts.type
+      return kind == chat.MESSAGE_TYPES.LLM_MESSAGE or kind == chat.MESSAGE_TYPES.REASONING_MESSAGE
+    end, chat.buffer_messages), 0)
+
+    drain_scheduled(queue)
+    eq(#chat.requests, 2)
+    eq(vim.bo[chat.bufnr].modifiable, true)
+    chat:clear()
+  end
+end
+
+T['keeps the locked host buffer lifecycle coherent after rejected tool completions'] = function()
+  local chat = new_chat(24)
+  enable_locked_context_lifecycle(chat)
+  attach_group(chat, true)
+  chat.context:add({ id = '<buf>locked-tool-context</buf>', opts = { visible = true } })
+
+  local request = submit_request(chat, { auto_submit = false })
+  eq(vim.bo[chat.bufnr].modifiable, false)
+  local outputs, queue = complete_request(
+    chat,
+    request,
+    completion({
+      model_call('reasoning_evidence', evidence_args(), 'locked-rejected-tool'),
+    }, { role = 'assistant' }),
+    false
+  )
+
+  eq(#outputs, 1)
+  eq(vim.json.decode(outputs[1].for_llm).code, 'transition_invalid')
+  eq(Control.phase(chat), 'armed')
+  eq(Control._get(chat).consecutive_violations, 1)
+  eq(chat.tools_done_count, 1)
+  eq(chat.context_render_count, 1)
+  eq(chat.context_render_success_count, 1)
+  eq(vim.bo[chat.bufnr].modifiable, true)
+  eq(#chat.requests, 1)
+
+  drain_scheduled(queue)
+  eq(#chat.requests, 2)
+  eq(vim.bo[chat.bufnr].modifiable, true)
+  chat:clear()
+end
+
+T['blocks a premature final on open leaves and keeps amended work'] = function()
+  local chat = new_chat(40)
+  attach_group(chat, true)
+
+  local frame = complete_reasoning_request(chat, 'reasoning_frame', deep_frame_args(), 'tree-frame')
+  eq(frame.next_action.tool, 'reasoning_question')
+  eq(frame.open_items.tree, { total = 0, closed = 0, open = 0, max_depth = 0, root_split = false })
+
+  local split = complete_reasoning_request(chat, 'reasoning_question', deep_split_args(chat), 'tree-split')
+  eq(
+    vim.tbl_map(function(entry)
+      return entry.id
+    end, split.open_items.questions),
+    { 'Q1', 'Q2' }
+  )
+
+  -- An enforced chat never reaches the final gates with open leaves: the
+  -- preflight rejects the call against the authoritative transition first.
+  local premature = complete_reasoning_request(chat, 'reasoning_synthesis', synthesis_args(), 'tree-premature')
+  eq(premature.code, 'transition_invalid')
+  eq(premature.committed, false)
+  eq(premature.next_action, { tool = 'reasoning_evidence', reason = 'Gather evidence for sub-question Q1' })
+  eq(Control._get(chat).consecutive_violations, 1)
+  eq(vim.tbl_contains(Protocol.final_gates(State.get(chat), synthesis_args()), 'open_questions'), true)
+
+  -- The violation already queued one corrective request; answer that one.
+  local corrective = chat.requests[#chat.requests]
+  local recovered = complete_request(
+    chat,
+    corrective,
+    completion({ model_call('reasoning_evidence', deep_evidence_args(), 'tree-evidence') })
+  )
+  eq(vim.json.decode(recovered[1].for_llm).artifacts[2].id, 'E2')
+  eq(Control._get(chat).consecutive_violations, 0)
+
+  for index, id in ipairs({ 'Q1', 'Q2' }) do
+    complete_reasoning_request(
+      chat,
+      'reasoning_question',
+      question_args({
+        action = 'answer',
+        question_id = id,
+        answer = 'The cited observation closes ' .. id,
+        evidence_ids = { 'E' .. index },
+        confidence = 'high',
+      }),
+      'tree-close-' .. id
+    )
+  end
+
+  local workspace = State.get(chat)
+  local before = vim.deepcopy(workspace.artifact_order)
+  local amended = deep_frame_args()
+  amended.action = 'amend'
+  amended.unknowns = { 'Whether compaction survives a disk-full stall' }
+  local amend = complete_reasoning_request(chat, 'reasoning_frame', amended, 'tree-amend')
+  eq(amend.artifact.id, 'F2')
+  eq(amend.artifacts[1].id, 'Q3')
+  eq(amend.next_action.reason, 'Gather evidence for sub-question Q3')
+  for _, id in ipairs(before) do
+    eq(State.find(workspace, id).status ~= 'retracted', true)
+  end
+  eq(State.find(workspace, 'C1').status, 'active')
+  eq(State.find(workspace, 'E1').status, 'active')
+  eq(workspace.frame_lineage, { 'F1', 'F2' })
+  eq(amend.open_items.questions, {
+    {
+      id = 'Q3',
+      parent_id = 'F2',
+      depth = 1,
+      provisional = true,
+      text = 'Whether compaction survives a disk-full stall',
+    },
+  })
+end
+
 T['blocks ACP once and restores the suspended HTTP phase'] = function()
   local function unsupported_count(chat)
     return #vim.tbl_filter(function(entry)
@@ -1169,12 +1433,12 @@ T['clear isolates stale request callbacks and reused call IDs from a fresh run']
   eq(Control._get(chat).phase, 'dormant')
   eq(chat.messages[#chat.messages].content, 'ordinary dormant response')
 
-  for index = 1, 4 do
+  for index = 1, #names - 1 do
     eq(chat.tool_registry:add(names[index]) ~= nil, true)
     eq(Control._get(chat).phase, 'dormant')
     eq(Control.phase(chat), nil)
   end
-  eq(chat.tool_registry:add(names[5]) ~= nil, true)
+  eq(chat.tool_registry:add(names[#names]) ~= nil, true)
   eq(Control.phase(chat), 'armed')
 
   local fresh_call = model_call('reasoning_frame', frame_args('Fresh workspace after clear'), 'shared-call')
@@ -1396,12 +1660,36 @@ T['executes the complete deep protocol and terminates after final synthesis'] = 
 
   local frame = complete_reasoning_request(chat, 'reasoning_frame', deep_frame_args(), 'deep-frame')
   eq(frame.artifact.id, 'F1')
-  eq(frame.next_action.tool, 'reasoning_evidence')
+  eq(frame.next_action.tool, 'reasoning_question')
+
+  local split = complete_reasoning_request(chat, 'reasoning_question', deep_split_args(chat), 'deep-split')
+  eq(split.artifacts[1].id, 'Q1')
+  eq(split.artifacts[2].id, 'Q2')
+  eq(split.next_action.tool, 'reasoning_evidence')
+  eq(split.next_action.reason, 'Gather evidence for sub-question Q1')
 
   local evidence = complete_reasoning_request(chat, 'reasoning_evidence', deep_evidence_args(), 'deep-evidence')
   eq(evidence.artifacts[1].id, 'E1')
   eq(evidence.artifacts[2].id, 'E2')
-  eq(evidence.next_action.tool, 'reasoning_options')
+  eq(evidence.next_action.tool, 'reasoning_question')
+  eq(evidence.next_action.reason, 'Close sub-question Q1 with its cited evidence')
+
+  for index, id in ipairs({ 'Q1', 'Q2' }) do
+    local closed = complete_reasoning_request(
+      chat,
+      'reasoning_question',
+      question_args({
+        action = 'answer',
+        question_id = id,
+        answer = 'The cited observation closes ' .. id,
+        evidence_ids = { 'E' .. index },
+        confidence = 'high',
+      }),
+      'deep-close-' .. id
+    )
+    eq(closed.artifact.id, 'C' .. index)
+  end
+  eq(Protocol.transition(State.get(chat), 'active').tool, 'reasoning_options')
 
   local options = complete_reasoning_request(chat, 'reasoning_options', options_args(), 'deep-options')
   eq(options.artifact.id, 'B1')
@@ -1495,7 +1783,22 @@ T['reframes after final while suppressing investigation prose and retiring downs
   attach_group(chat, true)
   add_external_tools(chat)
   complete_reasoning_request(chat, 'reasoning_frame', deep_frame_args(), 'reframe-frame')
+  complete_reasoning_request(chat, 'reasoning_question', deep_split_args(chat), 'reframe-split')
   complete_reasoning_request(chat, 'reasoning_evidence', deep_evidence_args(), 'reframe-evidence')
+  for index, id in ipairs({ 'Q1', 'Q2' }) do
+    complete_reasoning_request(
+      chat,
+      'reasoning_question',
+      question_args({
+        action = 'answer',
+        question_id = id,
+        answer = 'The cited observation closes ' .. id,
+        evidence_ids = { 'E' .. index },
+        confidence = 'high',
+      }),
+      'reframe-close-' .. id
+    )
+  end
   complete_reasoning_request(chat, 'reasoning_options', options_args(), 'reframe-options')
   complete_reasoning_request(chat, 'reasoning_review', review_args(), 'reframe-review')
   complete_reasoning_request(chat, 'reasoning_synthesis', checkpoint_args(), 'reframe-checkpoint')
@@ -1578,7 +1881,7 @@ T['reframes after final while suppressing investigation prose and retiring downs
   )
   local revision = vim.json.decode(revised_outputs[1].for_llm)
   eq(revision.artifact.id, 'F2')
-  eq(revision.next_action.tool, 'reasoning_evidence')
+  eq(revision.next_action.tool, 'reasoning_question')
   eq(State.get(chat), workspace)
   eq(workspace.id, 'W1')
   eq(workspace.frame_id, 'F2')

@@ -9,6 +9,8 @@ local prefixes = {
   option = 'O',
   review = 'R',
   synthesis = 'S',
+  question = 'Q',
+  closure = 'C',
 }
 
 local function new_workspace(sequence)
@@ -16,6 +18,8 @@ local function new_workspace(sequence)
     id = 'W' .. sequence,
     revision = 0,
     frame_id = nil,
+    frame_lineage = {},
+    splits = {},
     artifacts_by_id = {},
     artifact_order = {},
     counts_by_kind = {},
@@ -143,6 +147,35 @@ end
 function M.append_data(workspace, artifact, field, value)
   assert(type(artifact.data[field]) == 'table', 'artifact data field must be an array')
   table.insert(artifact.data[field], value)
+  touch(workspace)
+end
+
+function M.reset_lineage(workspace, frame_id)
+  assert(type(frame_id) == 'string', 'lineage frames must be identified')
+  workspace.frame_lineage = { frame_id }
+  touch(workspace)
+end
+
+function M.extend_lineage(workspace, frame_id)
+  assert(type(frame_id) == 'string', 'lineage frames must be identified')
+  table.insert(workspace.frame_lineage, frame_id)
+  touch(workspace)
+end
+
+function M.in_lineage(workspace, frame_id)
+  if not workspace or type(frame_id) ~= 'string' then
+    return false
+  end
+  local lineage = workspace.frame_lineage
+  if type(lineage) ~= 'table' or #lineage == 0 then
+    return workspace.frame_id == frame_id
+  end
+  return vim.tbl_contains(lineage, frame_id)
+end
+
+function M.set_split(workspace, parent_id, record)
+  assert(type(parent_id) == 'string', 'splits must name a parent')
+  workspace.splits[parent_id] = vim.deepcopy(record)
   touch(workspace)
 end
 

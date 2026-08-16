@@ -36,6 +36,8 @@ local function workspace()
   })
   return {
     frame_id = 'F1',
+    frame_lineage = { 'F1' },
+    splits = { F1 = { axis = 'component', composition = 'all_of', residual = '', child_ids = {} } },
     artifact_order = { 'F1' },
     artifacts_by_id = { F1 = frame },
     open_revisions = {},
@@ -280,9 +282,88 @@ T['ignores branches and reviews from a superseded frame'] = function()
   frame.status = 'active'
   add(ws, frame)
   ws.frame_id = 'F2'
+  ws.frame_lineage = { 'F2' }
+  ws.splits = { F2 = { axis = 'component', composition = 'all_of', residual = '', child_ids = {} } }
   eq(Guidance.next(ws), {
     tool = 'reasoning_options',
     reason = 'Create the required competing branches',
+  })
+end
+
+local function question(ws, id, parent_id, text)
+  return add(
+    ws,
+    artifact(id, 'question', {
+      parent_id = parent_id,
+      text = text,
+      kind = 'sub_problem',
+      acceptance_test = 'Observe ' .. id,
+      resolution_kind = 'observation',
+      provisional = false,
+      frame_id = 'F1',
+    })
+  )
+end
+
+T['routes decomposition before evidence and closes leaves in pre-order'] = function()
+  local ws = workspace()
+  ws.splits = {}
+  eq(Guidance.next(ws), {
+    tool = 'reasoning_question',
+    reason = 'Split the problem into atomic sub-questions before gathering evidence',
+  })
+
+  ws.splits = { F1 = { axis = 'component', composition = 'all_of', residual = '', child_ids = { 'Q1', 'Q2' } } }
+  question(ws, 'Q1', 'F1', 'Does the journal replay?')
+  question(ws, 'Q2', 'F1', 'Does the snapshot load?')
+  eq(Guidance.next(ws), {
+    tool = 'reasoning_evidence',
+    reason = 'Gather evidence for sub-question Q1',
+  })
+
+  local item = add(ws, evidence('E1', 'correctness'))
+  item.data.kind = 'observation'
+  item.data.addresses_questions = { 'Q1' }
+  eq(Guidance.next(ws), {
+    tool = 'reasoning_question',
+    reason = 'Close sub-question Q1 with its cited evidence',
+  })
+
+  local closure = add(
+    ws,
+    artifact('C1', 'closure', {
+      question_id = 'Q1',
+      action = 'answer',
+      answer = 'It replays',
+      drop_reason = 'none',
+      resolution_kind = 'observation',
+    })
+  )
+  closure.relations.supports = { 'E1' }
+  eq(Guidance.next(ws), {
+    tool = 'reasoning_evidence',
+    reason = 'Gather evidence for sub-question Q2',
+  })
+
+  ws.artifacts_by_id.E1.status = 'retracted'
+  eq(Guidance.next(ws), {
+    tool = 'reasoning_question',
+    reason = 'Re-close the sub-question behind C1; its evidence no longer supports it',
+  })
+end
+
+T['keeps branches and reviews from an amended frame lineage'] = function()
+  local ws = complete_workspace()
+  ws.artifacts_by_id.F1.status = 'superseded'
+  local frame = vim.deepcopy(ws.artifacts_by_id.F1)
+  frame.id = 'F2'
+  frame.status = 'active'
+  add(ws, frame)
+  ws.frame_id = 'F2'
+  ws.frame_lineage = { 'F1', 'F2' }
+  eq(Guidance.next(ws, verified_synthesis()), {
+    tool = 'reasoning_synthesis',
+    reason = 'All structural gates are ready for final synthesis',
   })
 end
 
