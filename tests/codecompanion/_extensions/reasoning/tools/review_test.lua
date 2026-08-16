@@ -5,6 +5,7 @@ local Options = require('codecompanion._extensions.reasoning.tools.options')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
+local TreeFixture = require('support.tree_fixture')
 local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
 
 local T = MiniTest.new_set({
@@ -37,6 +38,7 @@ local function prepare(temporal)
     branching_rationale = 'Competing designs exist',
   }
   eq(Frame.cmds[1]({ chat = chat }, frame, {}).status, 'success')
+  eq(TreeFixture.satisfy(chat), true)
   local evidence = {
     items = {
       {

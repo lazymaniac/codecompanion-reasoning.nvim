@@ -1,5 +1,6 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Constants = require('codecompanion._extensions.reasoning.constants')
+local TreeFixture = require('support.tree_fixture')
 local Control = require('codecompanion._extensions.reasoning.control')
 local Extension = require('codecompanion._extensions.reasoning')
 local Output = require('codecompanion._extensions.reasoning.output')
@@ -2028,6 +2029,63 @@ T['classifies accepted recorded protocol output and resets recovery state'] = fu
   eq(#chat.messages, 1)
   eq(vim.json.decode(chat.messages[1].content), result.data)
   eq(chat.messages[1]._meta.id, host_hash.hash({ role = chat.messages[1].role, content = chat.messages[1].content }))
+end
+
+T['classifies each question action by its own accepted shape'] = function()
+  local chat, _, state = controlled_chat('active')
+  local workspace = State.get(chat)
+  workspace.artifacts_by_id[workspace.frame_id].data.unknowns = { 'Which boundary can drift' }
+
+  local split_call = formatted_call(
+    'accepted-split',
+    'reasoning_question',
+    TreeFixture.args({
+      parent_id = workspace.frame_id,
+      child_questions = {
+        {
+          text = 'Does the boundary drift on restart?',
+          kind = 'sub_problem',
+          acceptance_test = 'Observe a restart',
+          resolution_kind = 'observation',
+        },
+        {
+          text = 'Does the boundary drift on reload?',
+          kind = 'sub_problem',
+          acceptance_test = 'Observe a reload',
+          resolution_kind = 'observation',
+        },
+      },
+    })
+  )
+  local split = execute_protocol_call(chat, split_call, 'active')
+  eq(split.status, 'success')
+  eq(#split.data.artifacts, 2)
+  eq(state.call_tokens[split_call].status, 'classified')
+  eq(state.consecutive_violations, 0)
+
+  local item = assert(State.add(workspace, 'evidence', {
+    kind = 'observation',
+    perspective = 'correctness',
+    addresses_unknowns = {},
+    addresses_questions = { 'Q1' },
+  }))
+  local closure_call = formatted_call(
+    'accepted-closure',
+    'reasoning_question',
+    TreeFixture.args({
+      action = 'answer',
+      question_id = 'Q1',
+      answer = 'The boundary holds across a restart',
+      evidence_ids = { item.id },
+      confidence = 'high',
+    })
+  )
+  local closed = execute_protocol_call(chat, closure_call, 'active')
+  eq(closed.status, 'success')
+  eq(closed.data.artifact.kind, 'closure')
+  eq(closed.data.artifacts, nil)
+  eq(state.call_tokens[closure_call].status, 'classified')
+  eq(state.consecutive_violations, 0)
 end
 
 T['counts each recorded rejection once and halts on the third'] = function()

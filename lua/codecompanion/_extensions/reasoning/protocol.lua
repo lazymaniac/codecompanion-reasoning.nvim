@@ -2346,6 +2346,10 @@ local gate_order = {
   'evidence_missing',
   'perspective_coverage_missing',
   'unknown_coverage_missing',
+  'decomposition_missing',
+  'open_questions',
+  'closure_unsupported',
+  'residual_unresolved',
   'branches_missing',
   'selected_option_missing',
   'selected_option_unsupported',
@@ -2561,6 +2565,25 @@ function M.final_gates(workspace, synthesis)
     end
     if next(unknowns) ~= nil then
       add('unknown_coverage_missing')
+    end
+
+    local closure_options = tree_options()
+    if (frame.data.depth == 'deep' or #(frame.data.unknowns or {}) > 0) and not Tree.root_split(workspace) then
+      add('decomposition_missing')
+    end
+    for _, leaf in ipairs(Tree.open_leaves(workspace, closure_options)) do
+      add('open_questions', { leaf.id })
+    end
+    for _, id in ipairs(Tree.unsupported_closures(workspace, closure_options)) do
+      add('closure_unsupported', { id })
+    end
+    for parent_id, record in pairs(workspace.splits or {}) do
+      if record.residual_disposition == 'covered_elsewhere' then
+        local target = State.find(workspace, record.residual_covered_by)
+        if not target or target.status ~= 'active' or target.kind ~= 'question' then
+          add('residual_unresolved', { parent_id, record.residual_covered_by })
+        end
+      end
     end
 
     local pairs_by_key = contradiction_pairs(workspace)

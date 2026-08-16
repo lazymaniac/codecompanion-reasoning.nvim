@@ -1,4 +1,6 @@
+local Config = require('codecompanion._extensions.reasoning.config')
 local State = require('codecompanion._extensions.reasoning.state')
+local Tree = require('codecompanion._extensions.reasoning.tree')
 
 local M = {}
 
@@ -186,6 +188,41 @@ function M.next(workspace, synthesis)
     or (branching_by_type[frame.data.problem_type] and not frame.data.branching_required)
   then
     return { tool = 'reasoning_frame', reason = 'Correct uncovered frame requirements' }
+  end
+
+  local options = Config.get()
+  local closure_options = {
+    require_observation = options.require_observation_for_closure,
+    judgment_requires_review = options.judgment_requires_review,
+  }
+  if (frame.data.depth == 'deep' or #(frame.data.unknowns or {}) > 0) and not Tree.root_split(workspace) then
+    return {
+      tool = 'reasoning_question',
+      reason = 'Split the problem into atomic sub-questions before gathering evidence',
+    }
+  end
+  local unsupported = Tree.unsupported_closures(workspace, closure_options)
+  if #unsupported > 0 then
+    return {
+      tool = 'reasoning_question',
+      reason = ('Re-close the sub-question behind %s; its evidence no longer supports it'):format(unsupported[1]),
+    }
+  end
+  local open_leaves = Tree.open_leaves(workspace, closure_options)
+  if #open_leaves > 0 then
+    local leaf = open_leaves[1]
+    for _, artifact in ipairs(active(workspace, 'evidence')) do
+      if vim.tbl_contains(artifact.data.addresses_questions or {}, leaf.id) then
+        return {
+          tool = 'reasoning_question',
+          reason = ('Close sub-question %s with its cited evidence'):format(leaf.id),
+        }
+      end
+    end
+    return {
+      tool = 'reasoning_evidence',
+      reason = ('Gather evidence for sub-question %s'):format(leaf.id),
+    }
   end
 
   local current_synthesis = synthesis

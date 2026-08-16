@@ -3,6 +3,7 @@ local Adapters = require('codecompanion.adapters')
 local CCConfig = require('codecompanion.config')
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Extension = require('codecompanion._extensions.reasoning')
+local TreeFixture = require('support.tree_fixture')
 local ToolRegistry = require('codecompanion.interactions.chat.tool_registry')
 local ToolRuntime = require('codecompanion.interactions.chat.tools')
 local Builder = require('codecompanion.interactions.chat.ui.builder')
@@ -12,6 +13,7 @@ local Log = require('codecompanion.utils.log')
 local Hash = require('codecompanion.utils.hash')
 local Utils = require('codecompanion.utils')
 local Control = require('codecompanion._extensions.reasoning.control')
+local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local Render = require('codecompanion._extensions.reasoning.render')
 local State = require('codecompanion._extensions.reasoning.state')
 local canonical_parser_messages = Parser.messages
@@ -866,6 +868,30 @@ local function deep_frame_args()
   }
 end
 
+local function question_args(overrides)
+  return vim.tbl_extend('force', TreeFixture.args(), overrides or {})
+end
+
+local function deep_split_args(chat)
+  return question_args({
+    parent_id = State.get(chat).frame_id,
+    child_questions = {
+      {
+        text = 'Does a durable representation replay committed mutations?',
+        kind = 'sub_problem',
+        acceptance_test = 'Observe a replayed commit after restart',
+        resolution_kind = 'observation',
+      },
+      {
+        text = 'Does the retained journal stay bounded?',
+        kind = 'sub_problem',
+        acceptance_test = 'Observe retained entries after compaction',
+        resolution_kind = 'observation',
+      },
+    },
+  })
+end
+
 local function deep_evidence_args()
   return {
     items = {
@@ -877,6 +903,7 @@ local function deep_evidence_args()
         falsifier = 'Truncation recovery loses a committed mutation',
         perspective = 'correctness',
         addresses_unknowns = {},
+        addresses_questions = { 'Q1' },
         supports = {},
         contradicts = {},
         qualifies = {},
@@ -890,6 +917,7 @@ local function deep_evidence_args()
         falsifier = 'Retained entries grow after completed compaction',
         perspective = 'operations',
         addresses_unknowns = {},
+        addresses_questions = { 'Q2' },
         supports = {},
         contradicts = {},
         qualifies = {},
@@ -1556,12 +1584,36 @@ T['executes the complete deep protocol and terminates after final synthesis'] = 
 
   local frame = complete_reasoning_request(chat, 'reasoning_frame', deep_frame_args(), 'deep-frame')
   eq(frame.artifact.id, 'F1')
-  eq(frame.next_action.tool, 'reasoning_evidence')
+  eq(frame.next_action.tool, 'reasoning_question')
+
+  local split = complete_reasoning_request(chat, 'reasoning_question', deep_split_args(chat), 'deep-split')
+  eq(split.artifacts[1].id, 'Q1')
+  eq(split.artifacts[2].id, 'Q2')
+  eq(split.next_action.tool, 'reasoning_evidence')
+  eq(split.next_action.reason, 'Gather evidence for sub-question Q1')
 
   local evidence = complete_reasoning_request(chat, 'reasoning_evidence', deep_evidence_args(), 'deep-evidence')
   eq(evidence.artifacts[1].id, 'E1')
   eq(evidence.artifacts[2].id, 'E2')
-  eq(evidence.next_action.tool, 'reasoning_options')
+  eq(evidence.next_action.tool, 'reasoning_question')
+  eq(evidence.next_action.reason, 'Close sub-question Q1 with its cited evidence')
+
+  for index, id in ipairs({ 'Q1', 'Q2' }) do
+    local closed = complete_reasoning_request(
+      chat,
+      'reasoning_question',
+      question_args({
+        action = 'answer',
+        question_id = id,
+        answer = 'The cited observation closes ' .. id,
+        evidence_ids = { 'E' .. index },
+        confidence = 'high',
+      }),
+      'deep-close-' .. id
+    )
+    eq(closed.artifact.id, 'C' .. index)
+  end
+  eq(Protocol.transition(State.get(chat), 'active').tool, 'reasoning_options')
 
   local options = complete_reasoning_request(chat, 'reasoning_options', options_args(), 'deep-options')
   eq(options.artifact.id, 'B1')
@@ -1655,7 +1707,22 @@ T['reframes after final while suppressing investigation prose and retiring downs
   attach_group(chat, true)
   add_external_tools(chat)
   complete_reasoning_request(chat, 'reasoning_frame', deep_frame_args(), 'reframe-frame')
+  complete_reasoning_request(chat, 'reasoning_question', deep_split_args(chat), 'reframe-split')
   complete_reasoning_request(chat, 'reasoning_evidence', deep_evidence_args(), 'reframe-evidence')
+  for index, id in ipairs({ 'Q1', 'Q2' }) do
+    complete_reasoning_request(
+      chat,
+      'reasoning_question',
+      question_args({
+        action = 'answer',
+        question_id = id,
+        answer = 'The cited observation closes ' .. id,
+        evidence_ids = { 'E' .. index },
+        confidence = 'high',
+      }),
+      'reframe-close-' .. id
+    )
+  end
   complete_reasoning_request(chat, 'reasoning_options', options_args(), 'reframe-options')
   complete_reasoning_request(chat, 'reasoning_review', review_args(), 'reframe-review')
   complete_reasoning_request(chat, 'reasoning_synthesis', checkpoint_args(), 'reframe-checkpoint')
@@ -1738,7 +1805,7 @@ T['reframes after final while suppressing investigation prose and retiring downs
   )
   local revision = vim.json.decode(revised_outputs[1].for_llm)
   eq(revision.artifact.id, 'F2')
-  eq(revision.next_action.tool, 'reasoning_evidence')
+  eq(revision.next_action.tool, 'reasoning_question')
   eq(State.get(chat), workspace)
   eq(workspace.id, 'W1')
   eq(workspace.frame_id, 'F2')
