@@ -88,6 +88,54 @@ local function any_reference_diagnostic(workspace, id, path)
   return Validation.reference(workspace, id, path, artifact and artifact.kind or 'artifact')
 end
 
+local function normalized_set(values)
+  local set = {}
+  for _, value in ipairs(type(values) == 'table' and values or {}) do
+    if type(value) == 'string' then
+      set[normalized(value)] = true
+    end
+  end
+  return set
+end
+
+local function amend_diagnostic_for(workspace, args)
+  local frame = workspace and State.find(workspace, workspace.frame_id) or nil
+  if not frame or frame.status ~= 'active' then
+    return Validation.diagnostic('action', 'workspace_exists', true, false)
+  end
+  local data = frame.data
+  if normalized(args.objective) ~= normalized(data.objective or '') then
+    return Validation.diagnostic('objective', 'immutable_under_amend', 'unchanged', 'changed')
+  end
+  for _, field in ipairs({ 'problem_type', 'depth' }) do
+    if args[field] ~= data[field] then
+      return Validation.diagnostic(field, 'immutable_under_amend', 'unchanged', 'changed')
+    end
+  end
+  for _, field in ipairs({ 'constraints', 'success_criteria', 'unknowns' }) do
+    local proposed = normalized_set(args[field])
+    for value in pairs(normalized_set(data[field])) do
+      if not proposed[value] then
+        return Validation.diagnostic(field, 'append_only', 'superset', 'removed_item')
+      end
+    end
+  end
+  local proposed_perspectives = {}
+  for _, perspective in ipairs(args.perspectives) do
+    proposed_perspectives[normalized(perspective.name)] = true
+  end
+  for _, perspective in ipairs(data.perspectives or {}) do
+    if not proposed_perspectives[normalized(perspective.name)] then
+      return Validation.diagnostic('perspectives', 'append_only', 'superset', 'removed_item')
+    end
+  end
+  for _, field in ipairs({ 'temporal_required', 'branching_required' }) do
+    if data[field] == true and args[field] ~= true then
+      return Validation.diagnostic(field, 'append_only', true, false)
+    end
+  end
+end
+
 function M.frame(chat, args)
   if type(args) ~= 'table' then
     return failure(
@@ -99,7 +147,7 @@ function M.frame(chat, args)
     )
   end
   local diagnostic = Validation.required(args.action, 'action', 'string')
-    or Validation.enum(args.action, 'action', { start = true, revise = true, replace = true })
+    or Validation.enum(args.action, 'action', { start = true, revise = true, replace = true, amend = true })
   if diagnostic then
     return failure(
       'frame_incomplete',
@@ -317,14 +365,26 @@ function M.frame(chat, args)
       Validation.diagnostic('action', 'workspace_state', { 'revise', 'replace' }, 'start')
     )
   end
-  if args.action == 'revise' and not existing then
+  if (args.action == 'revise' or args.action == 'amend') and not existing then
     return failure(
       'workspace_missing',
-      'there is no frame to revise',
+      ('there is no frame to %s'):format(args.action),
       {},
       'Start a frame',
       Validation.diagnostic('action', 'workspace_exists', true, false)
     )
+  end
+  if args.action == 'amend' then
+    local amend_diagnostic = amend_diagnostic_for(existing, args)
+    if amend_diagnostic then
+      return failure(
+        'amend_invalid',
+        'amend may only add to the active frame',
+        {},
+        { tool = 'reasoning_frame', reason = 'Add to the frame with amend, or revise it to change its identity' },
+        amend_diagnostic
+      )
+    end
   end
   if args.action == 'replace' and not existing then
     return failure(
@@ -376,6 +436,11 @@ function M.frame(chat, args)
     State.supersede(workspace, workspace.frame_id, frame.id)
   end
   State.set_frame(workspace, frame.id)
+  if args.action == 'amend' then
+    State.extend_lineage(workspace, frame.id)
+  else
+    State.reset_lineage(workspace, frame.id)
+  end
   for _, id in ipairs(downstream) do
     State.retire(workspace, id)
   end
@@ -1840,7 +1905,7 @@ function M.final_gates(workspace, synthesis)
     end
 
     local branch = latest_active(workspace, 'branch', function(artifact)
-      return artifact.data.frame_id == frame.id
+      return State.in_lineage(workspace, artifact.data.frame_id)
     end)
     if frame.data.branching_required and not branch then
       local stale = latest_active(workspace, 'branch')
@@ -1937,7 +2002,7 @@ function M.final_gates(workspace, synthesis)
     local reviews = {}
     local available_reviews = {}
     local function review_current_and_sound(review)
-      return review.data.frame_id == frame.id and review_support_active(workspace, review)
+      return State.in_lineage(workspace, review.data.frame_id) and review_support_active(workspace, review)
     end
     for _, review in ipairs(active_artifacts(workspace, 'review')) do
       if review_current_and_sound(review) then
@@ -1963,7 +2028,7 @@ function M.final_gates(workspace, synthesis)
       reviews_by_id[review.id] = review
     end
     local checkpoint = latest_active(workspace, 'synthesis', function(artifact)
-      return artifact.data.frame_id == frame.id and artifact.data.mode == 'checkpoint'
+      return State.in_lineage(workspace, artifact.data.frame_id) and artifact.data.mode == 'checkpoint'
     end)
     local checkpoint_covers = checkpoint ~= nil
     local checkpoint_material = checkpoint and synthesis_material(workspace, checkpoint.data) or {}

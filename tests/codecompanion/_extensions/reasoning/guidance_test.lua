@@ -286,6 +286,21 @@ T['ignores branches and reviews from a superseded frame'] = function()
   })
 end
 
+T['keeps branches and reviews from an amended frame lineage'] = function()
+  local ws = complete_workspace()
+  ws.artifacts_by_id.F1.status = 'superseded'
+  local frame = vim.deepcopy(ws.artifacts_by_id.F1)
+  frame.id = 'F2'
+  frame.status = 'active'
+  add(ws, frame)
+  ws.frame_id = 'F2'
+  ws.frame_lineage = { 'F1', 'F2' }
+  eq(Guidance.next(ws, verified_synthesis()), {
+    tool = 'reasoning_synthesis',
+    reason = 'All structural gates are ready for final synthesis',
+  })
+end
+
 T['does not return terminal guidance for a rejected final attempt'] = function()
   local synthesis = verified_synthesis('final')
   synthesis.selected_option_ids, synthesis.support_ids, synthesis.review_ids, synthesis.criterion_results =

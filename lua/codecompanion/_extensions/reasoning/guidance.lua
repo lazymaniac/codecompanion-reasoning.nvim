@@ -1,3 +1,5 @@
+local State = require('codecompanion._extensions.reasoning.state')
+
 local M = {}
 
 local function normalized(value)
@@ -34,8 +36,13 @@ local function active_evidence(workspace, id)
   return artifact and artifact.status == 'active' and artifact.kind == 'evidence'
 end
 
-local function review_sound(workspace, review, frame_id)
-  if not review or review.status ~= 'active' or review.kind ~= 'review' or review.data.frame_id ~= frame_id then
+local function review_sound(workspace, review)
+  if
+    not review
+    or review.status ~= 'active'
+    or review.kind ~= 'review'
+    or not State.in_lineage(workspace, review.data.frame_id)
+  then
     return false
   end
   for _, id in ipairs(review.relations.supports or {}) do
@@ -46,9 +53,9 @@ local function review_sound(workspace, review, frame_id)
   return true
 end
 
-local function resolution_review(workspace, key, frame_id)
+local function resolution_review(workspace, key)
   local review = workspace.artifacts_by_id[workspace.resolved_contradictions[key]]
-  if not review_sound(workspace, review, frame_id) then
+  if not review_sound(workspace, review) then
     return nil
   end
   for _, resolution in ipairs(review.data.contradiction_resolutions or {}) do
@@ -68,7 +75,7 @@ local function resolution_review(workspace, key, frame_id)
   end
 end
 
-local function contradiction_state(workspace, relevant, cited_reviews, frame_id)
+local function contradiction_state(workspace, relevant, cited_reviews)
   local seen = {}
   local has_relevant = false
   local has_uncited = false
@@ -84,7 +91,7 @@ local function contradiction_state(workspace, relevant, cited_reviews, frame_id)
         if not seen[key] and (relevant == nil or relevant[left] or relevant[right]) then
           seen[key] = true
           has_relevant = true
-          local review = resolution_review(workspace, key, frame_id)
+          local review = resolution_review(workspace, key)
           if not review then
             return 'unresolved', true
           end
@@ -184,12 +191,12 @@ function M.next(workspace, synthesis)
   local current_synthesis = synthesis
   if not current_synthesis then
     local latest_synthesis = latest(workspace, 'synthesis', function(artifact)
-      return artifact.data.frame_id == frame.id
+      return State.in_lineage(workspace, artifact.data.frame_id)
     end)
     current_synthesis = latest_synthesis and latest_synthesis.data or nil
   end
   local checkpoint = latest(workspace, 'synthesis', function(artifact)
-    return artifact.data.frame_id == frame.id and artifact.data.mode == 'checkpoint'
+    return State.in_lineage(workspace, artifact.data.frame_id) and artifact.data.mode == 'checkpoint'
   end)
   local relevant
   local review_eligible
@@ -258,7 +265,7 @@ function M.next(workspace, synthesis)
   end
 
   local branch = latest(workspace, 'branch', function(artifact)
-    return artifact.data.frame_id == frame.id
+    return State.in_lineage(workspace, artifact.data.frame_id)
   end)
   if relevant and branch and (frame.data.branching_required or #(current_synthesis.selected_option_ids or {}) > 0) then
     relevant[branch.id] = true
@@ -377,13 +384,13 @@ function M.next(workspace, synthesis)
       end
     end
     for _, id in ipairs(current_synthesis.review_ids or {}) do
-      if not review_sound(workspace, workspace.artifacts_by_id[id], frame.id) then
+      if not review_sound(workspace, workspace.artifacts_by_id[id]) then
         return { tool = 'reasoning_synthesis', reason = 'Replace stale review citations in the next synthesis' }
       end
     end
   end
 
-  local contradiction, has_relevant_contradiction = contradiction_state(workspace, relevant, cited_reviews, frame.id)
+  local contradiction, has_relevant_contradiction = contradiction_state(workspace, relevant, cited_reviews)
   if contradiction == 'unresolved' then
     return { tool = 'reasoning_review', reason = 'Review an unresolved contradiction' }
   end
@@ -401,7 +408,7 @@ function M.next(workspace, synthesis)
 
   local all_reviews, cited = {}, {}
   for _, review in ipairs(active(workspace, 'review')) do
-    if review_sound(workspace, review, frame.id) then
+    if review_sound(workspace, review) then
       table.insert(all_reviews, review)
       if cited_reviews == nil or cited_reviews[review.id] then
         table.insert(cited, review)
@@ -498,7 +505,7 @@ function M.next(workspace, synthesis)
     and latest_artifact.status == 'active'
     and latest_artifact.kind == 'synthesis'
     and latest_artifact.data.mode == 'final'
-    and latest_artifact.data.frame_id == frame.id
+    and State.in_lineage(workspace, latest_artifact.data.frame_id)
   then
     return { tool = 'none', reason = 'Final synthesis accepted; no further model action is permitted' }
   end

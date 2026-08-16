@@ -1,5 +1,6 @@
 local Constants = require('codecompanion._extensions.reasoning.constants')
 local Adapters = require('codecompanion.adapters')
+local HostConfig = require('codecompanion.config')
 local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
@@ -2211,6 +2212,16 @@ local function run_preserved_done(state, target, done, extra, classify)
       extra[4] = nil
     end
   end
+  if
+    classify
+    and suppressing_phase[state.phase]
+    and not has_tools
+    and not stopped
+    and not failed
+    and not target._btw
+  then
+    target._last_role = HostConfig.constants.LLM_ROLE
+  end
   state.processing_done = true
   local format_slot = extra[3] ~= nil and install_format_guard(target, state) or nil
   local ok, values = xpcall(function()
@@ -2593,6 +2604,14 @@ local function install(chat, phase)
       return
     end
     local kind = type(opts) == 'table' and opts.type or nil
+    if
+      state.processing_done
+      and type(data) == 'table'
+      and data.role == HostConfig.constants.USER_ROLE
+      and (data.content == nil or data.content == '')
+    then
+      opts = vim.tbl_extend('force', {}, type(opts) == 'table' and opts or {}, { force_role = true })
+    end
     local scope = state.executing_scope
     if
       (

@@ -257,6 +257,161 @@ T['revision retires every downstream artifact before rebuilding'] = function()
   eq(State.find(workspace, workspace.frame_id).status, 'active')
 end
 
+T['amend adds work without retiring anything'] = function()
+  local chat = {}
+  Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local workspace = State.get(chat)
+  local old_frame = workspace.frame_id
+  local downstream = {}
+  for _, entry in ipairs({
+    { 'evidence', { perspective = 'correctness', addresses_unknowns = {} } },
+    { 'branch', { option_ids = {} } },
+    { 'option', { evidence_ids = {}, predictions = {} } },
+    { 'review', { mode = 'full', target_ids = {}, verdicts = {}, stress_tests = {}, contradiction_resolutions = {} } },
+    {
+      'synthesis',
+      {
+        mode = 'checkpoint',
+        selected_option_ids = {},
+        support_ids = {},
+        review_ids = {},
+        criterion_results = {},
+      },
+    },
+  }) do
+    local data = vim.tbl_extend('force', { frame_id = old_frame }, entry[2])
+    table.insert(downstream, State.add(workspace, entry[1], data).id)
+  end
+
+  local amended = valid_args('amend')
+  table.insert(amended.unknowns, 'Peak restart frequency')
+  table.insert(amended.success_criteria, 'Recovers within one minute')
+  table.insert(amended.constraints, 'Single node only')
+  table.insert(amended.perspectives, { name = 'performance', purpose = 'Find latency failures' })
+  amended.temporal_required = true
+  amended.branching_rationale = 'Several storage strategies remain viable'
+  local result = Protocol.call('frame', chat, amended, 'active')
+
+  eq(result.status, 'success')
+  eq(State.find(workspace, old_frame).status, 'superseded')
+  eq(State.find(workspace, workspace.frame_id).status, 'active')
+  eq(workspace.frame_lineage, { old_frame, workspace.frame_id })
+  eq(State.in_lineage(workspace, old_frame), true)
+  for _, id in ipairs(downstream) do
+    eq(State.find(workspace, id).status, 'active')
+  end
+end
+
+T['amend rejects removals and identity changes'] = function()
+  local chat = {}
+  Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local workspace = State.get(chat)
+  local before = {
+    revision = workspace.revision,
+    frame_id = workspace.frame_id,
+    artifact_order = vim.deepcopy(workspace.artifact_order),
+    next_sequence = vim.deepcopy(workspace.next_sequence),
+  }
+
+  local cases = {
+    {
+      mutate = function(args)
+        args.unknowns = {}
+      end,
+      diagnostic = { path = 'unknowns', constraint = 'append_only', expected = 'superset', actual = 'removed_item' },
+    },
+    {
+      mutate = function(args)
+        args.perspectives[2] = { name = 'performance', purpose = 'Find latency failures' }
+      end,
+      diagnostic = {
+        path = 'perspectives',
+        constraint = 'append_only',
+        expected = 'superset',
+        actual = 'removed_item',
+      },
+    },
+    {
+      mutate = function(args)
+        args.objective = 'Choose a different cache design'
+      end,
+      diagnostic = {
+        path = 'objective',
+        constraint = 'immutable_under_amend',
+        expected = 'unchanged',
+        actual = 'changed',
+      },
+    },
+    {
+      mutate = function(args)
+        args.depth = 'standard'
+      end,
+      diagnostic = {
+        path = 'depth',
+        constraint = 'immutable_under_amend',
+        expected = 'unchanged',
+        actual = 'changed',
+      },
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    local args = valid_args('amend')
+    case.mutate(args)
+    local result = Protocol.call('frame', chat, args, 'active')
+    eq(result.status, 'error')
+    eq(result.data.code, 'amend_invalid')
+    eq(result.data.committed, false)
+    eq(result.data.diagnostic, case.diagnostic)
+    eq(workspace.revision, before.revision)
+    eq(workspace.frame_id, before.frame_id)
+    eq(workspace.artifact_order, before.artifact_order)
+    eq(workspace.next_sequence, before.next_sequence)
+  end
+
+  local raised = valid_args('amend')
+  raised.temporal_required = true
+  eq(Protocol.call('frame', chat, raised, 'active').status, 'success')
+  local lowered = Protocol.call('frame', chat, valid_args('amend'), 'active')
+  eq(lowered.data.code, 'amend_invalid')
+  eq(lowered.data.diagnostic, {
+    path = 'temporal_required',
+    constraint = 'append_only',
+    expected = true,
+    actual = false,
+  })
+end
+
+T['amend requires an existing workspace and yields to armed and reframing phases'] = function()
+  local chat = {}
+  local missing = Protocol.call('frame', chat, valid_args('amend'), nil)
+  eq(missing.data.code, 'workspace_missing')
+  eq(State.get(chat), nil)
+
+  local armed = Protocol.call('frame', chat, valid_args('amend'), 'armed')
+  eq(armed.data.code, 'transition_invalid')
+  eq(State.get(chat), nil)
+
+  Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local blocked = Protocol.call('frame', chat, valid_args('amend'), 'reframing')
+  eq(blocked.data.code, 'transition_invalid')
+  eq(blocked.data.next_action.tool, 'reasoning_frame')
+end
+
+T['revision resets the frame lineage'] = function()
+  local chat = {}
+  Frame.cmds[1]({ chat = chat }, valid_args(), {})
+  local workspace = State.get(chat)
+  Protocol.call('frame', chat, valid_args('amend'), 'active')
+  local amended = workspace.frame_id
+
+  local revised = valid_args('revise')
+  revised.objective = 'Explain the corrected failure'
+  eq(Protocol.call('frame', chat, revised, 'active').status, 'success')
+  eq(workspace.frame_lineage, { workspace.frame_id })
+  eq(State.in_lineage(workspace, amended), false)
+end
+
 T['reports ordered armed and reframing diagnostics without consuming frame IDs'] = function()
   local armed_chat = {}
   local malformed_start = valid_args()

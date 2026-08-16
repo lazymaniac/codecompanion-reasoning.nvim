@@ -166,7 +166,11 @@ function M.in_lineage(workspace, frame_id)
   if not workspace or type(frame_id) ~= 'string' then
     return false
   end
-  return vim.tbl_contains(workspace.frame_lineage or {}, frame_id)
+  local lineage = workspace.frame_lineage
+  if type(lineage) ~= 'table' or #lineage == 0 then
+    return workspace.frame_id == frame_id
+  end
+  return vim.tbl_contains(lineage, frame_id)
 end
 
 function M.set_root_split(workspace, record)
