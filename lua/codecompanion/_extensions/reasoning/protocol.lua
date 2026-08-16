@@ -33,6 +33,7 @@ local function success_payload(workspace, artifact, unmet_gates, next_action)
       artifact = vim.deepcopy(artifact),
       progress = vim.deepcopy(workspace.counts_by_kind),
       unmet_gates = unmet_gates or M.final_gates(workspace, nil),
+      open_items = M.frontier(workspace),
       next_action = next_action or Guidance.next(workspace),
     },
   }
@@ -548,6 +549,7 @@ local function evidence_success(workspace, artifacts)
       artifacts = vim.deepcopy(artifacts),
       progress = vim.deepcopy(workspace.counts_by_kind),
       unmet_gates = M.final_gates(workspace, nil),
+      open_items = M.frontier(workspace),
       next_action = Guidance.next(workspace),
     },
   }
@@ -1143,6 +1145,7 @@ function M.options(chat, args)
       artifacts = vim.deepcopy(options),
       progress = vim.deepcopy(workspace.counts_by_kind),
       unmet_gates = M.final_gates(workspace, nil),
+      open_items = M.frontier(workspace),
       next_action = Guidance.next(workspace),
     },
   }
@@ -2774,6 +2777,38 @@ function M.final_gates(workspace, synthesis)
   return ordered, blocker_ids
 end
 
+function M.unresolved_contradictions(workspace)
+  local result = {}
+  for _, pair in pairs(contradiction_pairs(workspace)) do
+    local key = contradiction_key(pair[1], pair[2])
+    local review = State.find(workspace, workspace.resolved_contradictions[key])
+    if
+      not review
+      or review.status ~= 'active'
+      or review.kind ~= 'review'
+      or not State.in_lineage(workspace, review.data.frame_id)
+    then
+      table.insert(result, { pair[1], pair[2] })
+    end
+  end
+  table.sort(result, function(left, right)
+    if left[1] == right[1] then
+      return left[2] < right[2]
+    end
+    return left[1] < right[1]
+  end)
+  return result
+end
+
+function M.frontier(workspace)
+  if type(workspace) ~= 'table' then
+    return nil
+  end
+  local options = tree_options()
+  options.unresolved_contradictions = M.unresolved_contradictions(workspace)
+  return Tree.frontier(workspace, Config.get().limits, options)
+end
+
 local function synthesis_references_valid(workspace, ids, kind, path)
   for index, id in ipairs(ids) do
     local artifact, code = active_reference(workspace, id)
@@ -2884,6 +2919,7 @@ function M.synthesis(chat, args, lifecycle_phase)
       Validation.diagnostic('final_gates', 'satisfied', true, gates)
     )
     rejected.data.unmet_gates = gates
+    rejected.data.open_items = M.frontier(workspace)
     return rejected
   end
   if #workspace.artifact_order >= Config.get().limits.max_artifacts then

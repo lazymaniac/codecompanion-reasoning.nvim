@@ -67,6 +67,24 @@ T['accepts every registered reasoning tool as a next action'] = function()
   end
 end
 
+T['passes the frontier through to the model payload'] = function()
+  local mock = mock_meta()
+  Output.error({ name = 'reasoning_synthesis' }, {
+    {
+      code = 'synthesis_gate_failed',
+      message = 'final synthesis is blocked by: open_questions',
+      artifact_ids = { 'Q1' },
+      committed = false,
+      unmet_gates = { 'open_questions' },
+      open_items = { questions = { { id = 'Q1', parent_id = 'F1', depth = 1, provisional = false, text = 'Leaf' } } },
+      next_action = { tool = 'reasoning_question', reason = 'Close sub-question Q1 with its cited evidence' },
+    },
+  }, mock.meta)
+  local payload = vim.json.decode(mock.calls[1].for_llm)
+  eq(payload.open_items.questions[1].id, 'Q1')
+  eq(payload.next_action.tool, 'reasoning_question')
+end
+
 T['serializes stable errors'] = function()
   local mock = mock_meta()
   Output.error({ name = 'reasoning_frame' }, {

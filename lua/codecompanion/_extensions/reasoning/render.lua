@@ -1,3 +1,5 @@
+local Tree = require('codecompanion._extensions.reasoning.tree')
+
 local M = {}
 
 local escapable = {
@@ -194,6 +196,38 @@ function M.render(workspace, candidate)
     end
   end
   section(lines, 'Adversarial review', review_entries)
+
+  local resolved, dropped = {}, {}
+  if Tree.root_split(workspace) then
+    for _, node in ipairs(Tree.preorder(workspace)) do
+      local closure = #Tree.children(workspace, node.id) == 0 and Tree.closure(workspace, node.id) or nil
+      if closure and closure.data.action == 'answer' then
+        table.insert(
+          resolved,
+          string.format(
+            '- **%s — %s:** %s _(evidence: %s)_',
+            scalar(node.id),
+            scalar(node.data.text),
+            scalar(closure.data.answer),
+            scalar(table.concat(closure.relations.supports or {}, ', '))
+          )
+        )
+      elseif closure then
+        table.insert(
+          dropped,
+          string.format(
+            '- **%s — %s:** %s _(%s)_',
+            scalar(node.id),
+            scalar(node.data.text),
+            scalar(closure.data.justification),
+            scalar(closure.data.drop_reason)
+          )
+        )
+      end
+    end
+  end
+  section(lines, 'Resolved sub-questions', resolved)
+  section(lines, 'Dropped sub-questions', dropped)
 
   local criteria = {}
   for _, result in ipairs(candidate.criterion_results or {}) do

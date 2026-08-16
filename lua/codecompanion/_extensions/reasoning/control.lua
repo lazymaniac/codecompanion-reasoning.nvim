@@ -1131,6 +1131,7 @@ local function accepted_payload(state, marker, payload)
     artifact = vim.deepcopy(primary),
     progress = vim.deepcopy(workspace.counts_by_kind),
     unmet_gates = final_synthesis and {} or Protocol.final_gates(workspace, synthesis_arguments),
+    open_items = Protocol.frontier(workspace),
     next_action = synthesis_arguments and Guidance.next(workspace, synthesis_arguments)
       or Protocol.transition(workspace, 'active'),
   }

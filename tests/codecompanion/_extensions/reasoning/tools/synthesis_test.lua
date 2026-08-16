@@ -345,6 +345,75 @@ T['final reports every decomposition gate with its blockers'] = function()
   contains(blockers, 'Q2')
 end
 
+T['reports the frontier on accepted results and gate rejections'] = function()
+  local chat = {}
+  eq(
+    Frame.cmds[1]({ chat = chat }, {
+      action = 'start',
+      objective = 'Choose a durable cache design',
+      problem_type = 'analysis',
+      depth = 'standard',
+      constraints = { 'No external service' },
+      success_criteria = { 'Survives process restart', 'Bounded memory' },
+      unknowns = {},
+      perspectives = { { name = 'correctness', purpose = 'Find recovery failures' } },
+      temporal_required = false,
+      branching_required = false,
+      branching_rationale = 'This analysis tests one claim',
+    }, {}).status,
+    'success'
+  )
+  local workspace = State.get(chat)
+  local split = Protocol.call(
+    'question',
+    chat,
+    TreeFixture.args({
+      parent_id = workspace.frame_id,
+      child_questions = {
+        {
+          text = 'Does the journal replay?',
+          kind = 'sub_problem',
+          acceptance_test = 'Observe a replay',
+          resolution_kind = 'observation',
+        },
+        {
+          text = 'Does the snapshot load?',
+          kind = 'sub_problem',
+          acceptance_test = 'Observe a load',
+          resolution_kind = 'observation',
+        },
+      },
+    }),
+    nil
+  )
+  eq(split.status, 'success')
+  eq(split.data.open_items.questions, {
+    { id = 'Q1', parent_id = 'F1', depth = 1, provisional = false, text = 'Does the journal replay?' },
+    { id = 'Q2', parent_id = 'F1', depth = 1, provisional = false, text = 'Does the snapshot load?' },
+  })
+  eq(split.data.open_items.tree.open, 2)
+  eq(split.data.open_items.truncated, { questions = 0, unsupported_closures = 0 })
+
+  local args = final_args()
+  args.selected_option_ids, args.support_ids, args.review_ids = {}, {}, {}
+  for _, result in ipairs(args.criterion_results) do
+    result.evidence_ids = {}
+  end
+  local blocked = Synthesis.cmds[1]({ chat = chat }, args, {})
+  eq(blocked.data.code, 'synthesis_gate_failed')
+  eq(
+    vim.tbl_map(function(entry)
+      return entry.id
+    end, blocked.data.open_items.questions),
+    { 'Q1', 'Q2' }
+  )
+
+  Config.setup({ limits = { frontier_items = 1 } })
+  local truncated = Synthesis.cmds[1]({ chat = chat }, args, {})
+  eq(#truncated.data.open_items.questions, 1)
+  eq(truncated.data.open_items.truncated.questions, 1)
+end
+
 T['final reopens a leaf whose closure evidence is retracted'] = function()
   local chat = {}
   eq(
