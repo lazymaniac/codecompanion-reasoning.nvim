@@ -1,6 +1,6 @@
 # CodeCompanion Structured Reasoning
 
-Five deterministic tools for guiding difficult analysis, diagnosis, design,
+Six deterministic tools for guiding difficult analysis, diagnosis, design,
 decisions, and planning in
 [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
