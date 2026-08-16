@@ -86,7 +86,7 @@ git commit -m "feat(reasoning): add inquiry tree state primitives"
 `tests/.../tools/frame_test.lua`, `tests/.../guidance_test.lua`,
 `tests/.../transition_test.lua`
 
-- [ ] **Step 1: Write failing amend and currency tests**
+- [x] **Step 1: Write failing amend and currency tests**
 
 Amend adds unknowns, criteria, perspectives, and constraints, retires zero
 artifacts, and extends the lineage. Amend rejects removals and
@@ -95,9 +95,9 @@ artifacts, and extends the lineage. Amend rejects removals and
 the pre-amend frame stays current after amend; `revise` and `replace` still
 reset the lineage and retire downstream work.
 
-- [ ] **Step 2: Run the three files and verify RED**
+- [x] **Step 2: Run the three files and verify RED**
 
-- [ ] **Step 3: Implement amend and lineage currency**
+- [x] **Step 3: Implement amend and lineage currency**
 
 `M.frame` gains the amend branch (normalized set-difference validation, new
 frame artifact, `State.supersede` of the old frame, `State.extend_lineage`, no
@@ -109,9 +109,9 @@ retirement). `start | revise | replace` call `State.reset_lineage`. Replace
 frame allowance in `transition.lua`; leave `explicit_reframe` as
 `{ revise, replace }` so amend stays blocked on a finalized workspace.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): amend frames without retiring work"
@@ -121,7 +121,7 @@ git commit -m "feat(reasoning): amend frames without retiring work"
 
 **Files:** create `lua/.../reasoning/tree.lua`, create `tests/.../tree_test.lua`
 
-- [ ] **Step 1: Write failing tree tests**
+- [x] **Step 1: Write failing tree tests**
 
 Hand-built workspaces in the style of `guidance_test.lua`'s `artifact()` and
 `workspace()` helpers. Cover `children`, `closure`, `open_leaves` in pre-order
@@ -129,16 +129,16 @@ with an `artifact_order` tiebreak, `depth`, `closure_valid` flipping to false
 once cited evidence is retracted, and `frontier` ordering plus exact truncation
 counts.
 
-- [ ] **Step 2: Run the file and verify RED**
+- [x] **Step 2: Run the file and verify RED**
 
-- [ ] **Step 3: Implement the pure module**
+- [x] **Step 3: Implement the pure module**
 
 Workspace in, tables out. Bounds are passed by the caller so `tree.lua` requires
 neither `config.lua` nor `guidance.lua`, keeping it free of require cycles.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): add pure inquiry tree helpers"
@@ -154,7 +154,7 @@ git commit -m "feat(reasoning): add pure inquiry tree helpers"
 This task must land whole: the tool has to register, resolve, and pass the
 controller in one commit or the suite breaks.
 
-- [ ] **Step 1: Write failing split, registration, and acceptance tests**
+- [x] **Step 1: Write failing split, registration, and acceptance tests**
 
 All twelve split rules from the spec, each asserting `committed = false`, the
 exact diagnostic, and an unchanged workspace. A payload whose `next_action.tool`
@@ -163,9 +163,9 @@ is `reasoning_question` must round-trip through `output.lua` instead of becoming
 tool and the preflight stops synthesizing a rejection for it. The registered group must expose six tools and
 the three new prompt rules.
 
-- [ ] **Step 2: Run the five files and verify RED**
+- [x] **Step 2: Run the five files and verify RED**
 
-- [ ] **Step 3: Implement the tool and its split action**
+- [x] **Step 3: Implement the tool and its split action**
 
 `Constants` gains `reasoning_question` appended to `tool_names` and the operation
 maps. `tools/question.lua` carries the spec's schema. `schema.lua` gains the new
@@ -178,21 +178,25 @@ payload naming the tool is rewritten to `internal_error`. `control.lua` gains
 `accepted_payload` resolving through `by_action[marker.action]` and falling back
 to the flat table.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): add inquiry tree splitting"
 ```
 
-### Task 5: Closure actions, seeded questions, evidence linkage
+### Task 5: Seeded questions and evidence linkage
+
+> Executed note: the closure actions landed with Task 4, because a registered
+> tool whose documented actions all reject is not a shippable commit. This task
+> covered seeding and evidence linkage.
 
 **Files:** `protocol.lua`, `tools/evidence.lua`, `schema.lua`,
 `tests/.../tools/question_test.lua`, `tests/.../tools/evidence_test.lua`,
 `tests/.../tools/frame_test.lua`, `tests/.../control_test.lua`
 
-- [ ] **Step 1: Write failing closure and seeding tests**
+- [x] **Step 1: Write failing closure and seeding tests**
 
 All nine closure rules from the spec, including the provisional-node
 `acceptance_test` requirement, `require_observation_for_closure`, and
@@ -202,16 +206,16 @@ Evidence `addresses_questions` validates references; `addresses_unknowns` still
 maps to seeded question IDs by exact normalized text and no longer closes
 anything by itself.
 
-- [ ] **Step 2: Run the four files and verify RED**
+- [x] **Step 2: Run the four files and verify RED**
 
-- [ ] **Step 3: Implement closure, seeding, and linkage**
+- [x] **Step 3: Implement closure, seeding, and linkage**
 
 `answer` and `drop` each allocate one `closure` artifact with
 `relations.depends_on = { question_id }` and `relations.supports = evidence_ids`.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): close inquiry tree leaves"
@@ -222,7 +226,7 @@ git commit -m "feat(reasoning): close inquiry tree leaves"
 **Files:** `protocol.lua`, `guidance.lua`, `tests/.../tools/synthesis_test.lua`,
 `tests/.../guidance_test.lua`, `tests/.../transition_test.lua`
 
-- [ ] **Step 1: Write failing gate and guidance tests**
+- [x] **Step 1: Write failing gate and guidance tests**
 
 `decomposition_missing`, `open_questions`, `closure_unsupported`, and
 `residual_unresolved` each fire with the right blocker IDs and `gate_order`
@@ -232,17 +236,17 @@ evidence and closure, and reopens a leaf whose evidence was retracted. Update
 `transition_test.lua`'s finalized fixture so the accepted-final detector and the
 new gates agree.
 
-- [ ] **Step 2: Run the three files and verify RED**
+- [x] **Step 2: Run the three files and verify RED**
 
-- [ ] **Step 3: Implement the gates and the guidance block**
+- [x] **Step 3: Implement the gates and the guidance block**
 
 The root split is required when `depth == 'deep'` or `#unknowns > 0`, so a
 standard frame with no unknowns behaves exactly as before. `next_action.reason`
 names the target leaf ID.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): gate finals on open leaves"
@@ -254,7 +258,7 @@ git commit -m "feat(reasoning): gate finals on open leaves"
 `tests/.../output_test.lua`, `tests/.../control_test.lua`,
 `tests/.../tools/synthesis_test.lua`
 
-- [ ] **Step 1: Write failing frontier and rendering tests**
+- [x] **Step 1: Write failing frontier and rendering tests**
 
 `open_items` on every success payload and on the `synthesis_gate_failed`
 rejection, deterministic order, exact `truncated` counts at `frontier_items`, and
@@ -263,17 +267,17 @@ rejection that carries the extra block. Tree-less rendered output stays
 byte-identical; resolved and dropped sub-question sections are escaped and
 ordered pre-order.
 
-- [ ] **Step 2: Run the four files and verify RED**
+- [x] **Step 2: Run the four files and verify RED**
 
-- [ ] **Step 3: Implement the frontier and rendering**
+- [x] **Step 3: Implement the frontier and rendering**
 
 One `Tree.frontier(workspace, limits)` serves both the success and rejection
 paths so they cannot disagree. Render sections are omitted entirely when
 `root_split` is nil.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): report the reasoning frontier"
@@ -283,25 +287,25 @@ git commit -m "feat(reasoning): report the reasoning frontier"
 
 **Files:** `tests/.../runtime_integration_test.lua`, `README.md`, the design spec
 
-- [ ] **Step 1: Write the failing end-to-end runs**
+- [x] **Step 1: Write the failing end-to-end runs**
 
 One enforced run: frame start → root split → evidence → close leaves → amend
 adding a discovered unknown, asserting zero retirements → close it → gated final
 → terminal. One rejected run: a premature final returns `open_questions` and a
 frontier naming exactly the open leaves.
 
-- [ ] **Step 2: Run the file and verify RED**
+- [x] **Step 2: Run the file and verify RED**
 
-- [ ] **Step 3: Document the enforced contract**
+- [x] **Step 3: Document the enforced contract**
 
 README gains the tree tool, amend semantics, and the six-tool completeness note:
 a user config listing only the five old tool names now attaches an incomplete
 set, so the controller stays dormant and the legacy one-shot terminal guard
 applies. Set the design spec status to `Implemented`.
 
-- [ ] **Step 4: Run, format, re-run, full suite**
+- [x] **Step 4: Run, format, re-run, full suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(reasoning): document and verify the inquiry tree"
