@@ -1034,6 +1034,13 @@ local accepted_shape = {
   options = { primary = 'branch', collection = 'option', collection_required = true },
   review = { primary = 'review' },
   synthesis = { primary = 'synthesis' },
+  question = {
+    by_action = {
+      split = { primary = 'question', collection = 'question', collection_required = true },
+      answer = { primary = 'closure' },
+      drop = { primary = 'closure' },
+    },
+  },
 }
 
 local function ordered_new_artifacts(workspace, marker, clean_workspace)
@@ -1050,6 +1057,9 @@ local function accepted_payload(state, marker, payload)
   local chat = chat_for(state)
   local workspace = chat and State.get(chat) or nil
   local shape = accepted_shape[marker.operation]
+  if shape and shape.by_action then
+    shape = shape.by_action[marker.action]
+  end
   if not workspace or not shape or type(payload) ~= 'table' then
     return false
   end

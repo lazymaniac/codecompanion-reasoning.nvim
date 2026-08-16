@@ -22,6 +22,7 @@ local names = {
   'reasoning_options',
   'reasoning_review',
   'reasoning_synthesis',
+  'reasoning_question',
 }
 
 local buffers = {}
@@ -641,7 +642,7 @@ end
 
 local function assert_group_attached(chat)
   eq(chat.tool_registry.groups.reasoning, names)
-  eq(vim.tbl_count(chat.tool_registry.in_use), 5)
+  eq(vim.tbl_count(chat.tool_registry.in_use), #names)
   for _, name in ipairs(names) do
     eq(chat.tool_registry.in_use[name], true)
     eq(type(chat.tool_registry.schemas['<tool>' .. name .. '</tool>']), 'table')
@@ -1328,12 +1329,12 @@ T['clear isolates stale request callbacks and reused call IDs from a fresh run']
   eq(Control._get(chat).phase, 'dormant')
   eq(chat.messages[#chat.messages].content, 'ordinary dormant response')
 
-  for index = 1, 4 do
+  for index = 1, #names - 1 do
     eq(chat.tool_registry:add(names[index]) ~= nil, true)
     eq(Control._get(chat).phase, 'dormant')
     eq(Control.phase(chat), nil)
   end
-  eq(chat.tool_registry:add(names[5]) ~= nil, true)
+  eq(chat.tool_registry:add(names[#names]) ~= nil, true)
   eq(Control.phase(chat), 'armed')
 
   local fresh_call = model_call('reasoning_frame', frame_args('Fresh workspace after clear'), 'shared-call')

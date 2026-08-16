@@ -24,7 +24,7 @@ local function workspace()
   local ws = {
     frame_id = 'F1',
     frame_lineage = { 'F1' },
-    root_split = nil,
+    splits = {},
     artifact_order = { 'F1' },
     artifacts_by_id = { F1 = artifact('F1', 'frame', { unknowns = {} }) },
     open_revisions = {},
@@ -76,7 +76,7 @@ end
 
 local function split_workspace()
   local ws = workspace()
-  ws.root_split = { axis = 'component', composition = 'all_of', residual = '', child_ids = { 'Q1', 'Q2' } }
+  ws.splits.F1 = { axis = 'component', composition = 'all_of', residual = '', child_ids = { 'Q1', 'Q2' } }
   question(ws, 'Q1', 'F1', 'Does the cache survive restart?')
   question(ws, 'Q2', 'F1', 'Is memory bounded?')
   return ws

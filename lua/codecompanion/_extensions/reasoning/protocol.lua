@@ -4,6 +4,7 @@ local Guidance = require('codecompanion._extensions.reasoning.guidance')
 local Render = require('codecompanion._extensions.reasoning.render')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
+local Tree = require('codecompanion._extensions.reasoning.tree')
 local Transition = require('codecompanion._extensions.reasoning.transition')
 local Validation = require('codecompanion._extensions.reasoning.validation')
 local log = require('codecompanion.utils.log')
@@ -1770,6 +1771,457 @@ function M.review(chat, args)
     State.resolve_contradiction(workspace, key, review.id)
   end
   return success(workspace, review)
+end
+
+local function question_next_action()
+  return { tool = 'reasoning_question', reason = 'Correct the sub-question and retry' }
+end
+
+local function question_failure(code, message, artifact_ids, diagnostic)
+  return failure(code, message, artifact_ids, question_next_action(), diagnostic)
+end
+
+local function conjunctive(value)
+  local padded = ' ' .. normalized(value) .. ' '
+  if padded:find(' and ', 1, true) or padded:find(' also ', 1, true) or value:find(';', 1, true) then
+    return true
+  end
+  local _, marks = value:gsub('%?', '')
+  return marks > 1
+end
+
+local function tree_options()
+  local options = Config.get()
+  return {
+    require_observation = options.require_observation_for_closure,
+    judgment_requires_review = options.judgment_requires_review,
+  }
+end
+
+local function active_question(workspace, id)
+  local artifact = State.find(workspace, id)
+  if not artifact or artifact.status ~= 'active' or artifact.kind ~= 'question' then
+    return nil
+  end
+  return artifact
+end
+
+local function split_diagnostic(workspace, args, parent, limits, strict_atomicity)
+  local texts, tests = {}, {}
+  local parent_text = parent and parent.kind == 'question' and normalized(parent.data.text) or nil
+  local diagnostic = Validation.array(args.child_questions, 'child_questions', 2, limits.max_children)
+  if diagnostic then
+    return 'question_invalid', diagnostic
+  end
+  for index, child in ipairs(args.child_questions) do
+    local path = ('child_questions[%d]'):format(index)
+    diagnostic = Validation.required(child, path, 'object')
+      or Validation.text(child.text, path .. '.text', limits.max_text_chars)
+      or Validation.enum(child.kind, path .. '.kind', {
+        unknown = true,
+        sub_problem = true,
+        option_test = true,
+        assumption_check = true,
+      })
+      or Validation.text(child.acceptance_test, path .. '.acceptance_test', limits.max_text_chars)
+      or Validation.enum(child.resolution_kind, path .. '.resolution_kind', {
+        observation = true,
+        computation = true,
+        judgment = true,
+      })
+    if diagnostic then
+      return 'question_invalid', diagnostic
+    end
+    local text = normalized(child.text)
+    if parent_text and text == parent_text then
+      return 'question_invalid',
+        Validation.diagnostic(path .. '.text', 'distinct_from_parent', 'different_value', 'duplicate_value')
+    end
+    if texts[text] then
+      return 'question_invalid', Validation.diagnostic(path .. '.text', 'unique_items', true, 'duplicate_value')
+    end
+    texts[text] = true
+    local test = normalized(child.acceptance_test)
+    if tests[test] then
+      return 'question_invalid',
+        Validation.diagnostic(path .. '.acceptance_test', 'unique_items', true, 'duplicate_value')
+    end
+    tests[test] = true
+    if strict_atomicity and conjunctive(child.acceptance_test) then
+      return 'question_not_atomic',
+        Validation.diagnostic(path .. '.acceptance_test', 'single_observable', 1, 'multiple_observables')
+    end
+  end
+end
+
+local function split(chat, workspace, args)
+  local options = Config.get()
+  local limits = options.limits
+  local parent_is_frame = State.in_lineage(workspace, args.parent_id)
+  local parent = parent_is_frame and State.find(workspace, args.parent_id) or active_question(workspace, args.parent_id)
+  if not parent or parent.status ~= 'active' then
+    return question_failure(
+      'invalid_reference',
+      'the split parent must be the active frame or an active sub-question',
+      { args.parent_id },
+      Validation.reference(workspace, args.parent_id, 'parent_id', parent_is_frame and 'frame' or 'question')
+    )
+  end
+  if Tree.split(workspace, parent.id) or #Tree.children(workspace, parent.id) > 0 then
+    return question_failure(
+      'split_exists',
+      'this parent is already split',
+      { parent.id },
+      Validation.diagnostic('parent_id', 'workspace_state', 'unsplit', 'already_split')
+    )
+  end
+  if parent_is_frame and Tree.root_split(workspace) then
+    return question_failure(
+      'split_exists',
+      'the root split already exists for this frame lineage',
+      {},
+      Validation.diagnostic('parent_id', 'workspace_state', 'unsplit', 'already_split')
+    )
+  end
+  if not parent_is_frame then
+    local closure = Tree.closure(workspace, parent.id)
+    if closure and Tree.closure_valid(workspace, closure, tree_options()) then
+      return question_failure(
+        'question_closed',
+        'a closed sub-question cannot be split',
+        { parent.id, closure.id },
+        Validation.diagnostic('parent_id', 'workspace_state', 'open', 'closed')
+      )
+    end
+  end
+
+  local diagnostic
+  local code
+  code, diagnostic = split_diagnostic(workspace, args, parent, limits, options.strict_atomicity)
+  if diagnostic then
+    return question_failure(code, 'the sub-question split is invalid', {}, diagnostic)
+  end
+
+  local child_depth = parent_is_frame and 1 or Tree.depth(workspace, parent) + 1
+  if child_depth > limits.max_tree_depth then
+    return question_failure(
+      'tree_depth_exceeded',
+      'the split exceeds the configured tree depth',
+      { parent.id },
+      Validation.diagnostic('child_questions', 'max_depth', limits.max_tree_depth, child_depth)
+    )
+  end
+  local existing_questions = #Tree.preorder(workspace)
+  if existing_questions + #args.child_questions > limits.max_questions then
+    return question_failure(
+      'limit_exceeded',
+      'the split exceeds the configured sub-question limit',
+      {},
+      Validation.diagnostic(
+        'child_questions',
+        'max_items',
+        limits.max_questions,
+        existing_questions + #args.child_questions
+      )
+    )
+  end
+
+  diagnostic = Validation.enum(args.axis, 'axis', {
+    component = true,
+    phase = true,
+    failure_mode = true,
+    actor = true,
+    constraint = true,
+    data_flow = true,
+  }) or Validation.enum(args.composition, 'composition', { all_of = true, one_of = true, ordered = true })
+  if diagnostic then
+    return question_failure('question_invalid', 'the split axis and composition are invalid', {}, diagnostic)
+  end
+  if args.composition == 'one_of' and not parent_is_frame and parent.data.kind == 'unknown' then
+    return question_failure(
+      'question_invalid',
+      'an unknown resolves through every child, not one of them',
+      { parent.id },
+      Validation.diagnostic('composition', 'composition_kind', { 'all_of', 'ordered' }, 'one_of')
+    )
+  end
+
+  local residual = type(args.residual) == 'string' and vim.trim(args.residual) or ''
+  if residual == '' then
+    if args.residual_disposition ~= 'none' then
+      return question_failure(
+        'residual_unresolved',
+        'an empty residual needs no disposition',
+        {},
+        Validation.diagnostic('residual_disposition', 'residual_disposition', 'none', 'unknown_enum')
+      )
+    end
+  else
+    if args.residual_disposition == 'covered_elsewhere' then
+      if not active_question(workspace, args.residual_covered_by) then
+        return question_failure(
+          'residual_unresolved',
+          'the residual must name an active sub-question that covers it',
+          { args.residual_covered_by },
+          Validation.reference(workspace, args.residual_covered_by, 'residual_covered_by', 'question')
+        )
+      end
+    elseif args.residual_disposition == 'out_of_scope' then
+      local frame = State.find(workspace, workspace.frame_id)
+      local constraints = normalized_set(frame and frame.data.constraints or {})
+      if not constraints[normalized(residual)] then
+        return question_failure(
+          'residual_unresolved',
+          'an out-of-scope residual must quote an active frame constraint',
+          {},
+          Validation.diagnostic('residual', 'frame_constraint', 'active_constraint', 'unknown_value')
+        )
+      end
+    else
+      return question_failure(
+        'residual_unresolved',
+        'a non-empty residual must be covered elsewhere or declared out of scope',
+        {},
+        Validation.diagnostic(
+          'residual_disposition',
+          'residual_disposition',
+          { 'covered_elsewhere', 'out_of_scope' },
+          'none'
+        )
+      )
+    end
+  end
+
+  local children = {}
+  for _, child in ipairs(args.child_questions) do
+    local artifact = State.add(workspace, 'question', {
+      parent_id = parent.id,
+      text = child.text,
+      kind = child.kind,
+      acceptance_test = child.acceptance_test,
+      resolution_kind = child.resolution_kind,
+      provisional = false,
+      frame_id = workspace.frame_id,
+    })
+    if not artifact then
+      return question_failure(
+        'limit_exceeded',
+        'the workspace artifact limit was reached',
+        {},
+        Validation.diagnostic('workspace.artifacts', 'max_items', limits.max_artifacts, #workspace.artifact_order)
+      )
+    end
+    State.add_relation(workspace, artifact, 'depends_on', parent.id)
+    table.insert(children, artifact)
+  end
+  local child_ids = {}
+  for _, artifact in ipairs(children) do
+    table.insert(child_ids, artifact.id)
+  end
+  State.set_split(workspace, parent.id, {
+    axis = args.axis,
+    composition = args.composition,
+    residual = residual,
+    residual_disposition = args.residual_disposition,
+    residual_covered_by = args.residual_disposition == 'covered_elsewhere' and args.residual_covered_by or '',
+    child_ids = child_ids,
+  })
+
+  local result = success(workspace, children[#children])
+  result.data.artifacts = vim.deepcopy(children)
+  return result
+end
+
+local function closure(chat, workspace, args)
+  local options = Config.get()
+  local limits = options.limits
+  local question = active_question(workspace, args.question_id)
+  if not question or not State.in_lineage(workspace, question.data.frame_id) then
+    return question_failure(
+      'invalid_reference',
+      'the closed sub-question must be active in the current frame lineage',
+      { args.question_id },
+      Validation.reference(workspace, args.question_id, 'question_id', 'question')
+    )
+  end
+  if #Tree.children(workspace, question.id) > 0 then
+    return question_failure(
+      'question_not_leaf',
+      'only a leaf sub-question can be closed',
+      { question.id },
+      Validation.diagnostic('question_id', 'workspace_state', 'leaf', 'parent')
+    )
+  end
+  local existing = Tree.closure(workspace, question.id)
+  if existing and Tree.closure_valid(workspace, existing, tree_options()) then
+    return question_failure(
+      'question_closed',
+      'this sub-question is already closed',
+      { question.id, existing.id },
+      Validation.diagnostic('question_id', 'workspace_state', 'open', 'closed')
+    )
+  end
+
+  local diagnostic = Validation.required(args.evidence_ids, 'evidence_ids', 'array')
+  if diagnostic then
+    return question_failure('question_invalid', 'evidence_ids must be an array', {}, diagnostic)
+  end
+  local evidence = {}
+  for index, id in ipairs(args.evidence_ids) do
+    local path = ('evidence_ids[%d]'):format(index)
+    local artifact = State.find(workspace, id)
+    if not artifact or artifact.status ~= 'active' or artifact.kind ~= 'evidence' then
+      return question_failure(
+        'invalid_reference',
+        'closure evidence must be active evidence',
+        { id },
+        Validation.reference(workspace, id, path, 'evidence')
+      )
+    end
+    table.insert(evidence, artifact)
+  end
+
+  if args.action == 'answer' then
+    diagnostic = Validation.text(args.answer, 'answer', limits.max_text_chars)
+    if diagnostic then
+      return question_failure('closure_invalid', 'an answer must state what the evidence establishes', {}, diagnostic)
+    end
+    if #evidence == 0 then
+      return question_failure(
+        'closure_invalid',
+        'an answer must cite at least one active evidence item',
+        {},
+        Validation.diagnostic('evidence_ids', 'min_items', 1, 0)
+      )
+    end
+  else
+    diagnostic = Validation.text(args.justification, 'justification', limits.max_text_chars)
+      or Validation.enum(args.drop_reason, 'drop_reason', {
+        out_of_scope = true,
+        answered_elsewhere = true,
+        not_material = true,
+      })
+    if diagnostic then
+      return question_failure('closure_invalid', 'a drop must be justified and classified', {}, diagnostic)
+    end
+    if args.drop_reason == 'out_of_scope' then
+      local frame = State.find(workspace, workspace.frame_id)
+      local constraints = normalized_set(frame and frame.data.constraints or {})
+      if not constraints[normalized(args.justification)] then
+        return question_failure(
+          'closure_invalid',
+          'an out-of-scope drop must quote an active frame constraint',
+          {},
+          Validation.diagnostic('justification', 'frame_constraint', 'active_constraint', 'unknown_value')
+        )
+      end
+    elseif #evidence == 0 then
+      return question_failure(
+        'closure_invalid',
+        'this drop reason must cite active evidence',
+        {},
+        Validation.diagnostic('evidence_ids', 'min_items', 1, 0)
+      )
+    end
+  end
+
+  local resolution = args.resolution_kind
+  if resolution == 'none' or resolution == nil then
+    resolution = question.data.resolution_kind
+  end
+  if question.data.provisional then
+    diagnostic = Validation.text(args.acceptance_test, 'acceptance_test', limits.max_text_chars)
+      or Validation.enum(resolution or 'none', 'resolution_kind', {
+        observation = true,
+        computation = true,
+        judgment = true,
+      })
+    if diagnostic then
+      return question_failure(
+        'closure_invalid',
+        'a seeded sub-question needs its acceptance test before it closes',
+        { question.id },
+        diagnostic
+      )
+    end
+  end
+
+  local acceptance_test = type(args.acceptance_test) == 'string' and vim.trim(args.acceptance_test) or ''
+  if acceptance_test == '' then
+    acceptance_test = question.data.acceptance_test or ''
+  end
+  local candidate = {
+    id = 'candidate',
+    kind = 'closure',
+    status = 'active',
+    data = {
+      question_id = question.id,
+      action = args.action,
+      answer = args.action == 'answer' and args.answer or '',
+      justification = args.action == 'drop' and args.justification or '',
+      drop_reason = args.action == 'drop' and args.drop_reason or 'none',
+      acceptance_test = acceptance_test,
+      resolution_kind = resolution or 'none',
+      confidence = args.confidence ~= 'none' and args.confidence or 'medium',
+      frame_id = workspace.frame_id,
+    },
+    relations = { supports = vim.deepcopy(args.evidence_ids) },
+  }
+  if not Tree.closure_valid(workspace, candidate, tree_options()) then
+    local code = candidate.data.resolution_kind == 'judgment' and 'closure_unreviewed' or 'closure_unsupported'
+    local constraint = code == 'closure_unreviewed' and 'reviewed_judgment' or 'observation_backed'
+    return question_failure(
+      code,
+      'the closure does not meet the configured evidence bar',
+      vim.deepcopy(args.evidence_ids),
+      Validation.diagnostic('evidence_ids', constraint, true, false)
+    )
+  end
+
+  local artifact = State.add(workspace, 'closure', candidate.data)
+  if not artifact then
+    return question_failure(
+      'limit_exceeded',
+      'the workspace artifact limit was reached',
+      {},
+      Validation.diagnostic('workspace.artifacts', 'max_items', limits.max_artifacts, #workspace.artifact_order)
+    )
+  end
+  State.add_relation(workspace, artifact, 'depends_on', question.id)
+  for _, item in ipairs(evidence) do
+    State.add_relation(workspace, artifact, 'supports', item.id)
+  end
+  return success(workspace, artifact)
+end
+
+function M.question(chat, args)
+  local workspace = State.get(chat)
+  if not workspace then
+    return failure(
+      'workspace_missing',
+      'start a frame before decomposing the problem',
+      {},
+      { tool = 'reasoning_frame', reason = 'Create the active problem frame' },
+      Validation.diagnostic('action', 'workspace_exists', true, false)
+    )
+  end
+  if type(args) ~= 'table' then
+    return question_failure(
+      'question_invalid',
+      'the sub-question call is malformed',
+      {},
+      Validation.required(nil, 'action', 'string')
+    )
+  end
+  local diagnostic = Validation.required(args.action, 'action', 'string')
+    or Validation.enum(args.action, 'action', { split = true, answer = true, drop = true })
+  if diagnostic then
+    return question_failure('question_invalid', 'the sub-question action is invalid', {}, diagnostic)
+  end
+  if args.action == 'split' then
+    return split(chat, workspace, args)
+  end
+  return closure(chat, workspace, args)
 end
 
 local gate_order = {

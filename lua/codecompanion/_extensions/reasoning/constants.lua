@@ -6,6 +6,7 @@ M.tool_names = {
   'reasoning_options',
   'reasoning_review',
   'reasoning_synthesis',
+  'reasoning_question',
 }
 
 M.tool_set = {}
@@ -19,6 +20,7 @@ M.operation_by_tool = {
   reasoning_options = 'options',
   reasoning_review = 'review',
   reasoning_synthesis = 'synthesis',
+  reasoning_question = 'question',
 }
 
 M.tool_by_operation = {}

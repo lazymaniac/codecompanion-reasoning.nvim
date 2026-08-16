@@ -33,6 +33,20 @@ function M.children(workspace, id)
   return result
 end
 
+function M.split(workspace, parent_id)
+  return ((workspace and workspace.splits) or {})[parent_id]
+end
+
+function M.root_split(workspace)
+  for _, frame_id in ipairs((workspace and workspace.frame_lineage) or {}) do
+    local record = M.split(workspace, frame_id)
+    if record then
+      return record
+    end
+  end
+  return workspace and workspace.frame_id and M.split(workspace, workspace.frame_id) or nil
+end
+
 function M.roots(workspace)
   local result = {}
   for _, artifact_id in ipairs((workspace and workspace.artifact_order) or {}) do
@@ -229,7 +243,7 @@ function M.frontier(workspace, limits, options)
       closed = closed,
       open = total - closed,
       max_depth = max_depth,
-      root_split = (workspace and workspace.root_split) ~= nil,
+      root_split = M.root_split(workspace) ~= nil,
     },
     truncated = { questions = dropped_questions, unsupported_closures = dropped_closures },
   }

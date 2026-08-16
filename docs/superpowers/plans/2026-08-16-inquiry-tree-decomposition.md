@@ -159,8 +159,8 @@ controller in one commit or the suite breaks.
 All twelve split rules from the spec, each asserting `committed = false`, the
 exact diagnostic, and an unchanged workspace. A payload whose `next_action.tool`
 is `reasoning_question` must round-trip through `output.lua` instead of becoming
-`internal_error`. The controller must accept a split that reports its exact child
-set and reject one that does not. The registered group must expose six tools and
+`internal_error`. The controller shape wiring is exercised in Task 6, once guidance routes to the
+tool and the preflight stops synthesizing a rejection for it. The registered group must expose six tools and
 the three new prompt rules.
 
 - [ ] **Step 2: Run the five files and verify RED**

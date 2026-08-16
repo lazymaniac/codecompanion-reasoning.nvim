@@ -113,7 +113,7 @@ end
 T['tracks one revision for every tree mutation'] = function()
   local workspace = State.begin({})
   eq(workspace.frame_lineage, {})
-  eq(workspace.root_split, nil)
+  eq(workspace.splits, {})
   local frame = State.add(workspace, 'frame', {})
   local before = workspace.revision
 
@@ -126,8 +126,8 @@ T['tracks one revision for every tree mutation'] = function()
   eq(workspace.frame_lineage, { frame.id, amended.id })
   eq(workspace.revision, before + 3)
 
-  State.set_root_split(workspace, { axis = 'component', child_ids = { 'Q1', 'Q2' } })
-  eq(workspace.root_split.axis, 'component')
+  State.set_split(workspace, frame.id, { axis = 'component', child_ids = { 'Q1', 'Q2' } })
+  eq(workspace.splits[frame.id].axis, 'component')
   eq(workspace.revision, before + 4)
 
   eq(State.in_lineage(workspace, frame.id), true)
@@ -153,7 +153,7 @@ T['keeps final rollback independent of tree state'] = function()
   local workspace = State.begin(chat)
   local frame = State.add(workspace, 'frame', {})
   State.reset_lineage(workspace, frame.id)
-  State.set_root_split(workspace, { axis = 'phase', child_ids = { 'Q1' } })
+  State.set_split(workspace, frame.id, { axis = 'phase', child_ids = { 'Q1' } })
   local stage = State.prepare_final(chat, { mode = 'final' }, {})
   local before = workspace.revision
   eq(State.commit_final(chat, stage).id, 'S1')
@@ -161,7 +161,7 @@ T['keeps final rollback independent of tree state'] = function()
   eq(State.rollback_final(chat, stage), true)
   eq(workspace.revision, before)
   eq(workspace.frame_lineage, { frame.id })
-  eq(workspace.root_split.axis, 'phase')
+  eq(workspace.splits[frame.id].axis, 'phase')
 end
 
 T['prepares and commits one revision-bound final'] = function()

@@ -19,7 +19,7 @@ local function new_workspace(sequence)
     revision = 0,
     frame_id = nil,
     frame_lineage = {},
-    root_split = nil,
+    splits = {},
     artifacts_by_id = {},
     artifact_order = {},
     counts_by_kind = {},
@@ -173,8 +173,9 @@ function M.in_lineage(workspace, frame_id)
   return vim.tbl_contains(lineage, frame_id)
 end
 
-function M.set_root_split(workspace, record)
-  workspace.root_split = vim.deepcopy(record)
+function M.set_split(workspace, parent_id, record)
+  assert(type(parent_id) == 'string', 'splits must name a parent')
+  workspace.splits[parent_id] = vim.deepcopy(record)
   touch(workspace)
 end
 

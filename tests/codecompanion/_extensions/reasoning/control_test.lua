@@ -837,9 +837,9 @@ T = MiniTest.new_set({
   },
 })
 
-T['arms synchronously only after the fifth HTTP reasoning tool'] = function()
+T['arms synchronously only after the complete HTTP reasoning tool set'] = function()
   local chat, calls, originals = new_chat()
-  for index = 1, 4 do
+  for index = 1, #Constants.tool_names - 1 do
     chat.tool_registry.in_use[Constants.tool_names[index]] = true
     Control.reconcile(chat)
     eq(Control._get(chat), nil)
@@ -847,7 +847,7 @@ T['arms synchronously only after the fifth HTTP reasoning tool'] = function()
     eq(chat.submit, originals.submit)
   end
 
-  chat.tool_registry.in_use[Constants.tool_names[5]] = true
+  chat.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = true
   Control.reconcile(chat)
   eq(Control.phase(chat), 'armed')
   eq(chat.submit == originals.submit, false)
@@ -891,7 +891,7 @@ T['reports effective blocked phases and limits legacy terminal compatibility'] =
   eq(Control.legacy_terminal_allowed(acp), false)
 
   Control.reconcile(complete)
-  complete.tool_registry.in_use[Constants.tool_names[5]] = nil
+  complete.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = nil
   eq(Control.phase(complete), 'blocked')
   eq(Control.legacy_terminal_allowed(complete), false)
 
@@ -1091,7 +1091,7 @@ T['fails closed for removed tools and live orchestrators'] = function()
   local chat, calls = new_chat()
   attach_all(chat)
   Control.reconcile(chat)
-  chat.tool_registry.in_use[Constants.tool_names[5]] = nil
+  chat.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = nil
   local callback_count = 0
   chat:submit({
     callback = function()
@@ -1123,7 +1123,7 @@ T['catches removal and configured ACP at the preserved manual callback boundary'
   attach_all(chat)
   Control.reconcile(chat)
   chat.fixture_before_submit = function(value)
-    value.tool_registry.in_use[Constants.tool_names[5]] = nil
+    value.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = nil
   end
   chat:submit()
   eq(calls.submit, 1)
@@ -1167,22 +1167,22 @@ end
 
 T['clears legacy terminal guards on complete HTTP ACP and dormant rearm'] = function()
   local http, _, http_originals = new_chat()
-  for index = 1, 4 do
+  for index = 1, #Constants.tool_names - 1 do
     http.tool_registry.in_use[Constants.tool_names[index]] = true
   end
   eq(install_legacy_guard(http), true)
   eq(rawget(http, '_codecompanion_reasoning_terminal_guard') ~= nil, true)
-  http.tool_registry.in_use[Constants.tool_names[5]] = true
+  http.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = true
   Control.reconcile(http)
   eq(rawget(http, '_codecompanion_reasoning_terminal_guard'), nil)
   eq(Control._get(http).methods.submit.original, http_originals.submit)
 
   local acp, _, acp_originals = new_chat({ adapter_type = 'acp' })
-  for index = 1, 4 do
+  for index = 1, #Constants.tool_names - 1 do
     acp.tool_registry.in_use[Constants.tool_names[index]] = true
   end
   eq(install_legacy_guard(acp), true)
-  acp.tool_registry.in_use[Constants.tool_names[5]] = true
+  acp.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = true
   Control.reconcile(acp)
   eq(rawget(acp, '_codecompanion_reasoning_terminal_guard'), nil)
   eq(acp.submit, acp_originals.submit)
@@ -1192,10 +1192,10 @@ T['clears legacy terminal guards on complete HTTP ACP and dormant rearm'] = func
   Control.reconcile(dormant)
   local wrapper = rawget(dormant, 'submit')
   Control.clear(dormant)
-  dormant.tool_registry.in_use[Constants.tool_names[5]] = nil
+  dormant.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = nil
   eq(install_legacy_guard(dormant), true)
   eq(rawget(dormant, 'submit') == wrapper, false)
-  dormant.tool_registry.in_use[Constants.tool_names[5]] = true
+  dormant.tool_registry.in_use[Constants.tool_names[#Constants.tool_names]] = true
   Control.reconcile(dormant)
   eq(rawget(dormant, '_codecompanion_reasoning_terminal_guard'), nil)
   eq(rawget(dormant, 'submit'), wrapper)
@@ -1598,7 +1598,7 @@ T['clear preserves host returns and always releases its reentrancy guard'] = fun
   eq(calls.clear, 2)
 end
 
-T['dormant wrappers pass ordinary activity until the fifth tool rearms'] = function()
+T['dormant wrappers pass ordinary activity until the last tool rearms'] = function()
   local chat, calls, state = controlled_chat('active')
   chat:clear()
   local generation = state.request_generation
@@ -1631,7 +1631,7 @@ T['dormant wrappers pass ordinary activity until the fifth tool rearms'] = funct
   eq(State.get(chat), nil)
 end
 
-T['dormant fifth attachment reconciles ownership before delegation'] = function()
+T['dormant final attachment reconciles ownership before delegation'] = function()
   local chat, calls, state = controlled_chat('active')
   chat:clear()
   attach_all(chat)
