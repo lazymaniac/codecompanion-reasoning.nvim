@@ -1,12 +1,13 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
-local Frame = require('codecompanion._extensions.reasoning.tools.frame')
+local Start = require('codecompanion._extensions.reasoning.tools.start')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
+local Resolve = require('codecompanion._extensions.reasoning.tools.resolve_contradiction')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
 local TreeFixture = require('support.tree_fixture')
-local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
+local Checkpoint = require('codecompanion._extensions.reasoning.tools.checkpoint')
 
 local T = MiniTest.new_set({
   hooks = {
@@ -22,7 +23,6 @@ local function prepare(temporal)
   local chat = {}
   local second_perspective = temporal and 'temporal' or 'operations'
   local frame = {
-    action = 'start',
     objective = 'Choose a durable cache design',
     problem_type = 'design',
     depth = 'deep',
@@ -37,7 +37,7 @@ local function prepare(temporal)
     branching_required = true,
     branching_rationale = 'Competing designs exist',
   }
-  eq(Frame.cmds[1]({ chat = chat }, frame, {}).status, 'success')
+  eq(Start.cmds[1]({ chat = chat }, frame, {}).status, 'success')
   eq(TreeFixture.satisfy(chat), true)
   local evidence = {
     items = {
@@ -74,7 +74,6 @@ local function prepare(temporal)
     question = 'Which design?',
     branch_type = 'solution',
     criteria = { 'Durability', 'Memory' },
-    supersedes_branch_id = '',
     options = {
       {
         label = 'journal',
@@ -104,6 +103,17 @@ local function prepare(temporal)
   return chat
 end
 
+local function resolution_args(overrides)
+  return vim.tbl_extend('force', {
+    left_id = 'E1',
+    right_id = 'E2',
+    contradiction = 'E2 reports fewer writes than the restart requirement in E1 implies',
+    resolution = 'E2 qualifies E1 only for write frequency; it does not refute restart requirements',
+    evidence_ids = { 'E1', 'E2' },
+    falsifier = 'A measured run shows snapshot writes exceeding journal writes',
+  }, overrides or {})
+end
+
 local function full_review()
   return {
     mode = 'full',
@@ -129,7 +139,6 @@ local function full_review()
       { target_id = 'O1', status = 'revise', revision_instruction = 'Add torn-write recovery' },
       { target_id = 'E1', status = 'keep', revision_instruction = '' },
     },
-    contradiction_resolutions = {},
     structural_tradeoffs = {},
   }
 end
@@ -265,7 +274,7 @@ T['rejects direct option retraction without mutation'] = function()
   args.verdicts = { { target_id = 'O1', status = 'retract', revision_instruction = '' } }
   local result = Review.cmds[1]({ chat = chat }, args, {})
   eq(result.data.code, 'review_incomplete')
-  eq(result.data.next_action.tool, 'reasoning_options')
+  eq(result.data.next_action.tool, 'reasoning_options_replace')
   eq(State.find(State.get(chat), 'O1').status, 'active')
   eq(State.get(chat).counts_by_kind.review, nil)
 end
@@ -338,6 +347,16 @@ T['accepts every non-temporal review mode'] = function()
   end
 end
 
+T['resolves a contradiction on a temporal frame without stress tests'] = function()
+  local chat = prepare(true)
+  eq(Review.cmds[1]({ chat = chat }, full_review(), {}).data.code, 'review_incomplete')
+
+  local result = Resolve.cmds[1]({ chat = chat }, resolution_args(), {})
+  eq(result.status, 'success')
+  eq(State.find(State.get(chat), result.data.artifact.id).data.stress_tests, {})
+  eq(State.get(chat).resolved_contradictions['E1:E2'], result.data.artifact.id)
+end
+
 T['requires stress tests for an explicitly temporal frame'] = function()
   local chat = prepare(true)
   local args = full_review()
@@ -367,26 +386,43 @@ end
 
 T['resolves a reviewed contradiction pair'] = function()
   local chat = prepare()
-  local args = full_review()
-  args.target_ids = { 'E1', 'E2' }
-  args.challenges[1].target_ids = { 'E1' }
-  args.challenges[2].target_ids = { 'E2' }
-  args.verdicts = {
-    { target_id = 'E1', status = 'keep', revision_instruction = '' },
-    { target_id = 'E2', status = 'keep', revision_instruction = '' },
-  }
-  args.contradiction_resolutions = {
-    {
-      left_id = 'E1',
-      right_id = 'E2',
-      resolution = 'E2 qualifies E1 only for write frequency; it does not refute restart requirements',
-      evidence_ids = { 'E1', 'E2' },
-    },
-  }
-  local result = Review.cmds[1]({ chat = chat }, args, {})
+  local result = Resolve.cmds[1]({ chat = chat }, resolution_args(), {})
   eq(result.status, 'success')
   eq(State.get(chat).resolved_contradictions['E1:E2'], 'R1')
   eq(State.find(State.get(chat), 'R1').relations.qualifies, { 'E1', 'E2' })
+  local review = State.find(State.get(chat), 'R1').data
+  eq(review.mode, 'falsification')
+  eq(review.target_ids, { 'E1', 'E2' })
+  eq(review.challenges[1].kind, 'counterexample')
+  eq(review.verdicts, {
+    { target_id = 'E1', status = 'keep', revision_instruction = '' },
+    { target_id = 'E2', status = 'keep', revision_instruction = '' },
+  })
+end
+
+T['rejects a resolution that names one artifact twice or an unrelated pair'] = function()
+  local chat = prepare()
+  local duplicate = Resolve.cmds[1]({ chat = chat }, resolution_args({ right_id = 'E1' }), {})
+  eq(duplicate.data.code, 'review_incomplete')
+  eq(duplicate.data.diagnostic, {
+    path = 'right_id',
+    constraint = 'distinct_from_left_id',
+    expected = true,
+    actual = 'duplicate_value',
+  })
+
+  local unrelated = Resolve.cmds[1]({ chat = chat }, resolution_args({ left_id = 'O1', right_id = 'O2' }), {})
+  eq(unrelated.data.code, 'review_incomplete')
+  eq(unrelated.data.message, 'the resolution does not name an active contradiction')
+  eq(State.get(chat).counts_by_kind.review, nil)
+end
+
+T['requires supporting evidence for a resolution'] = function()
+  local chat = prepare()
+  local result = Resolve.cmds[1]({ chat = chat }, resolution_args({ evidence_ids = {} }), {})
+  eq(result.data.code, 'review_incomplete')
+  eq(result.data.diagnostic, { path = 'evidence_ids', constraint = 'min_items', expected = 1, actual = 0 })
+  eq(State.get(chat).counts_by_kind.review, nil)
 end
 
 T['does not resolve a contradiction from unrelated keep verdicts'] = function()
@@ -403,33 +439,14 @@ T['does not resolve a contradiction from unrelated keep verdicts'] = function()
   eq(State.get(chat).resolved_contradictions['E1:E2'], nil)
 end
 
-T['rejects reversed duplicate contradiction resolutions atomically'] = function()
+T['records one resolution per pair regardless of endpoint order'] = function()
   local chat = prepare()
-  local args = full_review()
-  args.target_ids = { 'E1', 'E2' }
-  args.challenges[1].target_ids = { 'E1' }
-  args.challenges[2].target_ids = { 'E2' }
-  args.verdicts = {
-    { target_id = 'E1', status = 'keep', revision_instruction = '' },
-    { target_id = 'E2', status = 'keep', revision_instruction = '' },
-  }
-  local resolution = {
-    left_id = 'E1',
-    right_id = 'E2',
-    resolution = 'The claims apply to different scopes',
-    evidence_ids = { 'E1' },
-  }
-  args.contradiction_resolutions = {
-    resolution,
-    {
-      left_id = 'E2',
-      right_id = 'E1',
-      resolution = 'The same pair in reverse',
-      evidence_ids = { 'E2' },
-    },
-  }
-  eq(Review.cmds[1]({ chat = chat }, args, {}).data.code, 'review_incomplete')
-  eq(State.get(chat).counts_by_kind.review, nil)
+  eq(Resolve.cmds[1]({ chat = chat }, resolution_args(), {}).status, 'success')
+  eq(State.get(chat).resolved_contradictions['E1:E2'], 'R1')
+
+  local reversed = Resolve.cmds[1]({ chat = chat }, resolution_args({ left_id = 'E2', right_id = 'E1' }), {})
+  eq(reversed.status, 'success')
+  eq(State.get(chat).resolved_contradictions['E1:E2'], 'R2')
 end
 
 T['requires every target to receive an adversarial challenge'] = function()
@@ -470,8 +487,7 @@ end
 
 T['traces synthesis selections and support for perspective coverage'] = function()
   local chat = prepare()
-  local checkpoint = Synthesis.cmds[1]({ chat = chat }, {
-    mode = 'checkpoint',
+  local checkpoint = Checkpoint.cmds[1]({ chat = chat }, {
     conclusion = 'The journal is currently strongest but needs review',
     selected_option_ids = { 'O1' },
     support_ids = { 'E2' },
@@ -480,10 +496,6 @@ T['traces synthesis selections and support for perspective coverage'] = function
       { criterion = 'Durable', status = 'pending', evidence_ids = {}, explanation = 'Review is pending' },
       { criterion = 'Bounded', status = 'pending', evidence_ids = {}, explanation = 'Review is pending' },
     },
-    tradeoffs = {},
-    uncertainties = {},
-    blind_spots = {},
-    next_actions = {},
     confidence = 'medium',
   }, {})
   eq(checkpoint.status, 'success')
@@ -510,7 +522,7 @@ T['rejects frame retraction and routes correction to framing'] = function()
   args.verdicts = { { target_id = 'F1', status = 'retract', revision_instruction = '' } }
   local result = Review.cmds[1]({ chat = chat }, args, {})
   eq(result.data.code, 'review_incomplete')
-  eq(result.data.next_action.tool, 'reasoning_frame')
+  eq(result.data.next_action.tool, 'reasoning_revise')
   eq(State.find(State.get(chat), 'F1').status, 'active')
   eq(State.get(chat).counts_by_kind.review, nil)
 end
@@ -608,7 +620,7 @@ T['exposes minimum review cardinality in the strict schema'] = function()
   eq(properties.challenges.minItems, 1)
   eq(
     properties.target_ids.description,
-    'Distinct active artifacts; challenges must collectively cover them and verdicts must cover each exactly once.'
+    'Distinct active artifacts under review; every one needs a challenge and exactly one verdict.'
   )
 end
 

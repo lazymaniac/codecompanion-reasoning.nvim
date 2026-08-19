@@ -1,10 +1,16 @@
 # CodeCompanion Structured Reasoning
 
-Six deterministic tools for guiding difficult analysis, diagnosis, design,
+Fourteen deterministic tools for guiding difficult analysis, diagnosis, design,
 decisions, and planning in
 [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim).
 
-Attaching all six tools to a supported HTTP chat synchronously arms a
+Each tool performs exactly one protocol action and takes only the fields that
+action needs, so no call carries a placeholder value for something it is not
+doing. The protocol is unchanged: the same artifacts, the same gates, the same
+fail-closed final. The reduced surface is there so the model spends its
+attention on the problem rather than on the call.
+
+Attaching all fourteen tools to a supported HTTP chat synchronously arms a
 chat-local, fail-closed protocol. Free-form model output can no longer bypass
 the structure: accepted artifacts are the only source of a final answer, and
 the extension renders that answer deterministically after the matching host
@@ -77,21 +83,24 @@ Add `@{reasoning}` to a chat when needed. To attach it to every chat, set `auto_
 ## Workflow
 
 ```text
-Frame -> Question(split) -> Evidence <-> Question(close) -> Options <-> Review -> Synthesis
+start -> split -> evidence <-> answer|drop -> options <-> review -> final
 ```
 
-Once all six reasoning tools are attached to an HTTP chat:
+Once all fourteen reasoning tools are attached to an HTTP chat:
 
 1. External project tools may run before framing and between artifacts without
    a count or retry limit from this extension.
-2. The first reasoning call must be `reasoning_frame` with `action = "start"`.
-   A deep frame, or any frame that declares unknowns, must then be decomposed
-   with `reasoning_question` before evidence is gathered. Every leaf must be
-   closed by cited active evidence, or explicitly dropped, before a final
-   synthesis is accepted.
+2. The first reasoning call must be `reasoning_start`. A deep frame, or any
+   frame that declares unknowns, must then be decomposed with
+   `reasoning_split` before evidence is gathered. Every leaf must be closed by
+   `reasoning_answer` with cited active evidence, or by `reasoning_drop` with a
+   classified justification, before a final is accepted.
 3. Every later reasoning call must be the sole call in its completion and must
-   match the authoritative transition returned by the protocol. External-only
-   completions remain allowed.
+   match the authoritative transition returned by the protocol. The transition
+   names one precise tool, and any tool that shares that tool's role is
+   accepted: a leaf may be dropped where an answer was suggested, a branch set
+   replaced instead of created, or a checkpoint recorded where a final is
+   ready. External-only completions remain allowed.
 4. Model prose and private reasoning blocks are suppressed. A completion with
    no tool call, a mixed reasoning batch, or an out-of-order reasoning call is
    a protocol violation rather than an alternate answer path.
@@ -103,22 +112,62 @@ Each reasoning call is atomic. Accepted and rejected results carry one
 deterministic `next_action`; rejected batches do not partially mutate the
 workspace. The workspace is scoped to the active chat and bounded in memory.
 
-Attaching fewer than all six tools is outside the fail-closed guarantee. That
-partial/individual-tool path retains the legacy one-shot terminal behavior for
-compatibility. A configuration that lists the pre-tree five tool names by hand
-now attaches an incomplete set: the controller stays dormant and the legacy
-guard applies, so add `reasoning_question` to keep enforcement. The legacy submit wrapper is never installed on a controlled
-complete-tool chat, so the two lifecycle mechanisms cannot stack.
+Attaching fewer than all fourteen tools is outside the fail-closed guarantee.
+That partial/individual-tool path retains the legacy one-shot terminal
+behavior for compatibility. A configuration that lists tool names by hand
+attaches an incomplete set unless it lists every one: the controller stays
+dormant and the legacy guard applies. Attach the `reasoning` group instead of
+naming tools individually. The legacy submit wrapper is never installed on a
+controlled complete-tool chat, so the two lifecycle mechanisms cannot stack.
+
+## Guidance the tools carry
+
+The protocol is self-describing, so a model does not have to hold it in memory:
+
+- **Every schema states its own place in the process.** Each tool description
+  says what it records, `WHEN:` it is the right call, what comes `NEXT:`, and
+  `FAILS IF:` the conditions that reject it. Field descriptions carry the rule
+  that applies to that field, not to a sibling action.
+- **The group system prompt carries the map.** Attaching `@{reasoning}` adds one
+  prompt with the ordered process, the mid-run tools, the full gate list, and
+  the runtime rules.
+- **Every result carries the next step.** Accepted and rejected payloads both
+  return `next_action.tool` and `next_action.reason`, so the model reads the
+  transition rather than deriving it.
+- **Every result carries the remaining work.** `open_items` lists the open leaves
+  in pre-order with depth and provisional flags, unsupported closures, open
+  revisions, unresolved contradictions, and a tree summary. Rejected finals add
+  `unmet_gates`.
+- **Every rejection carries the field.** A stable error code plus a
+  `diagnostic` with `path`, `constraint`, `expected`, and `actual` names exactly
+  what to correct.
+
+The cost is the standing tool payload: fourteen strict schemas total roughly
+38KB of JSON, against roughly 16KB for the six multiplexed tools they replace.
+The per-call surface moves the other way, from as many as sixteen required
+fields to between one and ten, none of them placeholders.
 
 ## Tools
 
-### `reasoning_frame`
+Each tool runs one protocol action. The frame, question, options, review, and
+synthesis families group the tools that produce the same artifact kind and
+satisfy the same authoritative transition.
 
-Starts, revises, or explicitly replaces a chat-local workspace.
+| Family | Tools |
+| --- | --- |
+| Frame | `reasoning_start`, `reasoning_amend`, `reasoning_revise`, `reasoning_replace` |
+| Question | `reasoning_split`, `reasoning_answer`, `reasoning_drop` |
+| Evidence | `reasoning_evidence` |
+| Options | `reasoning_options`, `reasoning_options_replace` |
+| Review | `reasoning_review`, `reasoning_resolve_contradiction` |
+| Synthesis | `reasoning_checkpoint`, `reasoning_final` |
+
+### `reasoning_start`
+
+Opens the workspace by framing the problem. Always the first reasoning call, and rejected while a workspace is already open.
 
 ```json
 {
-  "action": "start",
   "objective": "Choose a durable cache design",
   "problem_type": "design",
   "depth": "deep",
@@ -126,14 +175,8 @@ Starts, revises, or explicitly replaces a chat-local workspace.
   "success_criteria": ["Survives restart", "Keeps memory bounded"],
   "unknowns": ["Expected write rate"],
   "perspectives": [
-    {
-      "name": "correctness",
-      "purpose": "Find recovery failures"
-    },
-    {
-      "name": "operations",
-      "purpose": "Find lifecycle failures"
-    }
+    { "name": "correctness", "purpose": "Find recovery failures" },
+    { "name": "operations", "purpose": "Find lifecycle failures" }
   ],
   "temporal_required": false,
   "branching_required": true,
@@ -141,23 +184,41 @@ Starts, revises, or explicitly replaces a chat-local workspace.
 }
 ```
 
-`problem_type` accepts `analysis`, `decision`, `diagnosis`, `design`, or `planning`. Decision, diagnosis, design, and planning frames require branching. Deep frames require at least two perspectives.
+`problem_type` accepts `analysis`, `decision`, `diagnosis`, `design`, or `planning`. Decision, diagnosis, design, and planning frames require branching. Deep frames require at least two perspectives. Each framed unknown is seeded as a provisional sub-question.
 
-`action` also accepts `amend`, which adds unknowns, success criteria,
-perspectives, and constraints to the active frame without retiring any existing
-artifact. Amend may not change the objective, problem type, or depth, and may
-not remove anything; those remain `revise` and `replace`, which still retire
-downstream work. Each newly framed unknown is seeded as a provisional
-sub-question. Reviews, branches, and checkpoints recorded under an earlier frame
-in the same amend lineage stay current.
+### `reasoning_amend`
 
-### `reasoning_question`
-
-Decomposes the problem into atomic sub-questions and closes each leaf.
+Adds what the work uncovered to the active frame without retiring any artifact. It takes only the additions: the objective, problem type, and depth stay as framed, and nothing can be removed.
 
 ```json
 {
-  "action": "split",
+  "add_constraints": [],
+  "add_success_criteria": [],
+  "add_unknowns": ["Peak restart frequency"],
+  "add_perspectives": [{ "name": "performance", "purpose": "Find latency failures" }],
+  "require_temporal": true,
+  "require_branching": false,
+  "branching_rationale": ""
+}
+```
+
+Each added unknown is seeded as a new provisional sub-question. A perspective
+name the frame already declares is kept as framed. `require_temporal` and
+`require_branching` only raise a requirement; false keeps the framed setting,
+and an empty `branching_rationale` keeps the framed rationale. An amendment
+that adds nothing is rejected. Reviews, branches, and checkpoints recorded
+under an earlier frame in the same amend lineage stay current.
+
+### `reasoning_revise` and `reasoning_replace`
+
+Both take the complete frame fields of `reasoning_start`. Revise restates the frame and keeps the workspace while retiring every downstream artifact; replace discards the workspace and starts over. Changing the objective, problem type, or depth needs one of these, not an amendment.
+
+### `reasoning_split`
+
+Breaks the frame, or one open sub-question, into atomic sub-questions along a single dimension.
+
+```json
+{
   "parent_id": "F1",
   "axis": "component",
   "composition": "all_of",
@@ -177,15 +238,7 @@ Decomposes the problem into atomic sub-questions and closes each leaf.
       "acceptance_test": "Observe retained entries after compaction",
       "resolution_kind": "observation"
     }
-  ],
-  "question_id": "",
-  "answer": "",
-  "justification": "",
-  "drop_reason": "none",
-  "evidence_ids": [],
-  "acceptance_test": "",
-  "resolution_kind": "none",
-  "confidence": "none"
+  ]
 }
 ```
 
@@ -196,15 +249,47 @@ residual that is either empty or dispositioned as `covered_elsewhere` or
 acceptance test naming more than one observable is rejected as non-atomic.
 Depth, child count, and total sub-questions are bounded by configuration.
 
-`action = "answer"` closes one leaf with cited active evidence;
-`action = "drop"` closes it with a classified justification. A closure only
-counts while its cited evidence stays active, so retracting that evidence
-reopens the leaf and blocks the final again. Sub-question state is derived, not
-stored: a leaf is open when it has no active children and no valid closure.
+### `reasoning_answer`
+
+Closes one open leaf with cited active evidence.
+
+```json
+{
+  "question_id": "Q1",
+  "answer": "Replay restores every committed write after restart",
+  "evidence_ids": ["E1"],
+  "acceptance_test": "Observe a replayed commit after restart",
+  "resolution_kind": "observation",
+  "confidence": "high"
+}
+```
+
+A closure only counts while its cited evidence stays active, so retracting that
+evidence reopens the leaf and blocks the final again. Sub-question state is
+derived, not stored: a leaf is open when it has no active children and no valid
+closure. A seeded unknown states its acceptance test here for the first time.
+
+### `reasoning_drop`
+
+Closes one open leaf that does not need an answer.
+
+```json
+{
+  "question_id": "Q2",
+  "drop_reason": "out_of_scope",
+  "justification": "No external service",
+  "evidence_ids": []
+}
+```
+
+`out_of_scope` must quote an active frame constraint exactly;
+`answered_elsewhere` and `not_material` must cite active evidence. A drop needs
+no acceptance test, including for a seeded provisional leaf, because it
+declares that the question needs no observation.
 
 ### `reasoning_evidence`
 
-Records observations, claims, and explicitly labelled assumptions. Every item needs an explicit source or basis, confidence, a falsifier, and an exact perspective from the active frame. Observations require a concrete source.
+Records observations, claims, and explicitly labelled assumptions in one batch. Every item needs an explicit source or basis, confidence, a falsifier, and an exact perspective from the active frame. Observations require a concrete source.
 
 ```json
 {
@@ -217,6 +302,7 @@ Records observations, claims, and explicitly labelled assumptions. Every item ne
       "falsifier": "A generated partial suffix loses a committed entry or prevents recovery",
       "perspective": "correctness",
       "addresses_unknowns": [],
+      "addresses_questions": ["Q1"],
       "supports": [],
       "contradicts": [],
       "qualifies": [],
@@ -230,19 +316,7 @@ Records observations, claims, and explicitly labelled assumptions. Every item ne
       "falsifier": "Retained entries grow after compaction at the measured rate",
       "perspective": "operations",
       "addresses_unknowns": ["Expected write rate"],
-      "supports": [],
-      "contradicts": [],
-      "qualifies": [],
-      "supersedes_id": ""
-    },
-    {
-      "kind": "observation",
-      "statement": "Atomic snapshot tests restore the latest complete snapshot after restart",
-      "source": "tests/snapshot_recovery.lua:18",
-      "confidence": "high",
-      "falsifier": "Restart loads an incomplete or older committed snapshot",
-      "perspective": "correctness",
-      "addresses_unknowns": [],
+      "addresses_questions": ["Q2"],
       "supports": [],
       "contradicts": [],
       "qualifies": [],
@@ -263,7 +337,6 @@ Creates two to six genuinely competing solutions, hypotheses, or scenarios as on
   "question": "Which cache architecture satisfies the frame?",
   "branch_type": "solution",
   "criteria": ["Durability", "Bounded memory"],
-  "supersedes_branch_id": "",
   "options": [
     {
       "label": "journal",
@@ -291,7 +364,9 @@ Creates two to six genuinely competing solutions, hypotheses, or scenarios as on
 }
 ```
 
-Replacing alternatives uses `supersedes_branch_id` and replaces the complete branch set; options are not edited individually.
+### `reasoning_options_replace`
+
+Takes the same fields plus `supersedes_branch_id`, the active `B` artifact being replaced. Options are never edited individually: a replacement restates the complete set, including the alternatives that did not change.
 
 ### `reasoning_review`
 
@@ -322,31 +397,68 @@ Defends the strongest current case, attacks it with falsifiable challenges, reco
   "blind_spots": ["Disk exhaustion"],
   "stress_tests": [],
   "verdicts": [
-    {
-      "target_id": "O1",
-      "status": "keep",
-      "revision_instruction": ""
-    },
-    {
-      "target_id": "E1",
-      "status": "keep",
-      "revision_instruction": ""
-    }
+    { "target_id": "O1", "status": "keep", "revision_instruction": "" },
+    { "target_id": "E1", "status": "keep", "revision_instruction": "" }
   ],
-  "contradiction_resolutions": [],
   "structural_tradeoffs": []
 }
 ```
 
-Modes are `falsification`, `assumptions`, `temporal`, `cross_perspective`, and `full`. A `revise` verdict opens a typed correction that must be satisfied by the tool owning the target. A `retract` verdict deactivates the target. Contradictions remain blocking until a supported review explicitly resolves them.
+Modes are `falsification`, `assumptions`, `temporal`, `cross_perspective`, and
+`full`, and each adds one requirement: a disconfirming challenge, a
+hidden-assumption challenge, a stress test, two targets grounded in two
+perspectives, or defense evidence with a blind spot and both challenge kinds. A
+`revise` verdict opens a typed correction that must be satisfied by the tool
+owning the target. A `retract` verdict deactivates the target.
 
-### `reasoning_synthesis`
+### `reasoning_resolve_contradiction`
 
-Records an optional checkpoint or attempts a gated final result.
+Reconciles two active artifacts that contradict each other by recording the qualification under which both stand. Contradictions remain blocking until a supported resolution is recorded.
 
 ```json
 {
-  "mode": "final",
+  "left_id": "E1",
+  "right_id": "E3",
+  "contradiction": "Production evicts early while staging evicts on the deadline",
+  "resolution": "Both hold: only production runs the skewed clock source",
+  "evidence_ids": ["E2"],
+  "falsifier": "Staging reproduces the early eviction with the same clock source"
+}
+```
+
+The call records a review artifact that keeps both endpoints, so use
+`reasoning_review` with a `retract` verdict instead when one of them is simply
+wrong. A resolution carries no stress test, so a temporal frame still needs a
+stress-tested review before the final.
+
+### `reasoning_checkpoint`
+
+Records valid progress without claiming completion, and reports which gates a final would still fail. Permitted only when the authoritative `next_action` is in the synthesis family.
+
+```json
+{
+  "conclusion": "The journal design is ahead on durability",
+  "selected_option_ids": ["O1"],
+  "support_ids": ["E1", "E2"],
+  "review_ids": ["R1"],
+  "criterion_results": [
+    {
+      "criterion": "Survives restart",
+      "status": "passed",
+      "evidence_ids": ["E1"],
+      "explanation": "Replay tests cover complete and partial records"
+    }
+  ],
+  "confidence": "medium"
+}
+```
+
+### `reasoning_final`
+
+Publishes the answer. Accepted only after every applicable gate passes.
+
+```json
+{
   "conclusion": "Use a checksummed journal with truncation recovery",
   "selected_option_ids": ["O1"],
   "support_ids": ["E1", "E2"],
@@ -372,11 +484,6 @@ Records an optional checkpoint or attempts a gated final result.
   "confidence": "medium"
 }
 ```
-
-Checkpoint mode records valid progress without claiming completion and is
-permitted only when the authoritative `next_action` is
-`reasoning_synthesis`. Final mode is accepted only after every applicable gate
-passes.
 
 ## Frontier
 
@@ -461,11 +568,17 @@ previous artifact remains with `status = "superseded"`. Frame revision does
 the same while keeping the workspace; frame replacement resets it. Review may
 retract artifacts or open a revision requirement.
 
+A rejected call names the precise tool to retry, and a rejection that must be
+corrected elsewhere names that tool instead: an unknown perspective points at
+`reasoning_amend`, an option that lost its evidence at
+`reasoning_options_replace`, and an unresolved contradiction at
+`reasoning_resolve_contradiction`.
+
 After an accepted final, ordinary and automatic submission remain blocked,
 including CodeCompanion YOLO approval mode. Running
 `:CodeCompanionReasoningResume` with nonblank unsent input enters reframing;
-only `reasoning_frame` with `action = "revise"` or `action = "replace"` can
-return the chat to active reasoning. External investigation may continue while
+only `reasoning_revise` or `reasoning_replace` can return the chat to active
+reasoning. External investigation may continue while
 reframing, but prose and other reasoning operations remain fail-closed.
 
 ## Deterministic final output
@@ -572,7 +685,7 @@ The automatic recovery budget is fixed at three consecutive violations. It is
 intentionally not configurable, so the documented fail-closed boundary cannot
 be weakened by local options.
 
-The extension preserves existing CodeCompanion configuration for other tools, groups, system prompts, and display settings. It registers exactly the six tools above in the `reasoning` group and does not replace CodeCompanion's host system prompt.
+The extension preserves existing CodeCompanion configuration for other tools, groups, system prompts, and display settings. It registers exactly the fourteen tools above in the `reasoning` group and does not replace CodeCompanion's host system prompt.
 
 ## Privacy and scope
 
@@ -601,6 +714,22 @@ legacy commands, pickers, popup UI, project-memory files, and compatibility
 entry points. Existing configurations should enable the `reasoning` extension
 and use the `@{reasoning}` group instead. The only new command is the
 buffer-local fail-closed recovery command described above.
+
+The six multiplexed tools are also gone. Each of their actions is now its own
+tool, and the `action` and `mode` selectors no longer exist:
+
+| Removed call | Replacement |
+| --- | --- |
+| `reasoning_frame` with `action = "start"` | `reasoning_start` |
+| `reasoning_frame` with `action = "amend"` | `reasoning_amend`, which takes only the additions |
+| `reasoning_frame` with `action = "revise"` / `"replace"` | `reasoning_revise` / `reasoning_replace` |
+| `reasoning_question` with `action = "split"` / `"answer"` / `"drop"` | `reasoning_split` / `reasoning_answer` / `reasoning_drop` |
+| `reasoning_options` with `supersedes_branch_id` | `reasoning_options_replace` |
+| `reasoning_review` with `contradiction_resolutions` | `reasoning_resolve_contradiction` |
+| `reasoning_synthesis` with `mode = "checkpoint"` / `"final"` | `reasoning_checkpoint` / `reasoning_final` |
+
+Configurations that name reasoning tools individually must list the new names;
+attaching the `reasoning` group needs no change.
 
 ## Development
 

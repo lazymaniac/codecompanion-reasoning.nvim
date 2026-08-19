@@ -4,9 +4,8 @@ local Tree = require('codecompanion._extensions.reasoning.tree')
 
 local M = {}
 
-function M.args(overrides)
+function M.split_args(overrides)
   return vim.tbl_extend('force', {
-    action = 'split',
     parent_id = '',
     axis = 'component',
     composition = 'all_of',
@@ -14,14 +13,26 @@ function M.args(overrides)
     residual_disposition = 'none',
     residual_covered_by = '',
     child_questions = {},
+  }, overrides or {})
+end
+
+function M.drop_args(overrides)
+  return vim.tbl_extend('force', {
+    question_id = '',
+    justification = '',
+    drop_reason = 'not_material',
+    evidence_ids = {},
+  }, overrides or {})
+end
+
+function M.answer_args(overrides)
+  return vim.tbl_extend('force', {
     question_id = '',
     answer = '',
-    justification = '',
-    drop_reason = 'none',
     evidence_ids = {},
-    acceptance_test = '',
-    resolution_kind = 'none',
-    confidence = 'none',
+    acceptance_test = 'Observe the closing result',
+    resolution_kind = 'observation',
+    confidence = 'medium',
   }, overrides or {})
 end
 
@@ -38,9 +49,9 @@ function M.satisfy(chat, constraint)
   constraint = constraint or (frame and frame.data.constraints and frame.data.constraints[1])
   if not Tree.root_split(workspace) then
     local result = Protocol.call(
-      'question',
+      'split',
       chat,
-      M.args({
+      M.split_args({
         parent_id = workspace.frame_id,
         child_questions = {
           {
@@ -65,15 +76,12 @@ function M.satisfy(chat, constraint)
   end
   for _, leaf in ipairs(Tree.open_leaves(workspace, {})) do
     local dropped = Protocol.call(
-      'question',
+      'drop',
       chat,
-      M.args({
-        action = 'drop',
+      M.drop_args({
         question_id = leaf.id,
         justification = constraint,
         drop_reason = 'out_of_scope',
-        acceptance_test = 'Observe the constraint',
-        resolution_kind = 'observation',
       }),
       nil
     )

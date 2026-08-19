@@ -7,22 +7,26 @@ local M = {}
 local owned_default_tools = setmetatable({}, { __mode = 'k' })
 local owned_callbacks = setmetatable({}, { __mode = 'k' })
 
-local paths = {
-  reasoning_frame = '_extensions.reasoning.tools.frame',
-  reasoning_evidence = '_extensions.reasoning.tools.evidence',
-  reasoning_options = '_extensions.reasoning.tools.options',
-  reasoning_review = '_extensions.reasoning.tools.review',
-  reasoning_synthesis = '_extensions.reasoning.tools.synthesis',
-  reasoning_question = '_extensions.reasoning.tools.question',
-}
+local paths = {}
+for _, name in ipairs(Constants.tool_names) do
+  paths[name] = '_extensions.reasoning.tools.' .. name:gsub('^reasoning_', '')
+end
 
 local descriptions = {
-  reasoning_frame = 'Frame a difficult problem before developing conclusions',
+  reasoning_start = 'Frame the problem and open the reasoning workspace',
+  reasoning_amend = 'Add newly discovered work to the active frame',
+  reasoning_revise = 'Restate the frame and retire downstream work',
+  reasoning_replace = 'Discard the workspace and reframe from scratch',
+  reasoning_split = 'Split a problem into atomic sub-questions',
+  reasoning_answer = 'Close a sub-question with cited evidence',
+  reasoning_drop = 'Close a sub-question that needs no answer',
   reasoning_evidence = 'Record sourced and falsifiable evidence or assumptions',
   reasoning_options = 'Create competing solutions, hypotheses, or scenarios',
+  reasoning_options_replace = 'Replace a branch set with corrected alternatives',
   reasoning_review = 'Adversarially challenge and revise reasoning artifacts',
-  reasoning_synthesis = 'Record a checkpoint or gated final synthesis',
-  reasoning_question = 'Split a problem into atomic sub-questions and close each leaf',
+  reasoning_resolve_contradiction = 'Reconcile two contradictory artifacts',
+  reasoning_checkpoint = 'Record progress without claiming completion',
+  reasoning_final = 'Publish the gated final answer',
 }
 
 local function tool_callback(name)
@@ -117,25 +121,35 @@ function M.setup(user_options)
   local system_prompt = string.format(
     [[<structured_reasoning>
 Use this protocol for difficult problems. Routine requests do not need the group.
-Runtime rules:
+
+PROCESS. Each tool performs one action and takes only the fields that action needs. Every accepted result returns next_action.tool: that is the protocol state, so call it next.
+1. reasoning_start frames the problem: objective, constraints, success criteria, unknowns, perspectives. Use %s depth unless the problem warrants another explicit depth. Each unknown becomes a provisional sub-question.
+2. reasoning_split decomposes the frame, and later any leaf that hides several questions, into atomic sub-questions. A sub-question is atomic when one stated observation closes it. Split the problem with reasoning_split before gathering evidence.
+3. reasoning_evidence records sourced, falsifiable observations, claims, and labelled assumptions for the open leaf, the uncovered perspective, or the unresolved unknown that next_action names.
+4. Every leaf must be closed by reasoning_answer with cited active evidence, or by reasoning_drop with a classified justification. A closure holds only while its evidence stays active.
+5. reasoning_options develops two to six genuinely competing solutions, hypotheses, or scenarios when the frame requires branching. Do not select an option in the call that invents it.
+6. reasoning_review defends the strongest case, attacks it, exposes hidden assumptions and blind spots, and records keep, revise, or retract verdicts. A deep frame needs a full review; a temporal frame needs stress tests.
+7. reasoning_final publishes the answer once every gate passes.
+
+MID-RUN TOOLS. Work discovered mid-run uses reasoning_amend, which adds unknowns, criteria, constraints, and perspectives while keeping every artifact. reasoning_revise restates a wrong frame and retires downstream work; reasoning_replace discards the workspace. reasoning_options_replace corrects a branch set as one unit. reasoning_resolve_contradiction reconciles two conflicting artifacts under an explicit, supported qualification. reasoning_checkpoint records progress and previews the remaining gates without publishing anything.
+
+GATES. reasoning_final is rejected until: every leaf is closed and every closure still supported; evidence covers each framed perspective and each framed unknown; competing branches exist with an active selected option when the frame requires branching, each option citing active evidence and stating a prediction; a relevant review exists, full for a deep frame and stress-tested for a temporal frame; no contradiction or required revision is outstanding; and every success criterion has one supported passed or explained not_applicable result. A rejected final reports its unmet gates and changes nothing.
+
+RULES.
 1. Attaching the complete reasoning group commits this conversation to the structured final-answer path.
 2. External project tools are unrestricted and budget-neutral. Between reasoning calls, search, read files, inspect symbols and history, run commands and tests, and call other non-reasoning tools as needed; those calls do not advance protocol state.
-3. The first reasoning call must be reasoning_frame with action=start. Use %s depth unless the problem warrants another explicit depth.
-4. Never write the final answer directly as model prose; only the deterministic completion path may publish it.
-5. A rejected call is retryable and returns committed=false. Correct the reported field and retry the authoritative next_action.tool.
-6. Rejected artifact IDs do not exist and must never be cited or reused.
-7. New user information requires reasoning_frame with action=revise or action=replace before downstream reasoning continues.
-8. The deterministic final answer may use only accepted artifacts and their validated references.
-9. Split the problem into atomic sub-questions before gathering evidence; a sub-question is atomic when one stated observation closes it.
-10. Every leaf must be closed by reasoning_question with cited active evidence, or explicitly dropped with justification, before any final synthesis.
-11. Work discovered mid-run uses reasoning_frame with action=amend, which adds unknowns, criteria, perspectives, and constraints while keeping every existing artifact.
-Treat each accepted result's next_action.tool as the protocol state transition. Call exactly one reasoning tool at a time; never batch reasoning calls. Satisfy next_action.reason before making the next reasoning call. Never repeat unchanged rejected arguments.
-Record decision-relevant observations, claims, and labelled assumptions with reasoning_evidence. Every item needs a concrete source and an observable result that would falsify or materially revise it. Link evidence to exact framed unknowns when it addresses them.
-For decisions, diagnoses, designs, and plans, use reasoning_options to maintain genuinely competing solutions, hypotheses, or scenarios. Do not select an option in the same call that invents it.
-Use reasoning_review to defend the strongest case, attack it, expose hidden assumptions and blind spots, and record corrections. Use temporal stress tests when the frame requires reasoning across transitions. Resolve contradictions only with an explicit, supported qualification record.
-A submitted final synthesis must clear every structural gate. Checkpoint mode is optional; use it when a compact progress record or gate preview would help. If next_action.tool is none, stop; no further model action is permitted and never call a tool named none.
-Keep artifacts concise and externally inspectable. Never record or reveal private chain-of-thought.
-The tools validate structure, references, ordering, and coverage. They do not establish factual truth, guarantee independent perspectives, or replace external verification.
+3. The first reasoning call must be reasoning_start.
+4. Call exactly one reasoning tool at a time; never batch reasoning calls. Satisfy next_action.reason before the next reasoning call.
+5. Any tool that shares the named tool's role is accepted, so a leaf may be dropped where an answer was suggested, a branch set replaced instead of created, or a checkpoint recorded where a final is ready.
+6. Never write the final answer directly as model prose; only reasoning_final may publish it.
+7. A rejected call is retryable and returns committed=false. Correct the reported diagnostic path and retry. Never repeat unchanged rejected arguments.
+8. Rejected artifact IDs do not exist and must never be cited or reused.
+9. New user information requires reasoning_revise before downstream reasoning continues, or reasoning_replace when the existing work is unusable.
+10. The deterministic final answer may use only accepted artifacts and their validated references.
+11. Read open_items on every result: it lists the open leaves in order, unsupported closures, open revisions, and unresolved contradictions.
+12. If next_action.tool is none, stop; no further model action is permitted and never call a tool named none.
+
+Keep artifacts concise and externally inspectable. Never record or reveal private chain-of-thought. The tools validate structure, references, ordering, and coverage. They do not establish factual truth, guarantee independent perspectives, or replace external verification.
 </structured_reasoning>]],
     options.default_depth
   )

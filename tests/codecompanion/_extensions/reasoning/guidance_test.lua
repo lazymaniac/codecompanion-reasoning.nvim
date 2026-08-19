@@ -91,11 +91,11 @@ local function verified_synthesis(mode)
 end
 
 T['uses deterministic priority order'] = function()
-  eq(Guidance.next(nil), { tool = 'reasoning_frame', reason = 'Create the active problem frame' })
+  eq(Guidance.next(nil), { tool = 'reasoning_start', reason = 'Create the active problem frame' })
 
   local malformed = workspace()
   malformed.artifacts_by_id.F1.data.perspectives[2] = nil
-  eq(Guidance.next(malformed), { tool = 'reasoning_frame', reason = 'Correct uncovered frame requirements' })
+  eq(Guidance.next(malformed), { tool = 'reasoning_revise', reason = 'Correct uncovered frame requirements' })
 
   local ws = workspace()
   eq(Guidance.next(ws).tool, 'reasoning_evidence')
@@ -107,11 +107,11 @@ T['uses deterministic priority order'] = function()
   local unsupported = artifact('O1', 'option', { evidence_ids = {}, predictions = { 'A result' } })
   add(ws, artifact('B1', 'branch', { frame_id = 'F1', option_ids = { 'O1' } }))
   add(ws, unsupported)
-  eq(Guidance.next(ws).tool, 'reasoning_options')
+  eq(Guidance.next(ws).tool, 'reasoning_options_replace')
 
   unsupported.data.evidence_ids = { 'E1' }
   ws.artifacts_by_id.E2.relations.contradicts = { 'E1' }
-  eq(Guidance.next(ws).tool, 'reasoning_review')
+  eq(Guidance.next(ws).tool, 'reasoning_resolve_contradiction')
   ws.artifacts_by_id.E2.relations.contradicts = {}
   ws.open_revisions.E1 = 'R1'
   eq(Guidance.next(ws).tool, 'reasoning_evidence')
@@ -119,7 +119,7 @@ T['uses deterministic priority order'] = function()
   local complete = complete_workspace()
   eq(Guidance.next(complete).reason, 'Record verification for every success criterion')
   eq(Guidance.next(complete, verified_synthesis()), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'All structural gates are ready for final synthesis',
   })
 end
@@ -128,13 +128,13 @@ T['routes immutable option repair through branch replacement'] = function()
   local ws = complete_workspace()
   ws.artifacts_by_id.O1.data.evidence_ids = {}
   eq(Guidance.next(ws), {
-    tool = 'reasoning_options',
+    tool = 'reasoning_options_replace',
     reason = 'Replace the branch set so every option cites active evidence and states testable predictions',
   })
 
   ws.artifacts_by_id.O1.data.evidence_ids = { 'E1' }
   ws.artifacts_by_id.O1.data.predictions = {}
-  eq(Guidance.next(ws).tool, 'reasoning_options')
+  eq(Guidance.next(ws).tool, 'reasoning_options_replace')
 end
 
 T['requires a new selection after branch replacement retires the checkpoint selection'] = function()
@@ -157,7 +157,7 @@ T['requires a new selection after branch replacement retires the checkpoint sele
     })
   )
   eq(Guidance.next(ws), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'Select active options from the current branch set in the next synthesis',
   })
 end
@@ -193,7 +193,7 @@ T['asks synthesis to select an option when a branch result omits selection'] = f
   local synthesis = verified_synthesis()
   synthesis.selected_option_ids = {}
   eq(Guidance.next(ws, synthesis), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'Select a supported option in the next synthesis',
   })
 end
@@ -226,7 +226,7 @@ T['returns a terminal action after an accepted final synthesis'] = function()
 
   add(ws, evidence('E3', 'correctness'))
   eq(Guidance.next(ws), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'All structural gates are ready for final synthesis',
   })
 end
@@ -236,7 +236,7 @@ T['asks synthesis to cite an existing relevant review'] = function()
   local synthesis = verified_synthesis()
   synthesis.review_ids = {}
   eq(Guidance.next(ws, synthesis), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'Cite the existing relevant review in the next synthesis',
   })
 end
@@ -260,7 +260,7 @@ T['asks synthesis to cite an existing contradiction resolution'] = function()
   resolution.relations.supports = { 'E1' }
   ws.resolved_contradictions['E1:E2'] = 'R2'
   eq(Guidance.next(ws, verified_synthesis()), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'Cite the existing contradiction resolution in the next synthesis',
   })
 end
@@ -309,7 +309,7 @@ T['routes decomposition before evidence and closes leaves in pre-order'] = funct
   local ws = workspace()
   ws.splits = {}
   eq(Guidance.next(ws), {
-    tool = 'reasoning_question',
+    tool = 'reasoning_split',
     reason = 'Split the problem into atomic sub-questions before gathering evidence',
   })
 
@@ -325,7 +325,7 @@ T['routes decomposition before evidence and closes leaves in pre-order'] = funct
   item.data.kind = 'observation'
   item.data.addresses_questions = { 'Q1' }
   eq(Guidance.next(ws), {
-    tool = 'reasoning_question',
+    tool = 'reasoning_answer',
     reason = 'Close sub-question Q1 with its cited evidence',
   })
 
@@ -347,7 +347,7 @@ T['routes decomposition before evidence and closes leaves in pre-order'] = funct
 
   ws.artifacts_by_id.E1.status = 'retracted'
   eq(Guidance.next(ws), {
-    tool = 'reasoning_question',
+    tool = 'reasoning_answer',
     reason = 'Re-close the sub-question behind C1; its evidence no longer supports it',
   })
 end
@@ -362,7 +362,7 @@ T['keeps branches and reviews from an amended frame lineage'] = function()
   ws.frame_id = 'F2'
   ws.frame_lineage = { 'F1', 'F2' }
   eq(Guidance.next(ws, verified_synthesis()), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'All structural gates are ready for final synthesis',
   })
 end
@@ -382,7 +382,7 @@ T['asks synthesis to cite an available missing perspective'] = function()
   local synthesis = verified_synthesis()
   synthesis.support_ids = { 'E1' }
   eq(Guidance.next(ws, synthesis), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'Cite active evidence from every required perspective in the next synthesis',
   })
 end
@@ -396,7 +396,7 @@ T['repairs stale support citations before declaring readiness'] = function()
   synthesis.criterion_results[1].evidence_ids = { 'E2' }
   ws.artifacts_by_id.E1.status = 'superseded'
   eq(Guidance.next(ws, synthesis), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'Replace inactive support citations in the next synthesis',
   })
 end
@@ -420,7 +420,7 @@ T['ready guidance implies that final gates are empty'] = function()
   local ws = complete_workspace()
   local synthesis = verified_synthesis()
   eq(Guidance.next(ws, synthesis), {
-    tool = 'reasoning_synthesis',
+    tool = 'reasoning_final',
     reason = 'All structural gates are ready for final synthesis',
   })
   eq(Protocol.final_gates(ws, synthesis), {})

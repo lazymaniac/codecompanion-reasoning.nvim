@@ -1,14 +1,44 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
-local Frame = require('codecompanion._extensions.reasoning.tools.frame')
+local Start = require('codecompanion._extensions.reasoning.tools.start')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
+local OptionsReplace = require('codecompanion._extensions.reasoning.tools.options_replace')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local Tree = require('codecompanion._extensions.reasoning.tree')
 local TreeFixture = require('support.tree_fixture')
 local Render = require('codecompanion._extensions.reasoning.render')
+local Resolve = require('codecompanion._extensions.reasoning.tools.resolve_contradiction')
 local Review = require('codecompanion._extensions.reasoning.tools.review')
 local State = require('codecompanion._extensions.reasoning.state')
-local Synthesis = require('codecompanion._extensions.reasoning.tools.synthesis')
+local Checkpoint = require('codecompanion._extensions.reasoning.tools.checkpoint')
+local Final = require('codecompanion._extensions.reasoning.tools.final')
+
+-- Fixtures carry `mode` so one builder covers both synthesis tools; these
+-- helpers hand the fixture to the tool that owns that mode.
+local function synthesis_payload(args)
+  local payload = vim.deepcopy(args)
+  local mode = payload.mode or 'final'
+  payload.mode = nil
+  if mode == 'checkpoint' then
+    payload.tradeoffs, payload.uncertainties, payload.blind_spots, payload.next_actions = nil, nil, nil, nil
+  end
+  return mode, payload
+end
+
+local Synthesis = {
+  cmds = {
+    function(tools, args, opts)
+      local mode, payload = synthesis_payload(args)
+      local tool = mode == 'checkpoint' and Checkpoint or Final
+      return tool.cmds[1](tools, payload, opts)
+    end,
+  },
+}
+
+local function call_synthesis(chat, args, phase)
+  local mode, payload = synthesis_payload(args)
+  return Protocol.call(mode, chat, payload, phase)
+end
 
 local original_render = Render.render
 local original_prepare_final = State.prepare_final
@@ -32,8 +62,7 @@ local function contains(values, expected)
 end
 
 local function add_frame(chat, depth, branching, unknowns, temporal_required)
-  local result = Frame.cmds[1]({ chat = chat }, {
-    action = 'start',
+  local result = Start.cmds[1]({ chat = chat }, {
     objective = 'Choose a durable cache design',
     problem_type = branching and 'design' or 'analysis',
     depth = depth,
@@ -57,10 +86,9 @@ end
 local function revise_frame(chat, temporal_required)
   local current = State.find(State.get(chat), State.get(chat).frame_id)
   local args = vim.deepcopy(current.data)
-  args.action = 'revise'
   args.objective = current.data.objective .. ' under the revised frame'
   args.temporal_required = temporal_required == true
-  return Frame.cmds[1]({ chat = chat }, args, {})
+  return Protocol.call('revise', chat, args, nil)
 end
 
 local function add_evidence(chat, statement, perspective, contradicts, addresses_unknowns)
@@ -86,7 +114,8 @@ end
 local function add_options(chat, supported, supersedes_branch_id, evidence_ids)
   local ids = supported == false and {} or vim.deepcopy(evidence_ids or { 'E1' })
   local secondary_ids = vim.deepcopy(evidence_ids or { 'E1' })
-  return Options.cmds[1]({ chat = chat }, {
+  local tool = supersedes_branch_id and OptionsReplace or Options
+  return tool.cmds[1]({ chat = chat }, {
     question = 'Which design?',
     branch_type = 'solution',
     criteria = { 'Durability', 'Memory' },
@@ -164,39 +193,13 @@ local function add_review(chat, revise, target_ids, temporal, defense_evidence_i
 end
 
 local function resolve_contradiction(chat, evidence_id)
-  return Review.cmds[1]({ chat = chat }, {
-    mode = 'full',
-    target_ids = { 'E1', 'E2' },
-    defense = { summary = 'Both observations apply to different scopes', evidence_ids = { evidence_id } },
-    challenges = {
-      {
-        kind = 'counterexample',
-        summary = 'The scopes may still overlap',
-        target_ids = { 'E1' },
-        falsifier = 'A controlled trace shows the scopes never overlap',
-      },
-      {
-        kind = 'hidden_assumption',
-        summary = 'Scope separation is assumed',
-        target_ids = { 'E2' },
-        falsifier = 'The source explicitly defines separate scopes',
-      },
-    },
-    blind_spots = { 'A third runtime mode may exist' },
-    stress_tests = {},
-    verdicts = {
-      { target_id = 'E1', status = 'keep', revision_instruction = '' },
-      { target_id = 'E2', status = 'keep', revision_instruction = '' },
-    },
-    contradiction_resolutions = {
-      {
-        left_id = 'E1',
-        right_id = 'E2',
-        resolution = 'The claims are retained as scope-qualified observations',
-        evidence_ids = { evidence_id },
-      },
-    },
-    structural_tradeoffs = {},
+  return Resolve.cmds[1]({ chat = chat }, {
+    left_id = 'E1',
+    right_id = 'E2',
+    contradiction = 'The two observations disagree about the same runtime scope',
+    resolution = 'The claims are retained as scope-qualified observations',
+    evidence_ids = { evidence_id },
+    falsifier = 'A controlled trace shows the scopes overlap',
   }, {})
 end
 
@@ -285,8 +288,7 @@ end
 T['final reports every decomposition gate with its blockers'] = function()
   local chat = {}
   eq(
-    Frame.cmds[1]({ chat = chat }, {
-      action = 'start',
+    Start.cmds[1]({ chat = chat }, {
       objective = 'Choose a durable cache design',
       problem_type = 'analysis',
       depth = 'deep',
@@ -312,9 +314,9 @@ T['final reports every decomposition gate with its blockers'] = function()
   local workspace = State.get(chat)
   eq(
     Protocol.call(
-      'question',
+      'split',
       chat,
-      TreeFixture.args({
+      TreeFixture.split_args({
         parent_id = workspace.frame_id,
         child_questions = {
           {
@@ -348,8 +350,7 @@ end
 T['reports the frontier on accepted results and gate rejections'] = function()
   local chat = {}
   eq(
-    Frame.cmds[1]({ chat = chat }, {
-      action = 'start',
+    Start.cmds[1]({ chat = chat }, {
       objective = 'Choose a durable cache design',
       problem_type = 'analysis',
       depth = 'standard',
@@ -365,9 +366,9 @@ T['reports the frontier on accepted results and gate rejections'] = function()
   )
   local workspace = State.get(chat)
   local split = Protocol.call(
-    'question',
+    'split',
     chat,
-    TreeFixture.args({
+    TreeFixture.split_args({
       parent_id = workspace.frame_id,
       child_questions = {
         {
@@ -417,8 +418,7 @@ end
 T['final reopens a leaf whose closure evidence is retracted'] = function()
   local chat = {}
   eq(
-    Frame.cmds[1]({ chat = chat }, {
-      action = 'start',
+    Start.cmds[1]({ chat = chat }, {
       objective = 'Choose a durable cache design',
       problem_type = 'analysis',
       depth = 'standard',
@@ -436,9 +436,9 @@ T['final reopens a leaf whose closure evidence is retracted'] = function()
   local workspace = State.get(chat)
   eq(
     Protocol.call(
-      'question',
+      'split',
       chat,
-      TreeFixture.args({
+      TreeFixture.split_args({
         parent_id = workspace.frame_id,
         child_questions = {
           {
@@ -462,10 +462,9 @@ T['final reopens a leaf whose closure evidence is retracted'] = function()
   for _, id in ipairs({ 'Q1', 'Q2' }) do
     eq(
       Protocol.call(
-        'question',
+        'answer',
         chat,
-        TreeFixture.args({
-          action = 'answer',
+        TreeFixture.answer_args({
           question_id = id,
           answer = 'Closed by the recorded observation',
           evidence_ids = { 'E1' },
@@ -526,7 +525,7 @@ T['deep final requires a full review of selected support'] = function()
   local existing = Synthesis.cmds[1]({ chat = deep_workspace() }, args, {})
   contains(existing.data.unmet_gates, 'full_review_missing')
   eq(existing.data.artifact_ids, { 'R1' })
-  eq(existing.data.next_action.tool, 'reasoning_synthesis')
+  eq(existing.data.next_action.tool, 'reasoning_final')
 end
 
 T['final blocks open revisions and unresolved contradictions'] = function()
@@ -540,8 +539,8 @@ end
 
 T['frame and selected branch revisions cannot be bypassed by option selection'] = function()
   for _, case in ipairs({
-    { target_id = 'F1', tool = 'reasoning_frame' },
-    { target_id = 'B1', tool = 'reasoning_options' },
+    { target_id = 'F1', tool = 'reasoning_revise' },
+    { target_id = 'B1', tool = 'reasoning_options_replace' },
   }) do
     State._reset()
     local chat = deep_workspace()
@@ -561,7 +560,7 @@ T['final revalidates cited contradiction resolutions and their evidence'] = func
   local omitted = Synthesis.cmds[1]({ chat = chat }, args, {})
   contains(omitted.data.unmet_gates, 'contradiction_unresolved')
   eq(omitted.data.artifact_ids, { 'E1', 'E2', 'R2' })
-  eq(omitted.data.next_action.tool, 'reasoning_synthesis')
+  eq(omitted.data.next_action.tool, 'reasoning_final')
 
   args.review_ids = { 'R1', 'R2' }
   eq(Synthesis.cmds[1]({ chat = chat }, args, {}).status, 'success')
@@ -634,7 +633,7 @@ T['reports typed synthesis references without consuming synthesis IDs'] = functi
   }
   local args = final_args()
   args.support_ids = { 'O1' }
-  local result = Protocol.call('synthesis', chat, args, 'active')
+  local result = call_synthesis(chat, args, 'active')
 
   eq(result.data.committed, false)
   eq(result.data.diagnostic, {
@@ -649,7 +648,7 @@ T['reports typed synthesis references without consuming synthesis IDs'] = functi
     artifact_order = workspace.artifact_order,
     next_sequence = workspace.next_sequence,
   }, before)
-  eq(Protocol.call('synthesis', chat, final_args(), 'active').data.artifact.id, 'S1')
+  eq(call_synthesis(chat, final_args(), 'active').data.artifact.id, 'S1')
 end
 
 T['final rejects a selected option without active evidence'] = function()
@@ -681,7 +680,7 @@ T['controlled final prepares rendered synthesis without allocating state'] = fun
     order = vim.deepcopy(workspace.artifact_order),
   }
 
-  local result = Protocol.call('synthesis', chat, final_args(), 'active')
+  local result = call_synthesis(chat, final_args(), 'active')
 
   eq(result.status, 'success')
   eq(result.data.artifact.id, 'S1')
@@ -706,7 +705,7 @@ end
 T['prepared final conflicts after workspace mutation and consumes no reserved ID'] = function()
   local chat = deep_workspace()
   local workspace = State.get(chat)
-  local result = Protocol.call('synthesis', chat, final_args(), 'active')
+  local result = call_synthesis(chat, final_args(), 'active')
   local stage = result.data._reasoning_final.stage
   State.retract(workspace, 'E2')
 
@@ -733,7 +732,7 @@ T['standalone final reports a transaction conflict when rendering mutates worksp
     return markdown
   end
 
-  local result = Protocol.call('synthesis', chat, final_args(), nil)
+  local result = call_synthesis(chat, final_args(), nil)
 
   eq(result.status, 'error')
   eq(result.data.code, 'transaction_conflict')
@@ -767,7 +766,7 @@ T['renderer failures are stable and allocate no controlled or standalone final']
         captured_stage = stage
         return stage, code
       end
-      local result = Protocol.call('synthesis', chat, final_args(), phase == false and nil or phase)
+      local result = call_synthesis(chat, final_args(), phase == false and nil or phase)
       eq(result.status, 'error')
       eq(result.data.code, 'render_internal')
       eq(result.data.message, 'the deterministic final could not be rendered')
@@ -785,7 +784,7 @@ T['controlled checkpoint still commits immediately without a final stage'] = fun
   local chat = deep_workspace()
   local args = final_args()
   args.mode = 'checkpoint'
-  local result = Protocol.call('synthesis', chat, args, 'active')
+  local result = call_synthesis(chat, args, 'active')
 
   eq(result.status, 'success')
   eq(result.data.artifact.id, 'S1')
@@ -796,7 +795,7 @@ end
 
 T['standalone final renders and commits without exposing its internal stage'] = function()
   local chat = deep_workspace()
-  local result = Protocol.call('synthesis', chat, final_args(), nil)
+  local result = call_synthesis(chat, final_args(), nil)
 
   eq(result.status, 'success')
   eq(result.data.artifact.id, 'S1')
@@ -883,7 +882,7 @@ T['stale branches and reviews cannot satisfy a revised frame'] = function()
   local chat = deep_workspace()
   local revised = revise_frame(chat)
   eq(revised.status, 'success')
-  eq(revised.data.next_action.tool, 'reasoning_question')
+  eq(revised.data.next_action.tool, 'reasoning_split')
   eq(TreeFixture.satisfy(chat), true)
   local stale = Synthesis.cmds[1]({ chat = chat }, final_args(), {})
   eq(stale.data.code, 'inactive_reference')
@@ -971,7 +970,7 @@ T['selected options require every cited evidence artifact to remain active'] = f
   args.criterion_results[2].evidence_ids = { 'E3' }
   local result = Synthesis.cmds[1]({ chat = chat }, args, {})
   contains(result.data.unmet_gates, 'selected_option_unsupported')
-  eq(result.data.next_action.tool, 'reasoning_options')
+  eq(result.data.next_action.tool, 'reasoning_options_replace')
 end
 
 T['deep full review must target selected or supporting material'] = function()
@@ -1082,7 +1081,7 @@ T['blocks every non-reframing tool after an accepted final'] = function()
   eq(Synthesis.cmds[1]({ chat = chat }, final_args(), {}).status, 'success')
 
   for _, case in ipairs({
-    { tool = Frame, args = { action = 'start' } },
+    { tool = Start, args = {} },
     { tool = Evidence, args = {} },
     { tool = Options, args = {} },
     { tool = Review, args = {} },
@@ -1098,11 +1097,10 @@ T['blocks every non-reframing tool after an accepted final'] = function()
 end
 
 T['requires explicit frame revision or replacement to reopen a final'] = function()
-  for _, action in ipairs({ 'revise', 'replace' }) do
+  for _, operation in ipairs({ 'revise', 'replace' }) do
     local chat = deep_workspace()
     eq(Synthesis.cmds[1]({ chat = chat }, final_args(), {}).status, 'success')
-    local result = Frame.cmds[1]({ chat = chat }, {
-      action = action,
+    local result = Protocol.call(operation, chat, {
       objective = 'Reconsider the durable cache after new user evidence',
       problem_type = 'design',
       depth = 'deep',
@@ -1116,7 +1114,7 @@ T['requires explicit frame revision or replacement to reopen a final'] = functio
       temporal_required = false,
       branching_required = true,
       branching_rationale = 'New evidence may change the competing designs',
-    }, {})
+    }, nil)
     eq(result.status, 'success')
     eq(result.data.artifact.kind, 'frame')
 
@@ -1125,8 +1123,32 @@ T['requires explicit frame revision or replacement to reopen a final'] = functio
   end
 end
 
+T['checkpoint records progress and cannot express a published answer'] = function()
+  local properties = Checkpoint.schema['function'].parameters.properties
+  eq(properties.tradeoffs, nil)
+  eq(properties.uncertainties, nil)
+  eq(properties.blind_spots, nil)
+  eq(properties.next_actions, nil)
+  eq(type(properties.conclusion), 'table')
+
+  local chat = deep_workspace()
+  local args = final_args()
+  args.mode = 'checkpoint'
+  local result = Synthesis.cmds[1]({ chat = chat }, args, {})
+  eq(result.status, 'success')
+  local recorded = State.find(State.get(chat), result.data.artifact.id).data
+  eq(recorded.mode, 'checkpoint')
+  eq({ recorded.tradeoffs, recorded.uncertainties, recorded.blind_spots, recorded.next_actions }, { {}, {}, {}, {} })
+  eq(result.data.unmet_gates, {})
+  eq(result.data.next_action.tool, 'reasoning_final')
+
+  local final = Synthesis.cmds[1]({ chat = chat }, final_args(), {})
+  eq(final.status, 'success')
+  eq(final.data.next_action.tool, 'none')
+end
+
 T['describes exact final references in the strict schema'] = function()
-  local properties = Synthesis.schema['function'].parameters.properties
+  local properties = Final.schema['function'].parameters.properties
   eq(type(properties.selected_option_ids.description), 'string')
   eq(type(properties.support_ids.description), 'string')
   eq(type(properties.review_ids.description), 'string')

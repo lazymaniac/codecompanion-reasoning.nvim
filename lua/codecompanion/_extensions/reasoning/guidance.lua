@@ -109,11 +109,11 @@ end
 
 local function revision_tool(workspace, relevant)
   local tool_by_kind = {
-    frame = 'reasoning_frame',
+    frame = 'reasoning_revise',
     evidence = 'reasoning_evidence',
-    branch = 'reasoning_options',
-    option = 'reasoning_options',
-    synthesis = 'reasoning_synthesis',
+    branch = 'reasoning_options_replace',
+    option = 'reasoning_options_replace',
+    synthesis = 'reasoning_final',
   }
   for index = #(workspace.artifact_order or {}), 1, -1 do
     local review = workspace.artifacts_by_id[workspace.artifact_order[index]]
@@ -169,11 +169,11 @@ end
 
 function M.next(workspace, synthesis)
   if not workspace then
-    return { tool = 'reasoning_frame', reason = 'Create the active problem frame' }
+    return { tool = 'reasoning_start', reason = 'Create the active problem frame' }
   end
   local frame = workspace.artifacts_by_id[workspace.frame_id]
   if not frame or frame.status ~= 'active' then
-    return { tool = 'reasoning_frame', reason = 'Create the active problem frame' }
+    return { tool = 'reasoning_start', reason = 'Create the active problem frame' }
   end
   local branching_by_type = {
     decision = true,
@@ -187,7 +187,7 @@ function M.next(workspace, synthesis)
     or perspective_count == 0
     or (branching_by_type[frame.data.problem_type] and not frame.data.branching_required)
   then
-    return { tool = 'reasoning_frame', reason = 'Correct uncovered frame requirements' }
+    return { tool = 'reasoning_revise', reason = 'Correct uncovered frame requirements' }
   end
 
   local options = Config.get()
@@ -197,14 +197,14 @@ function M.next(workspace, synthesis)
   }
   if (frame.data.depth == 'deep' or #(frame.data.unknowns or {}) > 0) and not Tree.root_split(workspace) then
     return {
-      tool = 'reasoning_question',
+      tool = 'reasoning_split',
       reason = 'Split the problem into atomic sub-questions before gathering evidence',
     }
   end
   local unsupported = Tree.unsupported_closures(workspace, closure_options)
   if #unsupported > 0 then
     return {
-      tool = 'reasoning_question',
+      tool = 'reasoning_answer',
       reason = ('Re-close the sub-question behind %s; its evidence no longer supports it'):format(unsupported[1]),
     }
   end
@@ -214,7 +214,7 @@ function M.next(workspace, synthesis)
     for _, artifact in ipairs(active(workspace, 'evidence')) do
       if vim.tbl_contains(artifact.data.addresses_questions or {}, leaf.id) then
         return {
-          tool = 'reasoning_question',
+          tool = 'reasoning_answer',
           reason = ('Close sub-question %s with its cited evidence'):format(leaf.id),
         }
       end
@@ -318,7 +318,7 @@ function M.next(workspace, synthesis)
         local selected = workspace.artifacts_by_id[id]
         if not current_options[id] or not selected or selected.status ~= 'active' or selected.kind ~= 'option' then
           return {
-            tool = 'reasoning_synthesis',
+            tool = 'reasoning_final',
             reason = 'Select active options from the current branch set in the next synthesis',
           }
         end
@@ -335,7 +335,7 @@ function M.next(workspace, synthesis)
         end
         if not supported or #(option.data.predictions or {}) == 0 then
           return {
-            tool = 'reasoning_options',
+            tool = 'reasoning_options_replace',
             reason = 'Replace the branch set so every option cites active evidence and states testable predictions',
           }
         end
@@ -371,7 +371,7 @@ function M.next(workspace, synthesis)
   end
   if count_keys(covered) < required_perspectives then
     return {
-      tool = 'reasoning_synthesis',
+      tool = 'reasoning_final',
       reason = 'Cite active evidence from every required perspective in the next synthesis',
     }
   end
@@ -391,7 +391,7 @@ function M.next(workspace, synthesis)
   end
   if next(uncovered) ~= nil then
     return {
-      tool = 'reasoning_synthesis',
+      tool = 'reasoning_final',
       reason = 'Cite the evidence that resolves every framed unknown in the next synthesis',
     }
   end
@@ -404,36 +404,39 @@ function M.next(workspace, synthesis)
     and current_synthesis
     and #(current_synthesis.selected_option_ids or {}) == 0
   then
-    return { tool = 'reasoning_synthesis', reason = 'Select a supported option in the next synthesis' }
+    return { tool = 'reasoning_final', reason = 'Select a supported option in the next synthesis' }
   end
 
   if current_synthesis then
     for _, id in ipairs(current_synthesis.support_ids or {}) do
       if not active_evidence(workspace, id) then
-        return { tool = 'reasoning_synthesis', reason = 'Replace inactive support citations in the next synthesis' }
+        return { tool = 'reasoning_final', reason = 'Replace inactive support citations in the next synthesis' }
       end
     end
     for _, result in ipairs(current_synthesis.criterion_results or {}) do
       for _, id in ipairs(result.evidence_ids or {}) do
         if not active_evidence(workspace, id) then
-          return { tool = 'reasoning_synthesis', reason = 'Replace inactive criterion evidence in the next synthesis' }
+          return { tool = 'reasoning_final', reason = 'Replace inactive criterion evidence in the next synthesis' }
         end
       end
     end
     for _, id in ipairs(current_synthesis.review_ids or {}) do
       if not review_sound(workspace, workspace.artifacts_by_id[id]) then
-        return { tool = 'reasoning_synthesis', reason = 'Replace stale review citations in the next synthesis' }
+        return { tool = 'reasoning_final', reason = 'Replace stale review citations in the next synthesis' }
       end
     end
   end
 
   local contradiction, has_relevant_contradiction = contradiction_state(workspace, relevant, cited_reviews)
   if contradiction == 'unresolved' then
-    return { tool = 'reasoning_review', reason = 'Review an unresolved contradiction' }
+    return {
+      tool = 'reasoning_resolve_contradiction',
+      reason = 'Resolve the contradiction between the two active artifacts',
+    }
   end
   if contradiction == 'uncited' then
     return {
-      tool = 'reasoning_synthesis',
+      tool = 'reasoning_final',
       reason = 'Cite the existing contradiction resolution in the next synthesis',
     }
   end
@@ -479,7 +482,7 @@ function M.next(workspace, synthesis)
   if frame.data.temporal_required and not any_review(cited, nil, true) then
     if current_synthesis and any_review(all_reviews, nil, true) then
       return {
-        tool = 'reasoning_synthesis',
+        tool = 'reasoning_final',
         reason = 'Cite the existing temporal review in the next synthesis',
       }
     end
@@ -488,7 +491,7 @@ function M.next(workspace, synthesis)
   if frame.data.depth == 'deep' and not any_review(cited, 'full') then
     if current_synthesis and any_review(all_reviews, 'full') then
       return {
-        tool = 'reasoning_synthesis',
+        tool = 'reasoning_final',
         reason = 'Cite the existing relevant review in the next synthesis',
       }
     end
@@ -497,7 +500,7 @@ function M.next(workspace, synthesis)
   if (branch or has_relevant_contradiction) and not any_review(cited) then
     if current_synthesis and any_review(all_reviews) then
       return {
-        tool = 'reasoning_synthesis',
+        tool = 'reasoning_final',
         reason = 'Cite the existing relevant review in the next synthesis',
       }
     end
@@ -530,7 +533,7 @@ function M.next(workspace, synthesis)
   end
   for _, criterion in ipairs(frame.data.success_criteria) do
     if criterion_invalid or not covered_criteria[normalized(criterion)] then
-      return { tool = 'reasoning_synthesis', reason = 'Record verification for every success criterion' }
+      return { tool = 'reasoning_final', reason = 'Record verification for every success criterion' }
     end
   end
   local latest_id = workspace.artifact_order[#workspace.artifact_order]
@@ -546,7 +549,7 @@ function M.next(workspace, synthesis)
   then
     return { tool = 'none', reason = 'Final synthesis accepted; no further model action is permitted' }
   end
-  return { tool = 'reasoning_synthesis', reason = 'All structural gates are ready for final synthesis' }
+  return { tool = 'reasoning_final', reason = 'All structural gates are ready for final synthesis' }
 end
 
 return M

@@ -651,9 +651,8 @@ local function start_workspace(chat, finalized)
   return workspace
 end
 
-local function frame_args(action)
+local function frame_args()
   return {
-    action = action or 'start',
     objective = 'Determine the safest implementation',
     problem_type = 'analysis',
     depth = 'standard',
@@ -704,7 +703,6 @@ end
 
 local function final_args()
   return {
-    mode = 'final',
     conclusion = 'Use the verified implementation boundary',
     selected_option_ids = {},
     support_ids = { 'E1' },
@@ -733,11 +731,11 @@ local function final_ready_chat()
 end
 
 local function prepare_final_output(chat, id, call_id)
-  local call = formatted_call(id or 'final-call', 'reasoning_synthesis', final_args())
+  local call = formatted_call(id or 'final-call', 'reasoning_final', final_args())
   call.call_id = call_id
   chat.tools:execute(chat, { call })
-  local result = Protocol.call('synthesis', chat, vim.deepcopy(call['function'].arguments), 'active')
-  local tool = { name = 'reasoning_synthesis', function_call = call }
+  local result = Protocol.call('final', chat, vim.deepcopy(call['function'].arguments), 'active')
+  local tool = { name = 'reasoning_final', function_call = call }
   return result, tool, call
 end
 
@@ -1218,7 +1216,7 @@ T['does not install a legacy guard when recording completes the controlled tool 
     perspective = 'correctness',
     addresses_unknowns = {},
   }))
-  local result = Protocol.call('synthesis', chat, final_args(), nil)
+  local result = Protocol.call('final', chat, final_args(), nil)
   eq(result.status, 'success')
   eq(result.data.artifact.id, 'S1')
   chat.tools.chat = chat
@@ -1226,9 +1224,9 @@ T['does not install a legacy guard when recording completes the controlled tool 
     attach_all(value)
     Control.reconcile(value)
   end)
-  local call = formatted_call('standalone-final', 'reasoning_synthesis', final_args())
+  local call = formatted_call('standalone-final', 'reasoning_final', final_args())
 
-  record_final_output(chat, result, { name = 'reasoning_synthesis', function_call = call })
+  record_final_output(chat, result, { name = 'reasoning_final', function_call = call })
 
   eq(Control.phase(chat), 'finalized')
   eq(rawget(chat, '_codecompanion_reasoning_terminal_guard'), nil)
@@ -1240,7 +1238,7 @@ T['keeps controlled terminal output on the existing submit wrapper'] = function(
   Control.reconcile(chat)
   chat.tools.chat = chat
   local wrapper = rawget(chat, 'submit')
-  Output.success({ name = 'reasoning_synthesis' }, {
+  Output.success({ name = 'reasoning_final' }, {
     {
       workspace_id = 'W1',
       artifact = { id = 'S1', kind = 'synthesis', data = { mode = 'final' } },
@@ -1253,13 +1251,10 @@ T['keeps controlled terminal output on the existing submit wrapper'] = function(
 end
 
 T['blocks command mutation on live ACP and replaced tools boundaries'] = function()
-  local modules = {
-    require('codecompanion._extensions.reasoning.tools.frame'),
-    require('codecompanion._extensions.reasoning.tools.evidence'),
-    require('codecompanion._extensions.reasoning.tools.options'),
-    require('codecompanion._extensions.reasoning.tools.review'),
-    require('codecompanion._extensions.reasoning.tools.synthesis'),
-  }
+  local modules = {}
+  for _, name in ipairs(Constants.tool_names) do
+    table.insert(modules, require('codecompanion._extensions.reasoning.tools.' .. name:gsub('^reasoning_', '')))
+  end
   local acp = attach_all(new_chat())
   Control.reconcile(acp)
   acp.adapter = { type = 'acp', name = 'eventless_acp' }
@@ -1636,7 +1631,7 @@ T['dormant final attachment reconciles ownership before delegation'] = function(
   local chat, calls, state = controlled_chat('active')
   chat:clear()
   attach_all(chat)
-  chat.tools.tools_config.reasoning_frame = {
+  chat.tools.tools_config.reasoning_start = {
     cmds = {
       function()
         calls.external_side_effect = calls.external_side_effect + 1
@@ -1645,7 +1640,7 @@ T['dormant final attachment reconciles ownership before delegation'] = function(
   }
 
   chat:submit({ auto_submit = true })
-  chat.tools:execute(chat, { formatted_call('forged-dormant', 'reasoning_frame', frame_args()) })
+  chat.tools:execute(chat, { formatted_call('forged-dormant', 'reasoning_start', frame_args()) })
 
   eq(calls.submit, 0)
   eq(calls.execute, 0)
@@ -1986,28 +1981,36 @@ end
 
 T['preflights exact reasoning transitions without changing delegated host shapes'] = function()
   local chat, calls, state = controlled_chat('armed')
-  local call = formatted_call('frame-table', 'reasoning_frame', frame_args())
+  local call = formatted_call('frame-table', 'reasoning_start', frame_args())
   chat.tools:execute(chat, { call })
   eq(calls.execute, 1)
   eq(calls.last_calls[1], call)
-  eq(state.call_tokens[call].operation, 'frame')
+  eq(state.call_tokens[call].operation, 'start')
   eq(state.call_tokens[call].status, 'executing')
 
   local encoded_chat, encoded_calls, encoded_state = controlled_chat('armed')
   local arguments = vim.json.encode(frame_args())
-  local encoded_call = formatted_call('frame-json', 'reasoning_frame', arguments)
+  local encoded_call = formatted_call('frame-json', 'reasoning_start', arguments)
   encoded_chat.tools:execute(encoded_chat, { encoded_call })
   eq(encoded_calls.execute, 1)
   eq(encoded_calls.last_calls[1]['function'].arguments, arguments)
   eq(encoded_state.call_tokens[encoded_call].status, 'executing')
 
   local empty_chat, empty_calls, empty_state = controlled_chat('armed')
-  local empty_call = formatted_call('frame-empty-json', 'reasoning_frame', '')
+  local empty_call = formatted_call('frame-empty-json', 'reasoning_start', '')
   empty_chat.tools:execute(empty_chat, { empty_call })
-  eq(empty_calls.execute, 0)
-  eq(empty_calls.reset, 1)
-  eq(decoded_tool_payloads(empty_chat)[1].code, 'transition_invalid')
+  eq(empty_calls.execute, 1)
+  eq(empty_state.call_tokens[empty_call].status, 'executing')
+  eq(Protocol.call('start', {}, {}, 'armed').data.code, 'frame_incomplete')
   eq(empty_state.phase, 'armed')
+
+  local wrong_chat, wrong_calls, wrong_state = controlled_chat('armed')
+  local wrong_call = formatted_call('evidence-while-armed', 'reasoning_evidence', { items = {} })
+  wrong_chat.tools:execute(wrong_chat, { wrong_call })
+  eq(wrong_calls.execute, 0)
+  eq(wrong_calls.reset, 1)
+  eq(decoded_tool_payloads(wrong_chat)[1].code, 'transition_invalid')
+  eq(wrong_state.phase, 'armed')
 end
 
 T['classifies accepted recorded protocol output and resets recovery state'] = function()
@@ -2019,7 +2022,7 @@ T['classifies accepted recorded protocol output and resets recovery state'] = fu
     _meta = { tag = Constants.corrective_tag },
   })
 
-  local call = formatted_call('accepted-frame', 'reasoning_frame', frame_args())
+  local call = formatted_call('accepted-frame', 'reasoning_start', frame_args())
   local result = execute_protocol_call(chat, call, 'armed')
   eq(result.status, 'success')
   eq(state.call_tokens[call].status, 'classified')
@@ -2038,8 +2041,8 @@ T['classifies each question action by its own accepted shape'] = function()
 
   local split_call = formatted_call(
     'accepted-split',
-    'reasoning_question',
-    TreeFixture.args({
+    'reasoning_split',
+    TreeFixture.split_args({
       parent_id = workspace.frame_id,
       child_questions = {
         {
@@ -2071,9 +2074,8 @@ T['classifies each question action by its own accepted shape'] = function()
   }))
   local closure_call = formatted_call(
     'accepted-closure',
-    'reasoning_question',
-    TreeFixture.args({
-      action = 'answer',
+    'reasoning_answer',
+    TreeFixture.answer_args({
       question_id = 'Q1',
       answer = 'The boundary holds across a restart',
       evidence_ids = { item.id },
@@ -2091,10 +2093,10 @@ end
 T['counts each recorded rejection once and halts on the third'] = function()
   local chat, calls, state = controlled_chat('armed')
   local function reject(id)
-    local call = formatted_call(id, 'reasoning_frame', { action = 'start' })
+    local call = formatted_call(id, 'reasoning_start', {})
     local result = execute_protocol_call(chat, call, 'armed')
     eq(result.status, 'error')
-    chat:add_tool_output({ name = 'reasoning_frame', function_call = call }, vim.json.encode(result.data), '')
+    chat:add_tool_output({ name = 'reasoning_start', function_call = call }, vim.json.encode(result.data), '')
     return call, result
   end
 
@@ -2128,7 +2130,7 @@ end
 
 T['rewrites malformed known results and treats resolver failures as internal'] = function()
   local malformed, _, malformed_state = controlled_chat('armed')
-  local malformed_call = formatted_call('post-malformed', 'reasoning_frame', '{not-json')
+  local malformed_call = formatted_call('post-malformed', 'reasoning_start', '{not-json')
   malformed.tools:execute(malformed, { malformed_call })
   record_protocol_result(malformed, malformed_call, 'raw host resolver error')
   local malformed_payload = decoded_tool_payloads(malformed)[1]
@@ -2144,7 +2146,7 @@ T['rewrites malformed known results and treats resolver failures as internal'] =
   eq(malformed_state.call_tokens[malformed_call].status, 'classified')
 
   local broken, _, broken_state = controlled_chat('armed')
-  local broken_call = formatted_call('post-internal', 'reasoning_frame', frame_args())
+  local broken_call = formatted_call('post-internal', 'reasoning_start', frame_args())
   broken.tools:execute(broken, { broken_call })
   record_protocol_result(broken, broken_call, 'raw command traceback')
   local internal = decoded_tool_payloads(broken)[1]
@@ -2163,7 +2165,7 @@ T['detects post-callback success tampering against committed state'] = function(
       args.for_llm = vim.json.encode(payload)
     end
   end)
-  local call = formatted_call('tampered-frame', 'reasoning_frame', frame_args())
+  local call = formatted_call('tampered-frame', 'reasoning_start', frame_args())
   local result = execute_protocol_call(chat, call, 'armed')
   eq(result.status, 'success')
   local recorded = decoded_tool_payloads(chat)[1]
@@ -2177,7 +2179,7 @@ end
 
 T['classifies only the newly appended segment for a reused call ID'] = function()
   local chat, _, state = controlled_chat('armed')
-  local first = formatted_call('reused-post-record', 'reasoning_frame', frame_args())
+  local first = formatted_call('reused-post-record', 'reasoning_start', frame_args())
   execute_protocol_call(chat, first, 'armed')
   local prefix = chat.messages[1].content
 
@@ -2214,8 +2216,8 @@ T['matches protocol transition failures across every enforcing phase'] = functio
     { phase = 'armed', operation = 'options', args = {} },
     { phase = 'active', operation = 'options', args = {} },
     { phase = 'reframing', operation = 'evidence', args = {} },
-    { phase = 'finalizing', operation = 'frame', args = frame_args() },
-    { phase = 'halted', operation = 'frame', args = frame_args() },
+    { phase = 'finalizing', operation = 'start', args = frame_args() },
+    { phase = 'halted', operation = 'start', args = frame_args() },
     { phase = 'finalized', operation = 'evidence', args = {} },
   }) do
     local chat, calls, state = controlled_chat(case.phase)
@@ -2241,11 +2243,11 @@ end
 T['rejects mixed and multiple reasoning batches atomically'] = function()
   for _, batch in ipairs({
     {
-      formatted_call('mixed-r', 'reasoning_frame', frame_args()),
+      formatted_call('mixed-r', 'reasoning_start', frame_args()),
       formatted_call('mixed-x', 'read_file', { path = 'README.md' }),
     },
     {
-      formatted_call('multi-a', 'reasoning_frame', frame_args()),
+      formatted_call('multi-a', 'reasoning_start', frame_args()),
       formatted_call('multi-b', 'reasoning_evidence', {}),
     },
   }) do
@@ -2272,7 +2274,7 @@ T['rejects mixed and multiple reasoning batches atomically'] = function()
 
   local duplicate_ids, duplicate_calls, duplicate_state = controlled_chat('armed')
   local duplicate_batch = {
-    formatted_call('same-id', 'reasoning_frame', frame_args()),
+    formatted_call('same-id', 'reasoning_start', frame_args()),
     formatted_call('same-id', 'read_file', {}),
   }
   duplicate_ids.tools:execute(duplicate_ids, duplicate_batch)
@@ -2284,14 +2286,14 @@ end
 
 T['distinguishes malformed duplicate and host-owned malformed calls'] = function()
   local malformed, malformed_calls, malformed_state = controlled_chat('armed')
-  local malformed_call = formatted_call('malformed-args', 'reasoning_frame', 42)
+  local malformed_call = formatted_call('malformed-args', 'reasoning_start', 42)
   malformed.tools:execute(malformed, { malformed_call })
   eq(malformed_calls.execute, 0)
   eq(decoded_tool_payloads(malformed)[1].code, 'reasoning_call_malformed')
   eq(malformed_state.consecutive_violations, 1)
 
   local invalid_json, invalid_calls, invalid_state = controlled_chat('armed')
-  local invalid_call = formatted_call('invalid-json', 'reasoning_frame', '{nope')
+  local invalid_call = formatted_call('invalid-json', 'reasoning_start', '{nope')
   invalid_json.tools:execute(invalid_json, { invalid_call })
   eq(invalid_calls.execute, 1)
   eq(invalid_calls.last_calls[1], invalid_call)
@@ -2304,10 +2306,10 @@ T['distinguishes malformed duplicate and host-owned malformed calls'] = function
   eq(anonymous_state.consecutive_violations, 0)
 
   local duplicate, duplicate_calls, duplicate_state = controlled_chat('armed')
-  local first = formatted_call('reused-reasoning-id', 'reasoning_frame', frame_args())
+  local first = formatted_call('reused-reasoning-id', 'reasoning_start', frame_args())
   duplicate.tools:execute(duplicate, { first })
   duplicate.tool_orchestrator = nil
-  local second = formatted_call('reused-reasoning-id', 'reasoning_frame', frame_args())
+  local second = formatted_call('reused-reasoning-id', 'reasoning_start', frame_args())
   duplicate.tools:execute(duplicate, { second })
   eq(duplicate_calls.execute, 1)
   eq(duplicate_calls.reset, 1)
@@ -2335,7 +2337,7 @@ T['halts uncounted when callbacks rewrite synthetic settlement'] = function()
     args.for_llm = vim.json.encode({ code = 'rewritten', committed = false })
   end)
   chat.tools:execute(chat, {
-    formatted_call('rewrite-r', 'reasoning_frame', frame_args()),
+    formatted_call('rewrite-r', 'reasoning_start', frame_args()),
     formatted_call('rewrite-x', 'read_file', {}),
   })
   eq(calls.execute, 0)
@@ -2372,7 +2374,7 @@ end
 T['blocks cross-chat and synchronous reentrant execution'] = function()
   local chat, calls, state = controlled_chat('armed')
   local foreign = new_chat()
-  chat.tools:execute(foreign, { formatted_call('foreign-frame', 'reasoning_frame', frame_args()) })
+  chat.tools:execute(foreign, { formatted_call('foreign-frame', 'reasoning_start', frame_args()) })
   eq(calls.execute, 0)
   eq(chat.tools.chat, nil)
   eq(State.get(chat), nil)
@@ -2381,10 +2383,10 @@ T['blocks cross-chat and synchronous reentrant execution'] = function()
   chat:add_callback('on_tool_output', function()
     chat:submit({ auto_submit = true })
     chat.tools:execute(chat, { formatted_call('nested-external', 'read_file', {}) })
-    chat.tools:execute(chat, { formatted_call('nested-frame', 'reasoning_frame', frame_args()) })
+    chat.tools:execute(chat, { formatted_call('nested-frame', 'reasoning_start', frame_args()) })
   end)
   chat.tools:execute(chat, {
-    formatted_call('outer-frame', 'reasoning_frame', frame_args()),
+    formatted_call('outer-frame', 'reasoning_start', frame_args()),
     formatted_call('outer-external', 'read_file', {}),
   })
   eq(calls.execute, 0)
@@ -2399,7 +2401,7 @@ T['terminalizes every rejected marker including anonymous and aliased envelopes'
   local chat, calls, state = controlled_chat('armed')
   local aliased = formatted_call('aliased', 'read_file', {})
   local batch = {
-    formatted_call('marker-frame', 'reasoning_frame', frame_args()),
+    formatted_call('marker-frame', 'reasoning_start', frame_args()),
     aliased,
     aliased,
     { id = 17, ['function'] = { name = 'read_file', arguments = {} } },
@@ -2420,7 +2422,7 @@ T['uses formatter-safe envelopes to close malformed rejected calls'] = function(
   chat.fixture_require_function_name = true
   local malformed = { id = 'missing-function' }
   chat.tools:execute(chat, {
-    formatted_call('safe-frame', 'reasoning_frame', frame_args()),
+    formatted_call('safe-frame', 'reasoning_start', frame_args()),
     malformed,
   })
   eq(calls.execute, 0)
@@ -2443,7 +2445,7 @@ T['contains nested and visible synthetic callback rewrites'] = function()
     args.for_llm = vim.json.encode(payload)
   end)
   nested.tools:execute(nested, {
-    formatted_call('nested-r', 'reasoning_frame', frame_args()),
+    formatted_call('nested-r', 'reasoning_start', frame_args()),
     formatted_call('nested-x', 'read_file', {}),
   })
   eq(nested_calls.reset, 1)
@@ -2458,7 +2460,7 @@ T['contains nested and visible synthetic callback rewrites'] = function()
     args.for_user = 'leaked rejection details'
   end)
   visible.tools:execute(visible, {
-    formatted_call('visible-r', 'reasoning_frame', frame_args()),
+    formatted_call('visible-r', 'reasoning_start', frame_args()),
     formatted_call('visible-x', 'read_file', {}),
   })
   eq(visible_state.phase, 'armed')
@@ -2470,7 +2472,7 @@ end
 T['terminalizes the whole batch before blocking cross-call output injection'] = function()
   local chat, calls, state = controlled_chat('armed')
   local batch = {
-    formatted_call('inject-r', 'reasoning_frame', frame_args()),
+    formatted_call('inject-r', 'reasoning_start', frame_args()),
     formatted_call('inject-x', 'read_file', {}),
   }
   local statuses
@@ -2516,7 +2518,7 @@ T['settles formatted calls when the formatter drifts the live tool boundary'] = 
       if mode == 'attachment' then
         chat.tool_registry.in_use.reasoning_review = nil
       else
-        chat.tools.tools_config.reasoning_frame = {
+        chat.tools.tools_config.reasoning_start = {
           cmds = {
             function()
               calls.external_side_effect = calls.external_side_effect + 1
@@ -2547,7 +2549,7 @@ end
 T['blocks foreign runtime configurations under reserved reasoning names'] = function()
   local callback_calls = 0
   local chat, calls = new_chat()
-  chat.tools.tools_config.reasoning_frame = {
+  chat.tools.tools_config.reasoning_start = {
     callback = function()
       callback_calls = callback_calls + 1
       return {
@@ -2567,14 +2569,14 @@ T['blocks foreign runtime configurations under reserved reasoning names'] = func
   eq(Control.legacy_terminal_allowed(chat), false)
 
   chat:submit()
-  chat.tools:execute(chat, { formatted_call('foreign-owned-name', 'reasoning_frame', frame_args()) })
+  chat.tools:execute(chat, { formatted_call('foreign-owned-name', 'reasoning_start', frame_args()) })
   eq(calls.submit, 0)
   eq(calls.execute, 0)
   eq(calls.external_side_effect, 0)
   eq(callback_calls, 0)
   eq(State.get(chat), nil)
 
-  chat.tools.tools_config.reasoning_frame = vim.deepcopy(canonical_tool_configs.reasoning_frame)
+  chat.tools.tools_config.reasoning_start = vim.deepcopy(canonical_tool_configs.reasoning_start)
   Control.reconcile(chat)
   eq(Control.phase(chat), 'armed')
   eq(state.boundary_issue, nil)
@@ -2582,7 +2584,7 @@ end
 
 T['invalidates runtime ownership drift and rejects trusted callback redirects'] = function()
   local chat, calls, state = controlled_chat('armed')
-  local authentic = vim.deepcopy(chat.tools.tools_config.reasoning_frame)
+  local authentic = vim.deepcopy(chat.tools.tools_config.reasoning_start)
   chat.current_request = {
     cancel = function()
       calls.request_cancel = calls.request_cancel + 1
@@ -2593,7 +2595,7 @@ T['invalidates runtime ownership drift and rejects trusted callback redirects'] 
       calls.orchestrator_cancel = calls.orchestrator_cancel + 1
     end,
   }
-  chat.tools.tools_config.reasoning_frame = {
+  chat.tools.tools_config.reasoning_start = {
     cmds = {
       function()
         calls.external_side_effect = calls.external_side_effect + 1
@@ -2615,13 +2617,13 @@ T['invalidates runtime ownership drift and rejects trusted callback redirects'] 
     for key, value in pairs(redirect) do
       config[key] = value
     end
-    chat.tools.tools_config.reasoning_frame = config
+    chat.tools.tools_config.reasoning_start = config
     Control.reconcile(chat)
     eq(Control.phase(chat), 'blocked')
     chat.tools:execute(chat, {
       formatted_call(
         'redirect-' .. tostring(redirect.path or redirect.extends or 'adapter'),
-        'reasoning_frame',
+        'reasoning_start',
         frame_args()
       ),
     })
@@ -2636,15 +2638,15 @@ T['invalidates runtime ownership drift and rejects trusted callback redirects'] 
     approval_calls = approval_calls + 1
     return true
   end
-  chat.tools.tools_config.reasoning_frame = mutated_opts
+  chat.tools.tools_config.reasoning_start = mutated_opts
   Control.reconcile(chat)
   eq(Control.phase(chat), 'blocked')
   eq(state.boundary_issue, 'tool_ownership')
-  chat.tools:execute(chat, { formatted_call('redirect-approval', 'reasoning_frame', frame_args()) })
+  chat.tools:execute(chat, { formatted_call('redirect-approval', 'reasoning_start', frame_args()) })
   eq(calls.execute, 0)
   eq(approval_calls, 0)
 
-  chat.tools.tools_config.reasoning_frame = authentic
+  chat.tools.tools_config.reasoning_start = authentic
   Control.reconcile(chat)
   eq(Control.phase(chat), 'armed')
 end
@@ -3055,9 +3057,9 @@ T['repairs missing throwing and prefix-corrupted result recording'] = function()
   missing.adapter.handlers.tools.format_response = function()
     return nil
   end
-  local missing_call = formatted_call('missing-result', 'reasoning_frame', frame_args())
+  local missing_call = formatted_call('missing-result', 'reasoning_start', frame_args())
   missing.tools:execute(missing, { missing_call })
-  local missing_result = Protocol.call('frame', missing, frame_args(), 'armed')
+  local missing_result = Protocol.call('start', missing, frame_args(), 'armed')
   record_protocol_result(missing, missing_call, missing_result)
   eq(missing_state.phase, 'halted')
   eq(#missing.messages, 1)
@@ -3069,15 +3071,15 @@ T['repairs missing throwing and prefix-corrupted result recording'] = function()
   throwing:add_callback('on_tool_output', function()
     error('host callback failed')
   end)
-  local throwing_call = formatted_call('throwing-result', 'reasoning_frame', frame_args())
+  local throwing_call = formatted_call('throwing-result', 'reasoning_start', frame_args())
   throwing.tools:execute(throwing, { throwing_call })
-  local throwing_result = Protocol.call('frame', throwing, frame_args(), 'armed')
+  local throwing_result = Protocol.call('start', throwing, frame_args(), 'armed')
   record_protocol_result(throwing, throwing_call, throwing_result)
   eq(throwing_state.phase, 'halted')
   eq(vim.json.decode(throwing.messages[1].content).code, 'internal_error')
 
   local corrupted, _, corrupted_state = controlled_chat('armed')
-  local first = formatted_call('corrupt-prefix', 'reasoning_frame', frame_args())
+  local first = formatted_call('corrupt-prefix', 'reasoning_start', frame_args())
   execute_protocol_call(corrupted, first, 'armed')
   local prefix = corrupted.messages[1].content
   corrupted_state.request_generation = 1
@@ -3116,7 +3118,7 @@ end
 
 T['supports Responses call IDs and freezes response callback ingress'] = function()
   local responses, _, responses_state = controlled_chat('armed')
-  local call = formatted_call('response-item-id', 'reasoning_frame', frame_args())
+  local call = formatted_call('response-item-id', 'reasoning_start', frame_args())
   call.call_id = 'response-call-id'
   execute_protocol_call(responses, call, 'armed')
   eq(responses_state.call_tokens[call].status, 'classified')
@@ -3190,7 +3192,7 @@ end
 
 T['rejects collection order and success-error direction rewrites'] = function()
   local collection, _, collection_state = controlled_chat('armed')
-  execute_protocol_call(collection, formatted_call('collection-frame', 'reasoning_frame', frame_args()), 'armed')
+  execute_protocol_call(collection, formatted_call('collection-frame', 'reasoning_start', frame_args()), 'armed')
   collection_state.request_generation = 1
   collection_state.observed_call_ids[1] = {}
   collection:add_callback('on_tool_output', function(_, args)
@@ -3249,7 +3251,7 @@ T['rejects collection order and success-error direction rewrites'] = function()
       )
     end
   end)
-  local accepted = formatted_call('success-to-error', 'reasoning_frame', frame_args())
+  local accepted = formatted_call('success-to-error', 'reasoning_start', frame_args())
   eq(execute_protocol_call(success_to_error, accepted, 'armed').status, 'success')
   eq(success_state.phase, 'halted')
   eq(success_state.resume_phase, 'active')
@@ -3268,7 +3270,7 @@ T['rejects collection order and success-error direction rewrites'] = function()
       })
     end
   end)
-  local rejected = formatted_call('error-to-success', 'reasoning_frame', { action = 'start' })
+  local rejected = formatted_call('error-to-success', 'reasoning_start', {})
   eq(execute_protocol_call(error_to_success, rejected, 'armed').status, 'error')
   eq(error_state.phase, 'halted')
   eq(error_state.consecutive_violations, 0)
@@ -3279,7 +3281,7 @@ T['halts structured internal result codes without spending retry budget'] = func
   for _, code in ipairs({ 'internal_error', 'render_internal' }) do
     local chat, _, state = controlled_chat('armed')
     state.consecutive_violations = 2
-    local call = formatted_call('structured-' .. code, 'reasoning_frame', frame_args())
+    local call = formatted_call('structured-' .. code, 'reasoning_start', frame_args())
     chat.tools:execute(chat, { call })
     record_protocol_result(chat, call, {
       status = 'error',
@@ -3292,7 +3294,7 @@ T['halts structured internal result codes without spending retry budget'] = func
   end
 
   local reframing, _, reframe_state = controlled_chat('reframing')
-  local reframe_call = formatted_call('structured-reframe', 'reasoning_frame', frame_args('revise'))
+  local reframe_call = formatted_call('structured-reframe', 'reasoning_revise', frame_args())
   reframing.tools:execute(reframing, { reframe_call })
   record_protocol_result(reframing, reframe_call, {
     status = 'error',
@@ -3546,7 +3548,7 @@ T['invalidates pre-resume fallback and requires reframe after final output'] = f
   state.request_generation = state.request_generation + 1
   state.observed_call_ids[state.request_generation] = {}
   chat.tool_orchestrator = nil
-  local revise = formatted_call('reframe-revise', 'reasoning_frame', frame_args('revise'))
+  local revise = formatted_call('reframe-revise', 'reasoning_start', frame_args('revise'))
   eq(execute_protocol_call(chat, revise, 'reframing').status, 'success')
   eq(state.phase, 'active')
 end
@@ -3752,7 +3754,7 @@ T['accepts authenticated ordinary Responses and Ollama result layouts'] = functi
   ollama.adapter.handlers.tools.format_response = function(_, call, output)
     return { role = 'tool', tool_name = call['function'].name, content = output }
   end
-  local frame = formatted_call('ollama-frame', 'reasoning_frame', frame_args())
+  local frame = formatted_call('ollama-frame', 'reasoning_start', frame_args())
   eq(execute_protocol_call(ollama, frame, 'armed').status, 'success')
   eq(ollama_state.phase, 'active')
   eq(ollama_state.call_tokens[frame].status, 'classified')
@@ -3818,7 +3820,7 @@ T['scrubs every mismatched staged-final record and halts uncounted'] = function(
       name = 'tool boundary',
       arrange = function(chat)
         chat:add_callback('on_tool_output', function()
-          chat.tool_registry.in_use.reasoning_synthesis = nil
+          chat.tool_registry.in_use.reasoning_final = nil
         end)
       end,
     },
@@ -3876,7 +3878,7 @@ T['scrubs every mismatched staged-final record and halts uncounted'] = function(
         chat.adapter.handlers.tools.format_response = function(_, _, output)
           return {
             role = 'tool',
-            tools = { id = 'wrong-item', call_id = 'wrong-call', name = 'reasoning_synthesis' },
+            tools = { id = 'wrong-item', call_id = 'wrong-call', name = 'reasoning_final' },
             content = output,
           }
         end
@@ -3889,7 +3891,7 @@ T['scrubs every mismatched staged-final record and halts uncounted'] = function(
         chat.adapter.handlers.tools.format_response = function(_, call, output)
           return {
             role = 'tool',
-            tools = { call_id = call.id, name = 'reasoning_synthesis' },
+            tools = { call_id = call.id, name = 'reasoning_final' },
             content = output,
           }
         end
@@ -3907,7 +3909,7 @@ T['scrubs every mismatched staged-final record and halts uncounted'] = function(
       name = 'name-only result identity',
       arrange = function(chat)
         chat.adapter.handlers.tools.format_response = function(_, _, output)
-          return { role = 'tool', tools = { name = 'reasoning_synthesis' }, content = output }
+          return { role = 'tool', tools = { name = 'reasoning_final' }, content = output }
         end
       end,
     },
@@ -3927,7 +3929,7 @@ T['scrubs every mismatched staged-final record and halts uncounted'] = function(
       name = 'wrong result role',
       arrange = function(chat)
         chat.adapter.handlers.tools.format_response = function(_, _, output)
-          return { role = 'assistant', tool_name = 'reasoning_synthesis', content = output }
+          return { role = 'assistant', tool_name = 'reasoning_final', content = output }
         end
       end,
     },
@@ -4021,14 +4023,14 @@ T['rejects multiple staged-final records when the host reuses a result message']
   local prefix = vim.json.encode({ prior = 'preserved' })
   local prior = {
     role = 'tool',
-    tools = { call_id = call.id, name = 'reasoning_synthesis' },
+    tools = { call_id = call.id, name = 'reasoning_final' },
     content = prefix,
     _meta = { cycle = chat.cycle },
   }
   prior._meta.id = host_hash.hash({ role = prior.role, content = prior.content })
   table.insert(chat.messages, prior)
   chat:add_callback('on_tool_output', function(_, args)
-    chat:add_message({ role = 'tool', tool_name = 'reasoning_synthesis', content = args.for_llm }, { visible = false })
+    chat:add_message({ role = 'tool', tool_name = 'reasoning_final', content = args.for_llm }, { visible = false })
   end)
 
   record_final_output(chat, result, tool)
@@ -4065,7 +4067,7 @@ T['rejects identity mutation on a reused staged-final result'] = function()
     local prefix = vim.json.encode({ prior = 'preserved' })
     local prior = {
       role = 'tool',
-      tools = { call_id = call.id, name = 'reasoning_synthesis' },
+      tools = { call_id = call.id, name = 'reasoning_final' },
       content = prefix,
       _meta = { cycle = chat.cycle },
     }
@@ -4083,7 +4085,7 @@ T['rejects identity mutation on a reused staged-final result'] = function()
     eq(#chat.messages, 1)
     eq(chat.messages[1], prior)
     eq(prior.tools.call_id, call.id)
-    eq(prior.tools.name, 'reasoning_synthesis')
+    eq(prior.tools.name, 'reasoning_final')
     eq(prior.content:sub(1, #prefix + 2), prefix .. '\n\n')
     eq(vim.json.decode(prior.content:sub(#prefix + 3)).code, 'internal_error')
   end
@@ -4156,7 +4158,7 @@ T['rolls back final state history and buffer when either emission fails'] = func
     local prefix = vim.json.encode({ prior = 'preserved' })
     local prior = {
       role = 'tool',
-      tools = { call_id = call.id, name = 'reasoning_synthesis' },
+      tools = { call_id = call.id, name = 'reasoning_final' },
       content = prefix,
       _meta = { cycle = chat.cycle },
     }
@@ -4426,7 +4428,7 @@ T['does not strand a prepared final when subscriber stop changes the boundary'] 
       chat.adapter.type = 'acp'
     end,
     tools = function(chat)
-      chat.tool_registry.in_use.reasoning_synthesis = nil
+      chat.tool_registry.in_use.reasoning_final = nil
     end,
     wrapper = function(chat)
       rawset(chat, 'submit', function() end)

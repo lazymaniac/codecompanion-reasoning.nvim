@@ -13,9 +13,8 @@ local T = MiniTest.new_set({
 })
 local eq = MiniTest.expect.equality
 
-local function frame_args(action)
+local function frame_args()
   return {
-    action = action or 'start',
     objective = 'Explain the failure',
     problem_type = 'analysis',
     depth = 'standard',
@@ -31,7 +30,7 @@ end
 
 local function active_workspace_fixture()
   local chat = {}
-  eq(Protocol.call('frame', chat, frame_args(), 'armed').status, 'success')
+  eq(Protocol.call('start', chat, frame_args(), 'armed').status, 'success')
   return chat
 end
 
@@ -55,8 +54,7 @@ local function final_workspace_fixture()
     },
   }, 'active')
   eq(evidence.status, 'success')
-  local final = Protocol.call('synthesis', chat, {
-    mode = 'final',
+  local final = Protocol.call('final', chat, {
     conclusion = 'The trace identifies the failing boundary',
     selected_option_ids = {},
     support_ids = { 'E1' },
@@ -82,16 +80,26 @@ end
 T['defines lifecycle transitions without mutating workspace'] = function()
   eq(Transition.next(nil, 'dormant'), nil)
   eq(Transition.next(nil, 'blocked').tool, 'none')
-  eq(Transition.next(nil, 'armed').tool, 'reasoning_frame')
-  eq(Transition.next(nil, 'reframing').tool, 'reasoning_frame')
+  eq(Transition.next(nil, 'armed').tool, 'reasoning_start')
+  eq(Transition.next(nil, 'reframing').tool, 'reasoning_revise')
   eq(Transition.next(nil, 'finalizing').tool, 'none')
   eq(Transition.next(nil, 'halted').tool, 'none')
   eq(Transition.next(nil, 'finalized').tool, 'none')
 end
 
+T['accepts any tool that shares the authoritative role'] = function()
+  local chat = active_workspace_fixture()
+  local workspace = State.get(chat)
+  eq(Transition.next(workspace, 'active').tool, 'reasoning_evidence')
+  eq(Transition.allowed(workspace, 'active', 'evidence'), true)
+  eq(Transition.allowed(workspace, 'active', 'answer'), false)
+  eq(Transition.allowed(workspace, 'active', 'amend'), true)
+  eq(Transition.allowed(workspace, 'active', 'start'), false)
+end
+
 T['blocks every protocol mutation through the effective unavailable sentinel'] = function()
   local chat = {}
-  local rejected = Protocol.call('frame', chat, frame_args(), 'blocked')
+  local rejected = Protocol.call('start', chat, frame_args(), 'blocked')
   eq(rejected.status, 'error')
   eq(rejected.data.code, 'transition_invalid')
   eq(rejected.data.next_action.tool, 'none')
@@ -100,21 +108,16 @@ end
 
 T['rejects an out-of-order reasoning operation before mutation'] = function()
   local chat = {}
-  local started = Protocol.call('frame', chat, frame_args(), 'armed')
+  local started = Protocol.call('start', chat, frame_args(), 'armed')
   eq(started.status, 'success')
   local before = vim.deepcopy(State.get(chat))
 
-  local rejected = Protocol.call('synthesis', chat, {
-    mode = 'checkpoint',
+  local rejected = Protocol.call('checkpoint', chat, {
     conclusion = 'Too early',
     selected_option_ids = {},
     support_ids = {},
     review_ids = {},
     criterion_results = {},
-    tradeoffs = {},
-    uncertainties = {},
-    blind_spots = {},
-    next_actions = {},
     confidence = 'low',
   }, 'active')
 
@@ -126,9 +129,9 @@ T['rejects an out-of-order reasoning operation before mutation'] = function()
 end
 
 T['rejects options and review while evidence is authoritative'] = function()
-  for _, operation in ipairs({ 'options', 'review' }) do
+  for _, operation in ipairs({ 'options', 'options_replace', 'review', 'resolve_contradiction' }) do
     local chat = {}
-    Protocol.call('frame', chat, frame_args(), 'armed')
+    Protocol.call('start', chat, frame_args(), 'armed')
     local workspace = State.get(chat)
     local before = vim.deepcopy(workspace)
     local rejected = Protocol.call(operation, chat, {}, 'active')
@@ -140,18 +143,29 @@ end
 
 T['keeps external callers unpoliced when no controller phase is supplied'] = function()
   local chat = {}
-  local result = Protocol.call('frame', chat, frame_args(), nil)
+  local result = Protocol.call('start', chat, frame_args(), nil)
   eq(result.status, 'success')
 end
 
 T['permits only explicit revise or replace while reframing'] = function()
   local chat = {}
-  Protocol.call('frame', chat, frame_args(), 'armed')
-  eq(Protocol.call('frame', chat, frame_args('revise'), 'reframing').status, 'success')
+  Protocol.call('start', chat, frame_args(), 'armed')
+  eq(Protocol.call('revise', chat, frame_args(), 'reframing').status, 'success')
 
   local rejected = Protocol.call('evidence', chat, { items = {} }, 'reframing')
   eq(rejected.data.code, 'transition_invalid')
-  eq(rejected.data.next_action.tool, 'reasoning_frame')
+  eq(rejected.data.next_action.tool, 'reasoning_revise')
+
+  rejected = Protocol.call('amend', chat, {
+    add_constraints = { 'New constraint' },
+    add_success_criteria = {},
+    add_unknowns = {},
+    add_perspectives = {},
+    require_temporal = false,
+    require_branching = false,
+    branching_rationale = '',
+  }, 'reframing')
+  eq(rejected.data.code, 'transition_invalid')
 end
 
 T['enforces reframing before the accepted-final shortcut'] = function()
@@ -162,19 +176,19 @@ T['enforces reframing before the accepted-final shortcut'] = function()
   local rejected = Protocol.call('evidence', chat, { items = {} }, 'reframing')
 
   eq(rejected.data.code, 'transition_invalid')
-  eq(rejected.data.next_action.tool, 'reasoning_frame')
+  eq(rejected.data.next_action.tool, 'reasoning_revise')
   eq(State.get(chat), workspace)
   eq(workspace, before)
 end
 
 T['never treats replace as the first frame operation'] = function()
   local controlled = {}
-  local rejected = Protocol.call('frame', controlled, frame_args('replace'), 'armed')
+  local rejected = Protocol.call('replace', controlled, frame_args(), 'armed')
   eq(rejected.data.code, 'transition_invalid')
   eq(State.get(controlled), nil)
 
   local standalone = {}
-  rejected = Protocol.call('frame', standalone, frame_args('replace'), nil)
+  rejected = Protocol.call('replace', standalone, frame_args(), nil)
   eq(rejected.data.code, 'transition_invalid')
   eq(State.get(standalone), nil)
 end
@@ -188,12 +202,12 @@ end
 
 T['permits explicit revise and replace from active and finalized workspaces'] = function()
   for _, phase in ipairs({ 'active', 'finalized' }) do
-    for _, action in ipairs({ 'revise', 'replace' }) do
+    for _, operation in ipairs({ 'revise', 'replace' }) do
       local chat = phase == 'finalized' and final_workspace_fixture() or active_workspace_fixture()
       local old = State.get(chat)
-      local result = Protocol.call('frame', chat, frame_args(action), phase)
+      local result = Protocol.call(operation, chat, frame_args(), phase)
       eq(result.status, 'success')
-      if action == 'replace' then
+      if operation == 'replace' then
         local replacement = State.get(chat)
         eq(replacement == old, false)
         eq(replacement.counts_by_kind, { frame = 1 })

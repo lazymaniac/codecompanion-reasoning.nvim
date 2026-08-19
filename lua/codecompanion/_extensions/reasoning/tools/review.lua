@@ -1,140 +1,104 @@
-local Control = require('codecompanion._extensions.reasoning.control')
-local Output = require('codecompanion._extensions.reasoning.output')
-local Protocol = require('codecompanion._extensions.reasoning.protocol')
+local Shared = require('codecompanion._extensions.reasoning.tools.shared')
 
-local string_array = { type = 'array', items = { type = 'string' } }
-
-return {
+return Shared.tool('reasoning_review', 'review', {
   name = 'reasoning_review',
-  cmds = {
-    function(tools, args, opts)
-      return Protocol.call('review', tools.chat, args, Control.phase(tools.chat))
-    end,
-  },
-  output = Output.handlers,
-  schema = {
-    type = 'function',
-    ['function'] = {
-      name = 'reasoning_review',
-      description = 'Adversarially review active artifacts, expose assumptions and blind spots, and record keep, revise, or retract verdicts.',
-      parameters = {
+  description = 'Attack the strongest current case: defend it, challenge it with falsifiable objections, name what it may still miss, and give every target exactly one keep, revise, or retract verdict. WHEN: competing alternatives exist, before a final on a deep frame, and whenever a claim needs adversarial pressure. A revise verdict opens a correction the owning tool must satisfy; a retract verdict deactivates the target. NEXT: apply the corrections, then the final. MODES: falsification needs a disconfirming challenge; assumptions needs a hidden-assumption challenge; cross_perspective needs two targets grounded in two perspectives; temporal needs a stress test; full needs defense evidence, a blind spot, and both challenge kinds, and a deep frame needs a full review before its final. To reconcile two contradictory artifacts, use reasoning_resolve_contradiction instead. FAILS IF: a target receives no challenge or not exactly one verdict, the frame requires temporal reasoning and no stress test is given, a frame is retracted, or an option is retracted outside its branch set.',
+  parameters = Shared.parameters({
+    mode = {
+      type = 'string',
+      enum = { 'falsification', 'assumptions', 'temporal', 'cross_perspective', 'full' },
+      description = 'The adversarial lens. Deep frames need a full review before the final.',
+    },
+    target_ids = Shared.strings(
+      'Distinct active artifacts under review; every one needs a challenge and exactly one verdict.',
+      { minItems = 1 }
+    ),
+    defense = {
+      type = 'object',
+      description = 'The strongest case for the targets before they are attacked.',
+      properties = {
+        summary = { type = 'string', description = 'Why the current case holds.' },
+        evidence_ids = Shared.strings('Active E artifacts behind the defense; a full review requires at least one.'),
+      },
+      required = { 'summary', 'evidence_ids' },
+      additionalProperties = false,
+    },
+    challenges = {
+      type = 'array',
+      minItems = 1,
+      description = 'Attacks on the targets; together they must cover every target ID.',
+      items = {
         type = 'object',
         properties = {
-          mode = {
+          kind = {
             type = 'string',
-            enum = { 'falsification', 'assumptions', 'temporal', 'cross_perspective', 'full' },
-            description = 'Select the adversarial lens; full combines defense, disconfirmation, hidden assumptions, and blind spots.',
-          },
-          target_ids = vim.tbl_extend('force', vim.deepcopy(string_array), {
-            minItems = 1,
-            description = 'Distinct active artifacts; challenges must collectively cover them and verdicts must cover each exactly once.',
-          }),
-          defense = {
-            type = 'object',
-            properties = { summary = { type = 'string' }, evidence_ids = string_array },
-            required = { 'summary', 'evidence_ids' },
-            additionalProperties = false,
-          },
-          challenges = {
-            type = 'array',
-            minItems = 1,
-            items = {
-              type = 'object',
-              properties = {
-                kind = {
-                  type = 'string',
-                  enum = {
-                    'counterexample',
-                    'missing_evidence',
-                    'hidden_assumption',
-                    'temporal_failure',
-                    'overclaim',
-                    'underclaim',
-                  },
-                },
-                summary = { type = 'string' },
-                target_ids = string_array,
-                falsifier = { type = 'string' },
-              },
-              required = { 'kind', 'summary', 'target_ids', 'falsifier' },
-              additionalProperties = false,
+            enum = {
+              'counterexample',
+              'missing_evidence',
+              'hidden_assumption',
+              'temporal_failure',
+              'overclaim',
+              'underclaim',
             },
+            description = 'What kind of weakness this attack exposes.',
           },
-          blind_spots = string_array,
-          stress_tests = {
-            type = 'array',
-            items = {
-              type = 'object',
-              properties = {
-                scenario = { type = 'string' },
-                prediction = { type = 'string' },
-                failure_signal = { type = 'string' },
-              },
-              required = { 'scenario', 'prediction', 'failure_signal' },
-              additionalProperties = false,
-            },
-          },
-          verdicts = {
-            type = 'array',
-            items = {
-              type = 'object',
-              properties = {
-                target_id = { type = 'string' },
-                status = { type = 'string', enum = { 'keep', 'revise', 'retract' } },
-                revision_instruction = {
-                  type = 'string',
-                  description = 'Required correction for revise; an empty string for keep or retract.',
-                },
-              },
-              required = { 'target_id', 'status', 'revision_instruction' },
-              additionalProperties = false,
-            },
-          },
-          contradiction_resolutions = {
-            type = 'array',
-            items = {
-              type = 'object',
-              properties = {
-                left_id = { type = 'string' },
-                right_id = { type = 'string' },
-                resolution = {
-                  type = 'string',
-                  description = 'Explicit qualification or resolution that permits both contradictory artifacts to remain active.',
-                },
-                evidence_ids = string_array,
-              },
-              required = { 'left_id', 'right_id', 'resolution', 'evidence_ids' },
-              additionalProperties = false,
-            },
-          },
-          structural_tradeoffs = {
-            type = 'array',
-            items = {
-              type = 'object',
-              properties = {
-                statement = { type = 'string' },
-                evidence_ids = string_array,
-                falsifier = { type = 'string' },
-              },
-              required = { 'statement', 'evidence_ids', 'falsifier' },
-              additionalProperties = false,
-            },
-          },
+          summary = { type = 'string', description = 'The attack itself.' },
+          target_ids = Shared.strings('Which of the reviewed targets this attack hits.', { minItems = 1 }),
+          falsifier = { type = 'string', description = 'The observation that would defeat this attack.' },
         },
-        required = {
-          'mode',
-          'target_ids',
-          'defense',
-          'challenges',
-          'blind_spots',
-          'stress_tests',
-          'verdicts',
-          'contradiction_resolutions',
-          'structural_tradeoffs',
-        },
+        required = { 'kind', 'summary', 'target_ids', 'falsifier' },
         additionalProperties = false,
       },
-      strict = true,
     },
-  },
-}
+    blind_spots = Shared.strings('What this reasoning may still be missing; a full review requires at least one.'),
+    stress_tests = {
+      type = 'array',
+      description = 'Behaviour over time. Required for a temporal review and for every review of a temporal frame.',
+      items = {
+        type = 'object',
+        properties = {
+          scenario = { type = 'string', description = 'The situation being pushed through time.' },
+          prediction = { type = 'string', description = 'What the current case predicts happens.' },
+          failure_signal = { type = 'string', description = 'What would show the prediction wrong.' },
+        },
+        required = { 'scenario', 'prediction', 'failure_signal' },
+        additionalProperties = false,
+      },
+    },
+    verdicts = {
+      type = 'array',
+      description = 'Exactly one verdict per target ID.',
+      items = {
+        type = 'object',
+        properties = {
+          target_id = { type = 'string', description = 'The reviewed artifact.' },
+          status = {
+            type = 'string',
+            enum = { 'keep', 'revise', 'retract' },
+            description = 'Keep leaves it active, revise opens a correction the owning tool must satisfy, retract deactivates it. A frame is revised rather than retracted, and an option only through its branch set.',
+          },
+          revision_instruction = {
+            type = 'string',
+            description = 'The required correction for a revise verdict; an empty string for keep or retract.',
+          },
+        },
+        required = { 'target_id', 'status', 'revision_instruction' },
+        additionalProperties = false,
+      },
+    },
+    structural_tradeoffs = {
+      type = 'array',
+      description = 'Trade-offs inherent to the problem rather than to one alternative.',
+      items = {
+        type = 'object',
+        properties = {
+          statement = { type = 'string', description = 'The trade-off that cannot be designed away.' },
+          evidence_ids = Shared.strings('Active E artifacts behind the trade-off.'),
+          falsifier = { type = 'string', description = 'What would show the trade-off is avoidable.' },
+        },
+        required = { 'statement', 'evidence_ids', 'falsifier' },
+        additionalProperties = false,
+      },
+    },
+  }),
+})

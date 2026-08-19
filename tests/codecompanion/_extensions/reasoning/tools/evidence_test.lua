@@ -1,6 +1,6 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
-local Frame = require('codecompanion._extensions.reasoning.tools.frame')
+local Start = require('codecompanion._extensions.reasoning.tools.start')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
 
@@ -16,7 +16,6 @@ local eq = MiniTest.expect.equality
 
 local function frame_args()
   return {
-    action = 'start',
     objective = 'Choose a durable cache design',
     problem_type = 'design',
     depth = 'deep',
@@ -35,7 +34,7 @@ end
 
 local function framed_chat()
   local chat = {}
-  eq(Frame.cmds[1]({ chat = chat }, frame_args(), {}).status, 'success')
+  eq(Start.cmds[1]({ chat = chat }, frame_args(), {}).status, 'success')
   return chat
 end
 
@@ -67,11 +66,11 @@ end
 T['routes cross-tool corrections to the exact corrective tool'] = function()
   local missing = Evidence.cmds[1]({ chat = {} }, { items = { evidence_item() } }, {})
   eq(missing.data.code, 'workspace_missing')
-  eq(missing.data.next_action.tool, 'reasoning_frame')
+  eq(missing.data.next_action.tool, 'reasoning_start')
 
   local unknown = Evidence.cmds[1]({ chat = framed_chat() }, { items = { evidence_item('missing') } }, {})
   eq(unknown.data.code, 'perspective_unknown')
-  eq(unknown.data.next_action.tool, 'reasoning_frame')
+  eq(unknown.data.next_action.tool, 'reasoning_amend')
 end
 
 T['records evidence and typed relations with stable IDs'] = function()
