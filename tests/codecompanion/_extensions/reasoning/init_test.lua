@@ -3,7 +3,7 @@ local Constants = require('codecompanion._extensions.reasoning.constants')
 local Control = require('codecompanion._extensions.reasoning.control')
 local Extension = require('codecompanion._extensions.reasoning')
 local Extensions = require('codecompanion._extensions')
-local Frame = require('codecompanion._extensions.reasoning.tools.frame')
+local Start = require('codecompanion._extensions.reasoning.tools.start')
 local ReasoningConfig = require('codecompanion._extensions.reasoning.config')
 local State = require('codecompanion._extensions.reasoning.state')
 local ToolRuntime = require('codecompanion.interactions.chat.tools')
@@ -48,14 +48,7 @@ local T = MiniTest.new_set({
 })
 local eq = MiniTest.expect.equality
 
-local names = {
-  'reasoning_frame',
-  'reasoning_evidence',
-  'reasoning_options',
-  'reasoning_review',
-  'reasoning_synthesis',
-  'reasoning_question',
-}
+local names = vim.deepcopy(Constants.tool_names)
 
 local function new_control_chat()
   local bufnr = vim.api.nvim_create_buf(false, true)
@@ -163,7 +156,7 @@ end
 
 T['preserves host overrides on reasoning registrations'] = function()
   local tools = config.interactions.chat.tools
-  tools.reasoning_frame = {
+  tools.reasoning_start = {
     opts = { require_approval_before = true },
     visible = false,
   }
@@ -172,10 +165,10 @@ T['preserves host overrides on reasoning registrations'] = function()
     opts = { collapse_tools = false },
   }
   Extension.setup()
-  eq(type(tools.reasoning_frame.callback), 'function')
-  eq(tools.reasoning_frame.path, nil)
-  eq(tools.reasoning_frame.opts.require_approval_before, true)
-  eq(tools.reasoning_frame.visible, false)
+  eq(type(tools.reasoning_start.callback), 'function')
+  eq(tools.reasoning_start.path, nil)
+  eq(tools.reasoning_start.opts.require_approval_before, true)
+  eq(tools.reasoning_start.visible, false)
   eq(tools.groups.reasoning.description, 'Custom reasoning label')
   eq(tools.groups.reasoning.opts.collapse_tools, false)
   eq(tools.groups.reasoning.tools, names)
@@ -186,7 +179,7 @@ T['forces canonical tool identity across host name collisions'] = function()
   local hostile_callback = function()
     return {}
   end
-  tools.reasoning_frame = {
+  tools.reasoning_start = {
     path = 'host.tool',
     extends = 'cmd_tool',
     callback = hostile_callback,
@@ -209,7 +202,7 @@ T['forces canonical tool identity across host name collisions'] = function()
 
   Extension.setup()
 
-  local registered = tools.reasoning_frame
+  local registered = tools.reasoning_start
   eq(registered.path, nil)
   eq(type(registered.callback), 'function')
   eq(registered.callback == hostile_callback, false)
@@ -232,21 +225,21 @@ T['forces canonical tool identity across host name collisions'] = function()
     eq(registered[field], nil)
   end
   local resolved = ToolRuntime.resolve(registered)
-  eq(resolved.schema['function'].name, 'reasoning_frame')
-  eq(resolved.cmds[1], Frame.cmds[1])
+  eq(resolved.schema['function'].name, 'reasoning_start')
+  eq(resolved.cmds[1], Start.cmds[1])
 end
 
 T['authenticates runtime registrations without resolving foreign callbacks'] = function()
   Extension.setup()
-  local authentic = config.interactions.chat.tools.reasoning_frame
+  local authentic = config.interactions.chat.tools.reasoning_start
   local copied = vim.deepcopy(authentic)
-  eq(Extension.owns_tool_config('reasoning_frame', authentic), true)
-  eq(Extension.owns_tool_config('reasoning_frame', copied), true)
+  eq(Extension.owns_tool_config('reasoning_start', authentic), true)
+  eq(Extension.owns_tool_config('reasoning_start', copied), true)
   eq(Extension.owns_tool_config('reasoning_evidence', copied), false)
 
   local callback_calls = 0
   eq(
-    Extension.owns_tool_config('reasoning_frame', {
+    Extension.owns_tool_config('reasoning_start', {
       callback = function()
         callback_calls = callback_calls + 1
         return Frame
@@ -266,7 +259,7 @@ T['authenticates runtime registrations without resolving foreign callbacks'] = f
     for key, value in pairs(redirect) do
       candidate[key] = value
     end
-    eq(Extension.owns_tool_config('reasoning_frame', candidate), false)
+    eq(Extension.owns_tool_config('reasoning_start', candidate), false)
   end
   local mutated_opts = vim.deepcopy(authentic)
   mutated_opts.opts = mutated_opts.opts or {}
@@ -274,15 +267,15 @@ T['authenticates runtime registrations without resolving foreign callbacks'] = f
     callback_calls = callback_calls + 1
     return true
   end
-  eq(Extension.owns_tool_config('reasoning_frame', mutated_opts), false)
+  eq(Extension.owns_tool_config('reasoning_start', mutated_opts), false)
   eq(callback_calls, 0)
   local inherited = setmetatable({}, { __index = authentic })
-  eq(Extension.owns_tool_config('reasoning_frame', inherited), false)
+  eq(Extension.owns_tool_config('reasoning_start', inherited), false)
 
   local previous = authentic.callback
   Extension.setup()
-  eq(config.interactions.chat.tools.reasoning_frame.callback == previous, false)
-  eq(Extension.owns_tool_config('reasoning_frame', { callback = previous }), true)
+  eq(config.interactions.chat.tools.reasoning_start.callback == previous, false)
+  eq(Extension.owns_tool_config('reasoning_start', { callback = previous }), true)
 end
 
 T['keeps only safe display overrides on a colliding group'] = function()
@@ -336,7 +329,7 @@ end
 
 T['uses the current function command contract'] = function()
   Extension.setup()
-  local frame = ToolRuntime.resolve(config.interactions.chat.tools.reasoning_frame)
+  local frame = ToolRuntime.resolve(config.interactions.chat.tools.reasoning_start)
   local result = frame.cmds[1]({ chat = {} }, {}, {
     input = nil,
     output_cb = function() end,
@@ -353,22 +346,49 @@ T['defines the complete structured runtime contract without replacing the host s
   for _, rule in ipairs({
     'Attaching the complete reasoning group commits this conversation to the structured final-answer path',
     'External project tools are unrestricted and budget-neutral',
-    'The first reasoning call must be reasoning_frame with action=start',
+    'The first reasoning call must be reasoning_start',
     'Never write the final answer directly as model prose',
     'A rejected call is retryable and returns committed=false',
     'Rejected artifact IDs do not exist',
-    'New user information requires reasoning_frame with action=revise or action=replace',
+    'New user information requires reasoning_revise before downstream reasoning continues',
     'The deterministic final answer may use only accepted artifacts',
-    'Split the problem into atomic sub-questions before gathering evidence',
-    'Every leaf must be closed by reasoning_question',
-    'Work discovered mid-run uses reasoning_frame with action=amend',
+    'Split the problem with reasoning_split before gathering evidence',
+    'Every leaf must be closed by reasoning_answer with cited active evidence',
+    'Work discovered mid-run uses reasoning_amend',
   }) do
     eq(prompt:find(rule, 1, true) ~= nil, true)
+  end
+  for _, guidance in ipairs({
+    'PROCESS.',
+    'MID-RUN TOOLS.',
+    'GATES.',
+    'RULES.',
+    'Every accepted result returns next_action.tool',
+    'Call exactly one reasoning tool at a time; never batch reasoning calls',
+    "Any tool that shares the named tool's role is accepted",
+    'Read open_items on every result',
+    'If next_action.tool is none, stop',
+  }) do
+    eq({ guidance, prompt:find(guidance, 1, true) ~= nil }, { guidance, true })
+  end
+  for _, name in ipairs(Constants.tool_names) do
+    eq({ name, prompt:find(name, 1, true) ~= nil }, { name, true })
   end
   eq(prompt:find('search, read files, inspect symbols and history, run commands and tests', 1, true) ~= nil, true)
   eq(prompt:find('return the accepted conclusion', 1, true), nil)
   eq(prompt:find('private chain-of-thought', 1, true) ~= nil, true)
   eq(config.interactions.chat.opts.system_prompt, original_config.interactions.chat.opts.system_prompt)
+end
+
+T['states when each tool applies and what rejects it'] = function()
+  Extension.setup()
+  local tools = config.interactions.chat.tools
+  for _, name in ipairs(Constants.tool_names) do
+    local description = ToolRuntime.resolve(tools[name]).schema['function'].description
+    eq({ name, type(description) }, { name, 'string' })
+    eq({ name, description:find('WHEN:', 1, true) ~= nil }, { name, true })
+    eq({ name, #description > 160 }, { name, true })
+  end
 end
 
 T['refreshes protocol guidance when the configured default depth changes'] = function()
@@ -396,8 +416,7 @@ end
 
 T['repeated setup does not reset active reasoning state'] = function()
   local chat = {}
-  local result = Frame.cmds[1]({ chat = chat }, {
-    action = 'start',
+  local result = Start.cmds[1]({ chat = chat }, {
     objective = 'Preserve this workspace',
     problem_type = 'analysis',
     depth = 'standard',

@@ -2,65 +2,77 @@ local Config = require('codecompanion._extensions.reasoning.config')
 
 local M = {}
 
-local unique_arrays = {
-  ['reasoning_frame.success_criteria'] = true,
-  ['reasoning_frame.unknowns'] = true,
-  ['reasoning_evidence.items.addresses_unknowns'] = true,
-  ['reasoning_evidence.items.supports'] = true,
-  ['reasoning_evidence.items.contradicts'] = true,
-  ['reasoning_evidence.items.qualifies'] = true,
-  ['reasoning_options.criteria'] = true,
-  ['reasoning_options.options.evidence_ids'] = true,
-  ['reasoning_review.target_ids'] = true,
-  ['reasoning_review.defense.evidence_ids'] = true,
-  ['reasoning_review.challenges.target_ids'] = true,
-  ['reasoning_review.contradiction_resolutions.evidence_ids'] = true,
-  ['reasoning_review.structural_tradeoffs.evidence_ids'] = true,
-  ['reasoning_synthesis.selected_option_ids'] = true,
-  ['reasoning_synthesis.support_ids'] = true,
-  ['reasoning_synthesis.review_ids'] = true,
-  ['reasoning_synthesis.criterion_results.evidence_ids'] = true,
-  ['reasoning_synthesis.tradeoffs'] = true,
-  ['reasoning_synthesis.uncertainties'] = true,
-  ['reasoning_synthesis.blind_spots'] = true,
-  ['reasoning_synthesis.next_actions'] = true,
-  ['reasoning_question.evidence_ids'] = true,
-  ['reasoning_evidence.items.addresses_questions'] = true,
-}
+local frame_tools = { 'reasoning_start', 'reasoning_revise', 'reasoning_replace' }
+local branch_tools = { 'reasoning_options', 'reasoning_options_replace' }
+local synthesis_tools = { 'reasoning_checkpoint', 'reasoning_final' }
+
+local function mark(map, tools, fields)
+  for _, tool in ipairs(tools) do
+    for _, field in ipairs(fields) do
+      map[tool .. '.' .. field] = true
+    end
+  end
+end
+
+local unique_arrays = {}
+mark(unique_arrays, frame_tools, { 'success_criteria', 'unknowns' })
+mark(unique_arrays, { 'reasoning_amend' }, { 'add_constraints', 'add_success_criteria', 'add_unknowns' })
+mark(unique_arrays, { 'reasoning_evidence' }, {
+  'items.addresses_unknowns',
+  'items.addresses_questions',
+  'items.supports',
+  'items.contradicts',
+  'items.qualifies',
+})
+mark(unique_arrays, branch_tools, { 'criteria', 'options.evidence_ids' })
+mark(unique_arrays, { 'reasoning_review' }, {
+  'target_ids',
+  'defense.evidence_ids',
+  'challenges.target_ids',
+  'structural_tradeoffs.evidence_ids',
+})
+mark(unique_arrays, { 'reasoning_resolve_contradiction' }, { 'evidence_ids' })
+mark(unique_arrays, synthesis_tools, {
+  'selected_option_ids',
+  'support_ids',
+  'review_ids',
+  'criterion_results.evidence_ids',
+})
+mark(unique_arrays, { 'reasoning_final' }, { 'tradeoffs', 'uncertainties', 'blind_spots', 'next_actions' })
+mark(unique_arrays, { 'reasoning_answer', 'reasoning_drop' }, { 'evidence_ids' })
 
 local empty_text_allowed = {
   ['reasoning_review.verdicts.revision_instruction'] = true,
-  ['reasoning_question.residual'] = true,
-  ['reasoning_question.answer'] = true,
-  ['reasoning_question.justification'] = true,
-  ['reasoning_question.acceptance_test'] = true,
+  ['reasoning_split.residual'] = true,
+  ['reasoning_amend.branching_rationale'] = true,
 }
 
-local artifact_id_paths = {
-  ['reasoning_evidence.items.supports'] = true,
-  ['reasoning_evidence.items.contradicts'] = true,
-  ['reasoning_evidence.items.qualifies'] = true,
-  ['reasoning_evidence.items.supersedes_id'] = true,
-  ['reasoning_options.supersedes_branch_id'] = true,
-  ['reasoning_options.options.evidence_ids'] = true,
-  ['reasoning_review.target_ids'] = true,
-  ['reasoning_review.defense.evidence_ids'] = true,
-  ['reasoning_review.challenges.target_ids'] = true,
-  ['reasoning_review.verdicts.target_id'] = true,
-  ['reasoning_review.contradiction_resolutions.left_id'] = true,
-  ['reasoning_review.contradiction_resolutions.right_id'] = true,
-  ['reasoning_review.contradiction_resolutions.evidence_ids'] = true,
-  ['reasoning_review.structural_tradeoffs.evidence_ids'] = true,
-  ['reasoning_synthesis.selected_option_ids'] = true,
-  ['reasoning_synthesis.support_ids'] = true,
-  ['reasoning_synthesis.review_ids'] = true,
-  ['reasoning_synthesis.criterion_results.evidence_ids'] = true,
-  ['reasoning_question.parent_id'] = true,
-  ['reasoning_question.question_id'] = true,
-  ['reasoning_question.residual_covered_by'] = true,
-  ['reasoning_question.evidence_ids'] = true,
-  ['reasoning_evidence.items.addresses_questions'] = true,
-}
+local artifact_id_paths = {}
+mark(artifact_id_paths, { 'reasoning_evidence' }, {
+  'items.supports',
+  'items.contradicts',
+  'items.qualifies',
+  'items.supersedes_id',
+  'items.addresses_questions',
+})
+mark(artifact_id_paths, branch_tools, { 'options.evidence_ids' })
+mark(artifact_id_paths, { 'reasoning_options_replace' }, { 'supersedes_branch_id' })
+mark(artifact_id_paths, { 'reasoning_review' }, {
+  'target_ids',
+  'defense.evidence_ids',
+  'challenges.target_ids',
+  'verdicts.target_id',
+  'structural_tradeoffs.evidence_ids',
+})
+mark(artifact_id_paths, { 'reasoning_resolve_contradiction' }, { 'left_id', 'right_id', 'evidence_ids' })
+mark(artifact_id_paths, synthesis_tools, {
+  'selected_option_ids',
+  'support_ids',
+  'review_ids',
+  'criterion_results.evidence_ids',
+})
+mark(artifact_id_paths, { 'reasoning_split' }, { 'parent_id', 'residual_covered_by' })
+mark(artifact_id_paths, { 'reasoning_answer', 'reasoning_drop' }, { 'question_id', 'evidence_ids' })
 
 local function minimum(left, right)
   return left and math.min(left, right) or right
@@ -110,7 +122,7 @@ function M.resolve(name, template)
   for field, node in pairs(parameters.properties) do
     visit(node, name .. '.' .. field, limits)
   end
-  if name == 'reasoning_question' then
+  if name == 'reasoning_split' then
     parameters.properties.child_questions.maxItems = limits.max_children
   end
   if name == 'reasoning_evidence' then

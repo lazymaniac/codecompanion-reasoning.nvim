@@ -1,18 +1,14 @@
+local Constants = require('codecompanion._extensions.reasoning.constants')
 local Control = require('codecompanion._extensions.reasoning.control')
 local State = require('codecompanion._extensions.reasoning.state')
 local Terminal = require('codecompanion._extensions.reasoning.terminal')
 
 local M = {}
 
-local known_actions = {
-  reasoning_frame = true,
-  reasoning_evidence = true,
-  reasoning_options = true,
-  reasoning_review = true,
-  reasoning_synthesis = true,
-  reasoning_question = true,
-  none = true,
-}
+local known_actions = { none = true }
+for _, name in ipairs(Constants.tool_names) do
+  known_actions[name] = true
+end
 
 local function text(value)
   return type(value) == 'string' and vim.trim(value) ~= ''
@@ -32,7 +28,7 @@ local function next_action_valid(value)
 end
 
 local function internal_payload(tool, message)
-  local retry_tool = tool and known_actions[tool.name] and tool.name or 'reasoning_frame'
+  local retry_tool = tool and known_actions[tool.name] and tool.name or 'reasoning_start'
   return {
     code = 'internal_error',
     message = message,
@@ -78,7 +74,7 @@ function M.success(tool, stdout, meta)
   if
     payload.next_action.tool == 'none'
     and not (
-      tool.name == 'reasoning_synthesis'
+      tool.name == 'reasoning_final'
       and artifact.kind == 'synthesis'
       and type(artifact.data) == 'table'
       and artifact.data.mode == 'final'

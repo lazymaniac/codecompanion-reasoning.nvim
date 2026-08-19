@@ -583,7 +583,6 @@ local function bind_call_markers(state, chat, calls)
         call_id = type(call.id) == 'string' and call.id ~= '' and call.id or nil,
         response_call_id = type(call.call_id) == 'string' and call.call_id ~= '' and call.call_id or nil,
         tool_name = name,
-        action = type(decoded) == 'table' and decoded.action or nil,
         decoded_arguments = decoded,
         arguments_malformed = malformed_json,
         arguments_invalid = operation ~= nil and type(arguments) ~= 'table' and type(arguments) ~= 'string',
@@ -1028,19 +1027,27 @@ local function internal_result(state, marker, entry, message, resume_phase)
   halt_internal(state, 'Structured reasoning halted after an internal result-integrity failure.', resume_phase)
 end
 
+local frame_shape = { primary = 'frame', collection = 'question', collection_optional = true }
+local branch_shape = { primary = 'branch', collection = 'option', collection_required = true }
+local closure_shape = { primary = 'closure' }
+local review_shape = { primary = 'review' }
+local synthesis_shape = { primary = 'synthesis' }
+
 local accepted_shape = {
-  frame = { primary = 'frame', collection = 'question', collection_optional = true },
+  start = frame_shape,
+  amend = frame_shape,
+  revise = frame_shape,
+  replace = frame_shape,
+  split = { primary = 'question', collection = 'question', collection_required = true },
+  answer = closure_shape,
+  drop = closure_shape,
   evidence = { primary = 'evidence', collection = 'evidence', collection_required = true },
-  options = { primary = 'branch', collection = 'option', collection_required = true },
-  review = { primary = 'review' },
-  synthesis = { primary = 'synthesis' },
-  question = {
-    by_action = {
-      split = { primary = 'question', collection = 'question', collection_required = true },
-      answer = { primary = 'closure' },
-      drop = { primary = 'closure' },
-    },
-  },
+  options = branch_shape,
+  options_replace = branch_shape,
+  review = review_shape,
+  resolve_contradiction = review_shape,
+  checkpoint = synthesis_shape,
+  final = synthesis_shape,
 }
 
 local function ordered_new_artifacts(workspace, marker, clean_workspace)
@@ -1057,13 +1064,11 @@ local function accepted_payload(state, marker, payload)
   local chat = chat_for(state)
   local workspace = chat and State.get(chat) or nil
   local shape = accepted_shape[marker.operation]
-  if shape and shape.by_action then
-    shape = shape.by_action[marker.action]
-  end
   if not workspace or not shape or type(payload) ~= 'table' then
     return false
   end
-  local clean_workspace = marker.operation == 'frame' and (marker.workspace == nil or marker.action == 'replace')
+  local frame_operation = Constants.family_by_operation[marker.operation] == 'frame'
+  local clean_workspace = frame_operation and (marker.workspace == nil or marker.operation == 'replace')
   local reported_primary = type(payload.artifact) == 'table' and payload.artifact.id or nil
   if clean_workspace then
     if workspace == marker.workspace or workspace.artifact_order[1] ~= reported_primary then
@@ -1121,9 +1126,9 @@ local function accepted_payload(state, marker, payload)
     return false
   end
 
-  local synthesis_arguments = marker.operation == 'synthesis'
+  local synthesis_arguments = Constants.family_by_operation[marker.operation] == 'synthesis'
       and type(marker.decoded_arguments) == 'table'
-      and marker.decoded_arguments
+      and Protocol.canonical_args[marker.operation](marker.decoded_arguments, workspace)
     or nil
   local final_synthesis = synthesis_arguments and synthesis_arguments.mode == 'final'
   local expected = {
@@ -1394,7 +1399,7 @@ local function settle_invalidated_final(state, staged, marker, entry, candidates
   local transition_ok, transition = pcall(Protocol.transition, workspace, state.phase)
   if not transition_ok or type(transition) ~= 'table' then
     transition = workspace and { tool = 'none', reason = 'Wait for explicit user recovery' }
-      or { tool = 'reasoning_frame', reason = 'Start a new reasoning workspace' }
+      or { tool = 'reasoning_start', reason = 'Start a new reasoning workspace' }
   end
   local payload = Protocol.failure(
     'internal_error',
@@ -1423,8 +1428,8 @@ local function final_boundary_current(state, staged, marker)
     and marker.epoch == staged.epoch
     and marker.generation == staged.generation
     and marker.phase == 'active'
-    and marker.operation == 'synthesis'
-    and marker.tool_name == 'reasoning_synthesis'
+    and marker.operation == 'final'
+    and marker.tool_name == 'reasoning_final'
     and marker.workspace == staged.workspace
     and marker.revision == staged.revision
     and type(call) == 'table'
@@ -1923,8 +1928,7 @@ local function preflight_execute(state, tools, chat, calls, callback)
     ).data
     return settle_rejected_batch(state, tools, chat, calls, payload, true)
   end
-  local allowed = state.phase ~= 'finalized'
-    and Transition.allowed(marker.workspace, state.phase, marker.operation, marker.decoded_arguments)
+  local allowed = state.phase ~= 'finalized' and Transition.allowed(marker.workspace, state.phase, marker.operation)
   if not allowed then
     local payload = transition_failure(marker.operation, chat, marker.decoded_arguments, state.phase, item.name)
     return settle_rejected_batch(state, tools, chat, calls, payload, true)
@@ -3261,7 +3265,7 @@ function M.stage_final(chat, tool, finalization)
     or not chat.adapter
     or chat.adapter.type ~= 'http'
     or type(tool) ~= 'table'
-    or tool.name ~= 'reasoning_synthesis'
+    or tool.name ~= 'reasoning_final'
     or type(call) ~= 'table'
     or type(call.id) ~= 'string'
     or call.id == ''
@@ -3273,7 +3277,7 @@ function M.stage_final(chat, tool, finalization)
     or marker.status ~= 'executing'
     or marker.epoch ~= state.epoch
     or marker.generation ~= state.request_generation
-    or marker.operation ~= 'synthesis'
+    or marker.operation ~= 'final'
     or marker.adapter ~= chat.adapter
     or marker.tool_name ~= tool.name
     or marker.call_id ~= call.id

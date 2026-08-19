@@ -1,7 +1,8 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Evidence = require('codecompanion._extensions.reasoning.tools.evidence')
-local Frame = require('codecompanion._extensions.reasoning.tools.frame')
+local Start = require('codecompanion._extensions.reasoning.tools.start')
 local Options = require('codecompanion._extensions.reasoning.tools.options')
+local OptionsReplace = require('codecompanion._extensions.reasoning.tools.options_replace')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
 local State = require('codecompanion._extensions.reasoning.state')
 local TreeFixture = require('support.tree_fixture')
@@ -39,7 +40,6 @@ end
 local function prepared_chat()
   local chat = {}
   local frame = {
-    action = 'start',
     objective = 'Choose a durable cache design',
     problem_type = 'design',
     depth = 'deep',
@@ -54,7 +54,7 @@ local function prepared_chat()
     branching_required = true,
     branching_rationale = 'Several storage strategies are viable',
   }
-  eq(Frame.cmds[1]({ chat = chat }, frame, {}).status, 'success')
+  eq(Start.cmds[1]({ chat = chat }, frame, {}).status, 'success')
   eq(TreeFixture.satisfy(chat), true)
   eq(Evidence.cmds[1]({ chat = chat }, evidence_args(), {}).status, 'success')
   return chat
@@ -65,7 +65,6 @@ local function valid_args()
     question = 'Which cache architecture satisfies the frame?',
     branch_type = 'solution',
     criteria = { 'Durability', 'Bounded memory' },
-    supersedes_branch_id = '',
     options = {
       {
         label = 'journal',
@@ -167,7 +166,7 @@ T['replaces a complete branch set'] = function()
   replacement.supersedes_branch_id = 'B1'
   replacement.options[1].label = 'checksummed journal'
   replacement.options[2].label = 'atomic snapshot'
-  local result = Options.cmds[1]({ chat = chat }, replacement, {})
+  local result = OptionsReplace.cmds[1]({ chat = chat }, replacement, {})
   eq(result.data.artifact.id, 'B2')
   eq({ result.data.artifacts[1].id, result.data.artifacts[2].id }, { 'O3', 'O4' })
   eq(State.find(State.get(chat), 'B1').status, 'superseded')
@@ -245,7 +244,7 @@ T['requires the exact active branch as the replacement target'] = function()
   local second_active = State.add(workspace, 'branch', { option_ids = {}, frame_id = workspace.frame_id })
   local replacement = valid_args()
   replacement.supersedes_branch_id = 'B1'
-  local result = Options.cmds[1]({ chat = chat }, replacement, {})
+  local result = OptionsReplace.cmds[1]({ chat = chat }, replacement, {})
   eq(result.data.code, 'options_invalid')
   eq(result.data.artifact_ids, { second_active.id })
   eq(workspace.counts_by_kind.branch, 2)
@@ -257,17 +256,17 @@ T['validates branch replacement references atomically'] = function()
   local chat = prepared_chat()
   local missing = valid_args()
   missing.supersedes_branch_id = 'B99'
-  eq(Options.cmds[1]({ chat = chat }, missing, {}).data.code, 'invalid_reference')
+  eq(OptionsReplace.cmds[1]({ chat = chat }, missing, {}).data.code, 'invalid_reference')
 
   local wrong_kind = valid_args()
   wrong_kind.supersedes_branch_id = 'E1'
-  eq(Options.cmds[1]({ chat = chat }, wrong_kind, {}).data.code, 'invalid_reference')
+  eq(OptionsReplace.cmds[1]({ chat = chat }, wrong_kind, {}).data.code, 'invalid_reference')
 
   eq(Options.cmds[1]({ chat = chat }, valid_args(), {}).status, 'success')
   State.retract(State.get(chat), 'B1')
   local inactive = valid_args()
   inactive.supersedes_branch_id = 'B1'
-  eq(Options.cmds[1]({ chat = chat }, inactive, {}).data.code, 'inactive_reference')
+  eq(OptionsReplace.cmds[1]({ chat = chat }, inactive, {}).data.code, 'inactive_reference')
   eq(State.get(chat).counts_by_kind.branch, 1)
 end
 
@@ -275,7 +274,7 @@ T['rejects an unbounded branch replacement ID before echoing it'] = function()
   local chat = prepared_chat()
   local args = valid_args()
   args.supersedes_branch_id = string.rep('B', Config.get().limits.max_text_chars + 1)
-  local result = Options.cmds[1]({ chat = chat }, args, {})
+  local result = OptionsReplace.cmds[1]({ chat = chat }, args, {})
   eq(result.data.code, 'options_invalid')
   eq(result.data.artifact_ids, {})
   eq(State.get(chat).counts_by_kind.branch, nil)
@@ -287,7 +286,7 @@ T['rejects a replacement atomically when total capacity is unavailable'] = funct
   Config.setup({ limits = { max_artifacts = 7 } })
   local replacement = valid_args()
   replacement.supersedes_branch_id = 'B1'
-  local result = Options.cmds[1]({ chat = chat }, replacement, {})
+  local result = OptionsReplace.cmds[1]({ chat = chat }, replacement, {})
   eq(result.data.code, 'limit_exceeded')
   eq(State.get(chat).counts_by_kind.branch, 1)
   eq(State.get(chat).counts_by_kind.option, 2)
@@ -300,9 +299,8 @@ T['binds rebuilt branches to the active frame revision'] = function()
   local chat = prepared_chat()
   eq(Options.cmds[1]({ chat = chat }, valid_args(), {}).status, 'success')
   local revised = vim.deepcopy(State.find(State.get(chat), 'F1').data)
-  revised.action = 'revise'
   revised.objective = 'Choose and validate a durable cache design'
-  eq(Frame.cmds[1]({ chat = chat }, revised, {}).status, 'success')
+  eq(Protocol.call('revise', chat, revised, nil).status, 'success')
   eq(State.find(State.get(chat), 'E1').status, 'superseded')
   eq(State.find(State.get(chat), 'B1').status, 'superseded')
   eq(Evidence.cmds[1]({ chat = chat }, evidence_args(), {}).status, 'success')

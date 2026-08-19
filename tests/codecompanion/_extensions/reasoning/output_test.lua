@@ -38,7 +38,7 @@ end
 
 T['serializes success for the model and bounds user output'] = function()
   local mock = mock_meta()
-  Output.success({ name = 'reasoning_frame' }, {
+  Output.success({ name = 'reasoning_start' }, {
     {
       workspace_id = 'W1',
       artifact = { id = 'F1' },
@@ -52,7 +52,7 @@ end
 T['accepts every registered reasoning tool as a next action'] = function()
   for _, name in ipairs(require('codecompanion._extensions.reasoning.constants').tool_names) do
     local mock = mock_meta()
-    Output.success({ name = 'reasoning_question' }, {
+    Output.success({ name = 'reasoning_answer' }, {
       {
         workspace_id = 'W1',
         artifact = { id = 'Q2' },
@@ -69,7 +69,7 @@ end
 
 T['passes the frontier through to the model payload'] = function()
   local mock = mock_meta()
-  Output.error({ name = 'reasoning_synthesis' }, {
+  Output.error({ name = 'reasoning_final' }, {
     {
       code = 'synthesis_gate_failed',
       message = 'final synthesis is blocked by: open_questions',
@@ -77,22 +77,22 @@ T['passes the frontier through to the model payload'] = function()
       committed = false,
       unmet_gates = { 'open_questions' },
       open_items = { questions = { { id = 'Q1', parent_id = 'F1', depth = 1, provisional = false, text = 'Leaf' } } },
-      next_action = { tool = 'reasoning_question', reason = 'Close sub-question Q1 with its cited evidence' },
+      next_action = { tool = 'reasoning_answer', reason = 'Close sub-question Q1 with its cited evidence' },
     },
   }, mock.meta)
   local payload = vim.json.decode(mock.calls[1].for_llm)
   eq(payload.open_items.questions[1].id, 'Q1')
-  eq(payload.next_action.tool, 'reasoning_question')
+  eq(payload.next_action.tool, 'reasoning_answer')
 end
 
 T['serializes stable errors'] = function()
   local mock = mock_meta()
-  Output.error({ name = 'reasoning_frame' }, {
+  Output.error({ name = 'reasoning_start' }, {
     {
       code = 'workspace_exists',
       message = 'active',
       artifact_ids = { 'F1' },
-      next_action = { tool = 'reasoning_frame', reason = 'Use revise' },
+      next_action = { tool = 'reasoning_revise', reason = 'Use revise' },
     },
   }, mock.meta)
   eq(vim.json.decode(mock.calls[1].for_llm).code, 'workspace_exists')
@@ -101,7 +101,7 @@ end
 
 T['surfaces none as the terminal next action'] = function()
   local mock = mock_meta()
-  Output.success({ name = 'reasoning_synthesis' }, {
+  Output.success({ name = 'reasoning_final' }, {
     {
       workspace_id = 'W1',
       artifact = { id = 'S1', kind = 'synthesis', data = { mode = 'final' } },
@@ -121,8 +121,8 @@ T['stages an internal final before recording only its public payload'] = functio
     markdown = '## Conclusion\n\nUse the verified result.',
   }
   local tool = {
-    name = 'reasoning_synthesis',
-    function_call = { id = 'call-final', ['function'] = { name = 'reasoning_synthesis' } },
+    name = 'reasoning_final',
+    function_call = { id = 'call-final', ['function'] = { name = 'reasoning_final' } },
   }
   Control.stage_final = function(chat, received_tool, received_internal)
     table.insert(events, 'stage')
@@ -175,7 +175,7 @@ T['discards malformed or refused final stages and records committed false'] = fu
     Control.stage_final = function()
       return case.staged
     end
-    Output.success({ name = 'reasoning_synthesis' }, {
+    Output.success({ name = 'reasoning_final' }, {
       {
         workspace_id = 'W1',
         artifact = { id = 'S1', kind = 'synthesis', data = { mode = 'final' } },
@@ -198,7 +198,7 @@ T['discards malformed or refused final stages and records committed false'] = fu
     discarded = received
     return true
   end
-  Output.success({ name = 'reasoning_synthesis' }, {
+  Output.success({ name = 'reasoning_final' }, {
     {
       artifact = { kind = 'synthesis', data = { mode = 'final' } },
       next_action = { tool = 'none', reason = 'Final accepted' },
@@ -221,7 +221,7 @@ T['uses the one-shot terminal guard only for standalone compatibility finals'] =
       eq(tools, mock.meta.tools)
       installs = installs + 1
     end
-    Output.success({ name = 'reasoning_synthesis' }, {
+    Output.success({ name = 'reasoning_final' }, {
       {
         workspace_id = 'W1',
         artifact = { id = 'S1', kind = 'synthesis', data = { mode = 'final' } },
@@ -255,7 +255,7 @@ T['rechecks legacy compatibility after the host records a standalone final'] = f
     installs = installs + 1
   end
 
-  Output.success({ name = 'reasoning_synthesis' }, {
+  Output.success({ name = 'reasoning_final' }, {
     {
       workspace_id = 'W1',
       artifact = { id = 'S1', kind = 'synthesis', data = { mode = 'final' } },
@@ -271,7 +271,7 @@ end
 
 T['keeps the model payload valid JSON when serialization fails'] = function()
   local mock = mock_meta()
-  Output.success({ name = 'reasoning_frame' }, {
+  Output.success({ name = 'reasoning_start' }, {
     {
       artifact = { id = 'F1', invalid = function() end },
       next_action = { tool = 'reasoning_evidence', reason = 'Gather evidence' },
@@ -280,7 +280,7 @@ T['keeps the model payload valid JSON when serialization fails'] = function()
   local payload = vim.json.decode(mock.calls[1].for_llm)
   eq(payload.code, 'internal_error')
   eq(payload.committed, false)
-  eq(payload.next_action.tool, 'reasoning_frame')
+  eq(payload.next_action.tool, 'reasoning_start')
   eq(mock.calls[1].for_user, 'Reasoning output rejected: internal_error')
 
   mock = mock_meta()
@@ -290,7 +290,7 @@ T['keeps the model payload valid JSON when serialization fails'] = function()
     discarded = received
     return true
   end
-  Output.success({ name = 'reasoning_synthesis' }, {
+  Output.success({ name = 'reasoning_final' }, {
     {
       artifact = {
         id = 'S1',
@@ -318,17 +318,17 @@ T['rejects a malformed success without inventing a terminal action'] = function(
   eq(mock.calls[1].for_user, 'Reasoning output rejected: internal_error')
 
   mock = mock_meta()
-  Output.success({ name = 'reasoning_frame' }, {
+  Output.success({ name = 'reasoning_start' }, {
     { artifact = { id = 'F1' }, next_action = {} },
   }, mock.meta)
   payload = vim.json.decode(mock.calls[1].for_llm)
   eq(payload.code, 'internal_error')
-  eq(payload.next_action.tool, 'reasoning_frame')
+  eq(payload.next_action.tool, 'reasoning_start')
 end
 
 T['reserves none for an accepted final synthesis'] = function()
   local mock = mock_meta()
-  Output.success({ name = 'reasoning_frame' }, {
+  Output.success({ name = 'reasoning_start' }, {
     {
       artifact = { id = 'F1', kind = 'frame', data = {} },
       next_action = { tool = 'none', reason = 'Incorrect terminal' },
@@ -336,11 +336,11 @@ T['reserves none for an accepted final synthesis'] = function()
   }, mock.meta)
   local payload = vim.json.decode(mock.calls[1].for_llm)
   eq(payload.code, 'internal_error')
-  eq(payload.next_action.tool, 'reasoning_frame')
+  eq(payload.next_action.tool, 'reasoning_start')
   eq(mock.calls[1].for_user, 'Reasoning output rejected: internal_error')
 
   mock = mock_meta()
-  Output.success({ name = 'reasoning_synthesis' }, {
+  Output.success({ name = 'reasoning_final' }, {
     {
       artifact = { id = 'S1', kind = 'synthesis', data = { mode = 'final' } },
       unmet_gates = { 'review_missing' },
@@ -354,7 +354,7 @@ end
 T['does not mutate host tool status for terminal errors'] = function()
   local mock = mock_meta()
   mock.meta.tools.status = 'error'
-  Output.error({ name = 'reasoning_synthesis' }, {
+  Output.error({ name = 'reasoning_final' }, {
     {
       code = 'workspace_finalized',
       message = 'terminal',

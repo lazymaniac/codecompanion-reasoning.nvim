@@ -191,7 +191,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       Validation.required(nil, 'action', 'string')
     )
   end
@@ -202,7 +202,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       diagnostic
     )
   end
@@ -212,7 +212,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       diagnostic
     )
   end
@@ -225,24 +225,12 @@ function M.frame(chat, args)
       planning = true,
     })
   if diagnostic then
-    return failure(
-      'frame_incomplete',
-      'problem_type is invalid',
-      {},
-      'Call reasoning_frame with a valid problem_type',
-      diagnostic
-    )
+    return failure('frame_incomplete', 'problem_type is invalid', {}, 'Use a supported problem_type', diagnostic)
   end
   diagnostic = Validation.required(args.depth, 'depth', 'string')
     or Validation.enum(args.depth, 'depth', { standard = true, deep = true })
   if diagnostic then
-    return failure(
-      'frame_incomplete',
-      'depth must be standard or deep',
-      {},
-      'Call reasoning_frame with a valid depth',
-      diagnostic
-    )
+    return failure('frame_incomplete', 'depth must be standard or deep', {}, 'Use standard or deep depth', diagnostic)
   end
   diagnostic = text_array_diagnostic(args.constraints, 'constraints')
   if diagnostic then
@@ -250,7 +238,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       diagnostic
     )
   end
@@ -280,7 +268,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'perspectives must be an array',
       {},
-      string.format('Provide perspectives and retry with action=%s', args.action),
+      'Provide the frame perspectives and retry',
       diagnostic
     )
   end
@@ -314,7 +302,7 @@ function M.frame(chat, args)
         perspective_count
       ),
       {},
-      string.format('Add %s and retry with action=%s', addition, args.action),
+      string.format('Add %s and retry', addition),
       Validation.diagnostic('perspectives', 'min_items', minimum_perspectives, perspective_count)
     )
   end
@@ -323,7 +311,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       string.format('perspectives exceed max_array_items=%d; received %d', maximum_perspectives, perspective_count),
       {},
-      string.format('Reduce perspectives to %d or fewer and retry with action=%s', maximum_perspectives, args.action),
+      string.format('Reduce perspectives to %d or fewer and retry', maximum_perspectives),
       Validation.diagnostic('perspectives', 'max_items', maximum_perspectives, perspective_count)
     )
   end
@@ -369,7 +357,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       diagnostic
     )
   end
@@ -379,7 +367,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       diagnostic
     )
   end
@@ -389,7 +377,7 @@ function M.frame(chat, args)
       'frame_incomplete',
       'objective must be non-empty and bounded',
       {},
-      'Call reasoning_frame',
+      'Correct the frame fields and retry',
       diagnostic
     )
   end
@@ -410,8 +398,8 @@ function M.frame(chat, args)
       'workspace_exists',
       'an active workspace already exists',
       { existing.frame_id },
-      'Use revise or replace',
-      Validation.diagnostic('action', 'workspace_state', { 'revise', 'replace' }, 'start')
+      { tool = 'reasoning_revise', reason = 'Revise the active frame, or replace the workspace' },
+      Validation.diagnostic('tool', 'workspace_state', { 'reasoning_revise', 'reasoning_replace' }, 'reasoning_start')
     )
   end
   if (args.action == 'revise' or args.action == 'amend') and not existing then
@@ -420,7 +408,7 @@ function M.frame(chat, args)
       ('there is no frame to %s'):format(args.action),
       {},
       'Start a frame',
-      Validation.diagnostic('action', 'workspace_exists', true, false)
+      Validation.diagnostic('workspace', 'workspace_exists', true, false)
     )
   end
   if args.action == 'amend' then
@@ -430,7 +418,7 @@ function M.frame(chat, args)
         'amend_invalid',
         'amend may only add to the active frame',
         {},
-        { tool = 'reasoning_frame', reason = 'Add to the frame with amend, or revise it to change its identity' },
+        { tool = 'reasoning_revise', reason = 'Amend only adds; revise the frame to change its identity' },
         amend_diagnostic
       )
     end
@@ -440,12 +428,12 @@ function M.frame(chat, args)
       'transition_invalid',
       'replace requires an existing reasoning workspace',
       {},
-      { tool = 'reasoning_frame', reason = 'Start the workspace with action=start' },
+      { tool = 'reasoning_start', reason = 'Start the workspace before replacing it' },
       {
-        path = 'action',
+        path = 'tool',
         constraint = 'authoritative_transition',
-        expected = 'start',
-        actual = 'replace',
+        expected = 'reasoning_start',
+        actual = 'reasoning_replace',
       }
     )
   end
@@ -501,7 +489,7 @@ function M.frame(chat, args)
       'limit_exceeded',
       'the workspace artifact limit was reached while seeding framed unknowns',
       {},
-      { tool = 'reasoning_frame', reason = 'Replace the workspace' },
+      { tool = 'reasoning_replace', reason = 'Replace the workspace' },
       Validation.diagnostic(
         'workspace.artifacts',
         'max_items',
@@ -558,7 +546,12 @@ end
 function M.evidence(chat, args)
   local workspace = State.get(chat)
   if not workspace then
-    return failure('workspace_missing', 'start a frame before recording evidence', {}, 'Call reasoning_frame')
+    return failure(
+      'workspace_missing',
+      'start a frame before recording evidence',
+      {},
+      'Start the frame with reasoning_start'
+    )
   end
   if type(args) ~= 'table' then
     return failure(
@@ -679,7 +672,7 @@ function M.evidence(chat, args)
         'perspective_unknown',
         'evidence references an unknown perspective',
         {},
-        'Revise the frame or perspective',
+        'Use a framed perspective, or add one with reasoning_amend',
         Validation.diagnostic(path .. '.perspective', 'active_frame_perspective', perspective_values, 'unknown_value')
       )
     end
@@ -691,7 +684,7 @@ function M.evidence(chat, args)
           'evidence_invalid',
           'addresses_unknowns must uniquely match active frame unknowns',
           {},
-          'Use exact unknowns from reasoning_frame',
+          'Use exact unknowns from the active frame',
           Validation.diagnostic(
             ('%s.addresses_unknowns[%d]'):format(path, unknown_index),
             addressed[key] and 'unique_items' or 'active_frame_unknown',
@@ -902,7 +895,12 @@ end
 function M.options(chat, args)
   local workspace = State.get(chat)
   if not workspace then
-    return failure('workspace_missing', 'start a frame before creating branches', {}, 'Call reasoning_frame')
+    return failure(
+      'workspace_missing',
+      'start a frame before creating branches',
+      {},
+      'Start the frame with reasoning_start'
+    )
   end
   if type(args) ~= 'table' then
     return failure(
@@ -1346,18 +1344,19 @@ end
 
 local function corrective_tool(kind)
   return ({
-    frame = 'reasoning_frame',
+    frame = 'reasoning_revise',
     evidence = 'reasoning_evidence',
-    branch = 'reasoning_options',
-    option = 'reasoning_options',
-    synthesis = 'reasoning_synthesis',
+    branch = 'reasoning_options_replace',
+    option = 'reasoning_options_replace',
+    synthesis = 'reasoning_final',
   })[kind] or 'reasoning_review'
 end
 
-function M.review(chat, args)
+function M.review(chat, args, _lifecycle_phase, operation)
+  local resolution_only = operation == 'resolve_contradiction'
   local workspace = State.get(chat)
   if not workspace then
-    return failure('workspace_missing', 'start a frame before review', {}, 'Call reasoning_frame')
+    return failure('workspace_missing', 'start a frame before review', {}, 'Start the frame with reasoning_start')
   end
   local diagnostic = review_shape_diagnostic(args)
   if diagnostic then
@@ -1567,7 +1566,9 @@ function M.review(chat, args)
     end
   end
   local frame = State.find(workspace, workspace.frame_id)
-  if (args.mode == 'temporal' or frame.data.temporal_required) and #args.stress_tests == 0 then
+  if
+    (args.mode == 'temporal' or (frame.data.temporal_required and not resolution_only)) and #args.stress_tests == 0
+  then
     return failure(
       'review_incomplete',
       'temporal reasoning requires a stress test',
@@ -1640,7 +1641,7 @@ function M.review(chat, args)
         'the active frame must be revised or replaced rather than retracted',
         { verdict.target_id },
         {
-          tool = 'reasoning_frame',
+          tool = 'reasoning_revise',
           reason = 'Revise or replace the active problem frame',
         },
         Validation.diagnostic(
@@ -1657,7 +1658,7 @@ function M.review(chat, args)
         'an option cannot be retracted independently of its branch set',
         { verdict.target_id },
         {
-          tool = 'reasoning_options',
+          tool = 'reasoning_options_replace',
           reason = 'Revise the option and replace the complete branch set',
         },
         Validation.diagnostic(
@@ -1695,7 +1696,7 @@ function M.review(chat, args)
             'a retracted branch set and its child options cannot receive mixed verdicts',
             { id, option_id },
             {
-              tool = 'reasoning_options',
+              tool = 'reasoning_options_replace',
               reason = 'Review or replace the branch set as one coherent unit',
             },
             Validation.diagnostic('verdicts', 'coherent_branch_verdict', true, 'mixed_branch_and_option')
@@ -1893,13 +1894,16 @@ function M.review(chat, args)
   return success(workspace, review)
 end
 
-local function question_next_action()
-  return { tool = 'reasoning_question', reason = 'Correct the sub-question and retry' }
+local function question_failure_for(tool)
+  return function(code, message, artifact_ids, diagnostic)
+    return failure(code, message, artifact_ids, {
+      tool = tool,
+      reason = 'Correct the sub-question and retry',
+    }, diagnostic)
+  end
 end
 
-local function question_failure(code, message, artifact_ids, diagnostic)
-  return failure(code, message, artifact_ids, question_next_action(), diagnostic)
-end
+local question_failure = question_failure_for('reasoning_split')
 
 local function conjunctive(value)
   local padded = ' ' .. normalized(value) .. ' '
@@ -2153,6 +2157,7 @@ local function split(chat, workspace, args)
 end
 
 local function closure(chat, workspace, args)
+  local question_failure = question_failure_for(args.action == 'drop' and 'reasoning_drop' or 'reasoning_answer')
   local options = Config.get()
   local limits = options.limits
   local question = active_question(workspace, args.question_id)
@@ -2249,7 +2254,7 @@ local function closure(chat, workspace, args)
   if resolution == 'none' or resolution == nil then
     resolution = question.data.resolution_kind
   end
-  if question.data.provisional then
+  if args.action == 'answer' and question.data.provisional then
     diagnostic = Validation.text(args.acceptance_test, 'acceptance_test', limits.max_text_chars)
       or Validation.enum(resolution or 'none', 'resolution_kind', {
         observation = true,
@@ -2321,7 +2326,7 @@ function M.question(chat, args)
       'workspace_missing',
       'start a frame before decomposing the problem',
       {},
-      { tool = 'reasoning_frame', reason = 'Create the active problem frame' },
+      { tool = 'reasoning_start', reason = 'Create the active problem frame' },
       Validation.diagnostic('action', 'workspace_exists', true, false)
     )
   end
@@ -2868,17 +2873,11 @@ end
 function M.synthesis(chat, args, lifecycle_phase)
   local workspace = State.get(chat)
   if not workspace then
-    return failure('workspace_missing', 'start a frame before synthesis', {}, 'Call reasoning_frame')
+    return failure('workspace_missing', 'start a frame before synthesis', {}, 'Start the frame with reasoning_start')
   end
   local diagnostic = synthesis_shape_diagnostic(args)
   if diagnostic then
-    return failure(
-      'synthesis_invalid',
-      'synthesis fields are invalid',
-      {},
-      'Correct reasoning_synthesis fields',
-      diagnostic
-    )
+    return failure('synthesis_invalid', 'synthesis fields are invalid', {}, 'Correct the synthesis fields', diagnostic)
   end
   for _, reference in ipairs({
     { args.selected_option_ids, 'option', 'selected_option_ids' },
@@ -3009,7 +3008,7 @@ function M.synthesis(chat, args, lifecycle_phase)
       'render_internal',
       'the deterministic final could not be rendered',
       {},
-      { tool = 'reasoning_synthesis', reason = 'Resume after inspecting the plugin failure' }
+      { tool = 'reasoning_final', reason = 'Resume after inspecting the plugin failure' }
     )
   end
 
@@ -3065,26 +3064,304 @@ local function accepted_final(workspace)
   return #gates == 0 and latest or nil
 end
 
+--- Canonical arguments -----------------------------------------------------
+--- Every tool exposes only the fields its own transition needs. The functions
+--- below expand one tool's arguments into the complete record its family
+--- handler validates, so artifacts keep a single audited shape while no call
+--- carries a placeholder for an action it is not performing.
+
+local function copy_args(args)
+  return type(args) == 'table' and vim.deepcopy(args) or {}
+end
+
+local function with_defaults(args, defaults)
+  local result = copy_args(args)
+  for key, value in pairs(defaults) do
+    result[key] = value
+  end
+  return result
+end
+
+local function merged_texts(existing, additions)
+  local result, seen = {}, {}
+  for _, value in ipairs(existing or {}) do
+    table.insert(result, value)
+    if type(value) == 'string' then
+      seen[normalized(value)] = true
+    end
+  end
+  for _, value in ipairs(type(additions) == 'table' and additions or {}) do
+    if type(value) ~= 'string' then
+      table.insert(result, value)
+    elseif not seen[normalized(value)] then
+      seen[normalized(value)] = true
+      table.insert(result, value)
+    end
+  end
+  return result
+end
+
+local function merged_perspectives(existing, additions)
+  local result, seen = {}, {}
+  for _, perspective in ipairs(existing or {}) do
+    table.insert(result, vim.deepcopy(perspective))
+    if type(perspective) == 'table' and type(perspective.name) == 'string' then
+      seen[normalized(perspective.name)] = true
+    end
+  end
+  for _, perspective in ipairs(type(additions) == 'table' and additions or {}) do
+    if type(perspective) ~= 'table' or type(perspective.name) ~= 'string' then
+      table.insert(result, perspective)
+    elseif not seen[normalized(perspective.name)] then
+      seen[normalized(perspective.name)] = true
+      table.insert(result, vim.deepcopy(perspective))
+    end
+  end
+  return result
+end
+
+local function frame_args(args, action)
+  return with_defaults(args, { action = action })
+end
+
+local function amend_args(args, workspace)
+  args = type(args) == 'table' and args or {}
+  local frame = workspace and State.find(workspace, workspace.frame_id) or nil
+  if not frame or frame.status ~= 'active' then
+    return nil,
+      failure(
+        'workspace_missing',
+        'there is no frame to amend',
+        {},
+        { tool = 'reasoning_start', reason = 'Create the active problem frame' },
+        Validation.diagnostic('workspace', 'workspace_exists', true, false)
+      )
+  end
+  local limits = Config.get().limits
+  local function reject(diagnostic)
+    return nil,
+      failure(
+        'amend_invalid',
+        'the amendment is invalid',
+        {},
+        { tool = 'reasoning_amend', reason = 'Correct the amendment and retry' },
+        diagnostic
+      )
+  end
+  for _, field in ipairs({ 'add_constraints', 'add_success_criteria', 'add_unknowns' }) do
+    local diagnostic = text_array_diagnostic(args[field], field, 0, limits.max_array_items, true)
+    if diagnostic then
+      return reject(diagnostic)
+    end
+  end
+  local diagnostic = Validation.array(args.add_perspectives, 'add_perspectives', 0, limits.max_array_items)
+  if diagnostic then
+    return reject(diagnostic)
+  end
+  for index, perspective in ipairs(args.add_perspectives) do
+    local path = ('add_perspectives[%d]'):format(index)
+    diagnostic = Validation.required(perspective, path, 'object')
+      or Validation.text(perspective.name, path .. '.name', limits.max_text_chars)
+      or Validation.text(perspective.purpose, path .. '.purpose', limits.max_text_chars)
+    if diagnostic then
+      return reject(diagnostic)
+    end
+  end
+  diagnostic = Validation.required(args.require_temporal, 'require_temporal', 'boolean')
+    or Validation.required(args.require_branching, 'require_branching', 'boolean')
+    or optional_text_diagnostic(args.branching_rationale, 'branching_rationale')
+  if diagnostic then
+    return reject(diagnostic)
+  end
+  local data = frame.data
+  local canonical = {
+    action = 'amend',
+    objective = data.objective,
+    problem_type = data.problem_type,
+    depth = data.depth,
+    constraints = merged_texts(data.constraints, args.add_constraints),
+    success_criteria = merged_texts(data.success_criteria, args.add_success_criteria),
+    unknowns = merged_texts(data.unknowns, args.add_unknowns),
+    perspectives = merged_perspectives(data.perspectives, args.add_perspectives),
+    temporal_required = data.temporal_required == true or args.require_temporal == true,
+    branching_required = data.branching_required == true or args.require_branching == true,
+    branching_rationale = text_valid(args.branching_rationale) and args.branching_rationale or data.branching_rationale,
+  }
+  local unchanged = #canonical.constraints == #(data.constraints or {})
+    and #canonical.success_criteria == #(data.success_criteria or {})
+    and #canonical.unknowns == #(data.unknowns or {})
+    and #canonical.perspectives == #(data.perspectives or {})
+    and canonical.temporal_required == (data.temporal_required == true)
+    and canonical.branching_required == (data.branching_required == true)
+    and canonical.branching_rationale == data.branching_rationale
+  if unchanged then
+    return reject(Validation.diagnostic('add_unknowns', 'amend_adds_something', true, false))
+  end
+  return canonical
+end
+
+local split_defaults = {
+  question_id = '',
+  answer = '',
+  justification = '',
+  drop_reason = 'none',
+  evidence_ids = {},
+  acceptance_test = '',
+  resolution_kind = 'none',
+  confidence = 'none',
+}
+
+local closure_defaults = {
+  parent_id = '',
+  axis = 'none',
+  composition = 'none',
+  residual = '',
+  residual_disposition = 'none',
+  residual_covered_by = '',
+  child_questions = {},
+}
+
+local function closure_args(args, action, extra)
+  local defaults = vim.tbl_extend('force', vim.deepcopy(closure_defaults), { action = action })
+  return with_defaults(args, vim.tbl_extend('force', defaults, extra or {}))
+end
+
+local function options_replace_args(args)
+  if not text_valid(type(args) == 'table' and args.supersedes_branch_id or nil) then
+    return nil,
+      failure(
+        'options_invalid',
+        'a replacement must name the branch set it replaces',
+        {},
+        { tool = 'reasoning_options_replace', reason = 'Name the active branch set being replaced' },
+        Validation.diagnostic('supersedes_branch_id', 'required', 'artifact_id', 'missing_value')
+      )
+  end
+  return copy_args(args)
+end
+
+local function resolve_args(args)
+  args = type(args) == 'table' and args or {}
+  local limits = Config.get().limits
+  local function reject(diagnostic)
+    return nil,
+      failure(
+        'review_incomplete',
+        'the contradiction resolution is invalid',
+        {},
+        { tool = 'reasoning_resolve_contradiction', reason = 'Correct the resolution and retry' },
+        diagnostic
+      )
+  end
+  local diagnostic = Validation.text(args.left_id, 'left_id', limits.max_text_chars)
+    or Validation.text(args.right_id, 'right_id', limits.max_text_chars)
+    or Validation.text(args.contradiction, 'contradiction', limits.max_text_chars)
+    or Validation.text(args.resolution, 'resolution', limits.max_text_chars)
+    or Validation.text(args.falsifier, 'falsifier', limits.max_text_chars)
+    or text_array_diagnostic(args.evidence_ids, 'evidence_ids', 1, limits.max_array_items, false)
+  if diagnostic then
+    return reject(diagnostic)
+  end
+  if args.left_id == args.right_id then
+    return reject(Validation.diagnostic('right_id', 'distinct_from_left_id', true, 'duplicate_value'))
+  end
+  local endpoints = { args.left_id, args.right_id }
+  return {
+    mode = 'falsification',
+    target_ids = endpoints,
+    defense = { summary = args.resolution, evidence_ids = vim.deepcopy(args.evidence_ids) },
+    challenges = {
+      {
+        kind = 'counterexample',
+        summary = args.contradiction,
+        target_ids = vim.deepcopy(endpoints),
+        falsifier = args.falsifier,
+      },
+    },
+    blind_spots = {},
+    stress_tests = {},
+    verdicts = {
+      { target_id = args.left_id, status = 'keep', revision_instruction = '' },
+      { target_id = args.right_id, status = 'keep', revision_instruction = '' },
+    },
+    contradiction_resolutions = {
+      {
+        left_id = args.left_id,
+        right_id = args.right_id,
+        resolution = args.resolution,
+        evidence_ids = vim.deepcopy(args.evidence_ids),
+      },
+    },
+    structural_tradeoffs = {},
+  }
+end
+
+local canonical_args = {
+  start = function(args)
+    return frame_args(args, 'start')
+  end,
+  revise = function(args)
+    return frame_args(args, 'revise')
+  end,
+  replace = function(args)
+    return frame_args(args, 'replace')
+  end,
+  amend = amend_args,
+  split = function(args)
+    return with_defaults(args, vim.tbl_extend('force', vim.deepcopy(split_defaults), { action = 'split' }))
+  end,
+  answer = function(args)
+    return closure_args(args, 'answer', { justification = '', drop_reason = 'none' })
+  end,
+  drop = function(args)
+    return closure_args(args, 'drop', { answer = '', acceptance_test = '', resolution_kind = 'none' })
+  end,
+  evidence = copy_args,
+  options = function(args)
+    return with_defaults(args, { supersedes_branch_id = '' })
+  end,
+  options_replace = options_replace_args,
+  review = function(args)
+    return with_defaults(args, { contradiction_resolutions = {} })
+  end,
+  resolve_contradiction = resolve_args,
+  checkpoint = function(args)
+    return with_defaults(args, {
+      mode = 'checkpoint',
+      tradeoffs = {},
+      uncertainties = {},
+      blind_spots = {},
+      next_actions = {},
+    })
+  end,
+  final = function(args)
+    return with_defaults(args, { mode = 'final' })
+  end,
+}
+
+M.canonical_args = canonical_args
+
 local function normalize_next_action(operation, result)
   if result.status ~= 'error' or type(result.data.next_action) ~= 'string' then
     return result
   end
   local tools_by_code = {
-    workspace_missing = 'reasoning_frame',
-    perspective_unknown = 'reasoning_frame',
-    limit_exceeded = 'reasoning_frame',
+    workspace_missing = 'reasoning_start',
+    perspective_unknown = 'reasoning_amend',
+    limit_exceeded = 'reasoning_replace',
   }
   result.data.next_action = {
-    tool = tools_by_code[result.data.code] or Constants.tool_by_operation[operation] or 'reasoning_frame',
+    tool = tools_by_code[result.data.code] or Constants.tool_by_operation[operation] or 'reasoning_start',
     reason = result.data.next_action,
   }
   return result
 end
 
 function M.call(operation, chat, args, lifecycle_phase)
-  local tools_by_operation = Constants.tool_by_operation
+  local tool_name = Constants.tool_by_operation[operation]
+  local family = Constants.family_by_operation[operation]
   local workspace = State.get(chat)
-  local transition_allowed = not lifecycle_phase or Transition.allowed(workspace, lifecycle_phase, operation, args)
+  local transition_allowed = not lifecycle_phase or Transition.allowed(workspace, lifecycle_phase, operation)
   local function reject_transition()
     local expected = Transition.next(workspace, lifecycle_phase)
     return failure(
@@ -3096,7 +3373,7 @@ function M.call(operation, chat, args, lifecycle_phase)
         path = 'tool',
         constraint = 'authoritative_transition',
         expected = expected and expected.tool or 'none',
-        actual = tools_by_operation[operation] or 'unknown_operation',
+        actual = tool_name or 'unknown_operation',
       }
     )
   end
@@ -3105,9 +3382,7 @@ function M.call(operation, chat, args, lifecycle_phase)
     return reject_transition()
   end
 
-  local explicit_reframe = operation == 'frame'
-    and type(args) == 'table'
-    and vim.tbl_contains({ 'revise', 'replace' }, args.action)
+  local explicit_reframe = Constants.reframe_operations[operation] == true
   if not explicit_reframe then
     local final = accepted_final(workspace)
     if final then
@@ -3124,17 +3399,22 @@ function M.call(operation, chat, args, lifecycle_phase)
     return reject_transition()
   end
 
-  local handler = M[operation]
-  if type(handler) ~= 'function' then
+  local handler = family and M[family] or nil
+  local expand = canonical_args[operation]
+  if type(handler) ~= 'function' or type(expand) ~= 'function' then
     return failure(
       'internal_error',
       'the reasoning operation is unavailable',
       {},
-      { tool = tools_by_operation[operation] or 'reasoning_frame', reason = 'Report the plugin error' }
+      { tool = tool_name or 'reasoning_start', reason = 'Report the plugin error' }
     )
   end
+  local canonical, rejected = expand(args, workspace)
+  if rejected then
+    return rejected
+  end
   local ok, result = xpcall(function()
-    return handler(chat, args, lifecycle_phase)
+    return handler(chat, canonical, lifecycle_phase, operation)
   end, debug.traceback)
   if not ok then
     log:error('[reasoning] %s failed: %s', operation, result)
@@ -3142,7 +3422,7 @@ function M.call(operation, chat, args, lifecycle_phase)
       'internal_error',
       'the reasoning operation failed internally',
       {},
-      { tool = tools_by_operation[operation], reason = 'Report the plugin error' }
+      { tool = tool_name, reason = 'Report the plugin error' }
     )
   end
   if lifecycle_phase == nil and explicit_reframe and result.status == 'success' then

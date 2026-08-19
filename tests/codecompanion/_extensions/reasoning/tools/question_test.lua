@@ -1,6 +1,6 @@
 local Config = require('codecompanion._extensions.reasoning.config')
 local Protocol = require('codecompanion._extensions.reasoning.protocol')
-local Question = require('codecompanion._extensions.reasoning.tools.question')
+local Split = require('codecompanion._extensions.reasoning.tools.split')
 local State = require('codecompanion._extensions.reasoning.state')
 local Tree = require('codecompanion._extensions.reasoning.tree')
 
@@ -16,7 +16,6 @@ local eq = MiniTest.expect.equality
 
 local function frame_args()
   return {
-    action = 'start',
     objective = 'Choose a durable cache design',
     problem_type = 'analysis',
     depth = 'standard',
@@ -30,9 +29,8 @@ local function frame_args()
   }
 end
 
-local function question_args(overrides)
+local function split_args(overrides)
   return vim.tbl_extend('force', {
-    action = 'split',
     parent_id = '',
     axis = 'component',
     composition = 'all_of',
@@ -40,14 +38,26 @@ local function question_args(overrides)
     residual_disposition = 'none',
     residual_covered_by = '',
     child_questions = {},
+  }, overrides or {})
+end
+
+local function answer_args(overrides)
+  return vim.tbl_extend('force', {
     question_id = '',
     answer = '',
-    justification = '',
-    drop_reason = 'none',
     evidence_ids = {},
-    acceptance_test = '',
-    resolution_kind = 'none',
-    confidence = 'none',
+    acceptance_test = 'Observe the closing result',
+    resolution_kind = 'observation',
+    confidence = 'medium',
+  }, overrides or {})
+end
+
+local function drop_args(overrides)
+  return vim.tbl_extend('force', {
+    question_id = '',
+    justification = '',
+    drop_reason = 'not_material',
+    evidence_ids = {},
   }, overrides or {})
 end
 
@@ -67,15 +77,15 @@ end
 
 local function started()
   local chat = {}
-  eq(Protocol.call('frame', chat, frame_args(), nil).status, 'success')
+  eq(Protocol.call('start', chat, frame_args(), nil).status, 'success')
   return chat, State.get(chat)
 end
 
 local function root_split(chat, workspace, overrides)
   return Protocol.call(
-    'question',
+    'split',
     chat,
-    question_args(vim.tbl_extend('force', {
+    split_args(vim.tbl_extend('force', {
       parent_id = workspace.frame_id,
       child_questions = children(2),
     }, overrides or {})),
@@ -127,9 +137,9 @@ T['splits a sub-question below the root'] = function()
   local chat, workspace = started()
   root_split(chat, workspace)
   local result = Protocol.call(
-    'question',
+    'split',
     chat,
-    question_args({ parent_id = 'Q1', axis = 'phase', child_questions = children(2, 'below') }),
+    split_args({ parent_id = 'Q1', axis = 'phase', child_questions = children(2, 'below') }),
     nil
   )
   eq(result.status, 'success')
@@ -169,9 +179,9 @@ T['refuses to split a closed leaf'] = function()
   local item = evidence(workspace)
   eq(
     Protocol.call(
-      'question',
+      'answer',
       chat,
-      question_args({ action = 'answer', question_id = 'Q1', answer = 'It survives', evidence_ids = { item.id } }),
+      answer_args({ question_id = 'Q1', answer = 'It survives', evidence_ids = { item.id } }),
       nil
     ).status,
     'success'
@@ -179,7 +189,7 @@ T['refuses to split a closed leaf'] = function()
   local before = snapshot(workspace)
 
   local result =
-    Protocol.call('question', chat, question_args({ parent_id = 'Q1', child_questions = children(2, 'closed') }), nil)
+    Protocol.call('split', chat, split_args({ parent_id = 'Q1', child_questions = children(2, 'closed') }), nil)
   eq(result.data.code, 'question_closed')
   assert_unchanged(workspace, before)
 end
@@ -255,7 +265,7 @@ T['bounds tree depth and question count'] = function()
   root_split(chat, workspace)
   local before = snapshot(workspace)
   local deep =
-    Protocol.call('question', chat, question_args({ parent_id = 'Q1', child_questions = children(2, 'deep') }), nil)
+    Protocol.call('split', chat, split_args({ parent_id = 'Q1', child_questions = children(2, 'deep') }), nil)
   eq(deep.data.code, 'tree_depth_exceeded')
   eq(deep.data.diagnostic, {
     path = 'child_questions',
@@ -286,9 +296,9 @@ T['requires a declared axis and a compatible composition'] = function()
   unknown_children[1].kind = 'unknown'
   eq(
     Protocol.call(
-      'question',
+      'split',
       chat,
-      question_args({ parent_id = 'Q1', composition = 'one_of', child_questions = unknown_children }),
+      split_args({ parent_id = 'Q1', composition = 'one_of', child_questions = unknown_children }),
       nil
     ).data.code,
     'question_invalid'
@@ -333,9 +343,9 @@ T['requires every residual to be dispositioned'] = function()
   eq(Tree.root_split(workspace).residual, 'No external service')
 
   local spurious = Protocol.call(
-    'question',
+    'split',
     chat,
-    question_args({
+    split_args({
       parent_id = 'Q1',
       child_questions = children(2, 'residual'),
       residual_disposition = 'covered_elsewhere',
@@ -353,10 +363,9 @@ T['closes a leaf with an answer and records the closure'] = function()
   local item = evidence(workspace)
 
   local result = Protocol.call(
-    'question',
+    'answer',
     chat,
-    question_args({
-      action = 'answer',
+    answer_args({
       question_id = 'Q1',
       answer = 'The journal replays on restart',
       evidence_ids = { item.id },
@@ -381,10 +390,9 @@ T['rejects closures that miss the configured evidence bar'] = function()
   local before = snapshot(workspace)
 
   local unsupported = Protocol.call(
-    'question',
+    'answer',
     chat,
-    question_args({
-      action = 'answer',
+    answer_args({
       question_id = 'Q1',
       answer = 'It probably survives',
       evidence_ids = { assumption.id },
@@ -396,10 +404,9 @@ T['rejects closures that miss the configured evidence bar'] = function()
   assert_unchanged(workspace, before)
 
   local unreviewed = Protocol.call(
-    'question',
+    'answer',
     chat,
-    question_args({
-      action = 'answer',
+    answer_args({
       question_id = 'Q1',
       answer = 'The design is acceptable',
       evidence_ids = { assumption.id },
@@ -410,8 +417,7 @@ T['rejects closures that miss the configured evidence bar'] = function()
   eq(unreviewed.data.code, 'closure_unreviewed')
   assert_unchanged(workspace, before)
 
-  local empty =
-    Protocol.call('question', chat, question_args({ action = 'answer', question_id = 'Q1', answer = 'No basis' }), nil)
+  local empty = Protocol.call('answer', chat, answer_args({ question_id = 'Q1', answer = 'No basis' }), nil)
   eq(empty.data.code, 'closure_invalid')
   eq(empty.data.diagnostic, { path = 'evidence_ids', constraint = 'min_items', expected = 1, actual = 0 })
   assert_unchanged(workspace, before)
@@ -423,9 +429,9 @@ T['drops a leaf only with a classified justification'] = function()
   local before = snapshot(workspace)
 
   local unclassified = Protocol.call(
-    'question',
+    'drop',
     chat,
-    question_args({ action = 'drop', question_id = 'Q1', justification = 'Not needed' }),
+    drop_args({ question_id = 'Q1', justification = 'Not needed', drop_reason = 'none' }),
     nil
   )
   eq(unclassified.data.code, 'closure_invalid')
@@ -433,10 +439,9 @@ T['drops a leaf only with a classified justification'] = function()
   assert_unchanged(workspace, before)
 
   local unquoted = Protocol.call(
-    'question',
+    'drop',
     chat,
-    question_args({
-      action = 'drop',
+    drop_args({
       question_id = 'Q1',
       justification = 'Not needed',
       drop_reason = 'out_of_scope',
@@ -448,10 +453,9 @@ T['drops a leaf only with a classified justification'] = function()
   assert_unchanged(workspace, before)
 
   local scoped = Protocol.call(
-    'question',
+    'drop',
     chat,
-    question_args({
-      action = 'drop',
+    drop_args({
       question_id = 'Q1',
       justification = 'No external service',
       drop_reason = 'out_of_scope',
@@ -465,57 +469,120 @@ end
 T['rejects closing a parent, a closed leaf, or a foreign reference'] = function()
   local chat, workspace = started()
   root_split(chat, workspace)
-  Protocol.call('question', chat, question_args({ parent_id = 'Q1', child_questions = children(2, 'leaf') }), nil)
+  Protocol.call('split', chat, split_args({ parent_id = 'Q1', child_questions = children(2, 'leaf') }), nil)
   local item = evidence(workspace)
 
   local parent = Protocol.call(
-    'question',
+    'answer',
     chat,
-    question_args({ action = 'answer', question_id = 'Q1', answer = 'Answered', evidence_ids = { item.id } }),
+    answer_args({ question_id = 'Q1', answer = 'Answered', evidence_ids = { item.id } }),
     nil
   )
   eq(parent.data.code, 'question_not_leaf')
 
   local missing = Protocol.call(
-    'question',
+    'answer',
     chat,
-    question_args({ action = 'answer', question_id = 'Q9', answer = 'Answered', evidence_ids = { item.id } }),
+    answer_args({ question_id = 'Q9', answer = 'Answered', evidence_ids = { item.id } }),
     nil
   )
   eq(missing.data.code, 'invalid_reference')
 
-  local closed_args = question_args({
-    action = 'answer',
-    question_id = 'Q3',
-    answer = 'Answered',
-    evidence_ids = { item.id },
-  })
-  eq(Protocol.call('question', chat, closed_args, nil).status, 'success')
-  eq(Protocol.call('question', chat, closed_args, nil).data.code, 'question_closed')
+  local function close_q3()
+    return Protocol.call(
+      'answer',
+      chat,
+      answer_args({ question_id = 'Q3', answer = 'Answered', evidence_ids = { item.id } }),
+      nil
+    )
+  end
+  eq(close_q3().status, 'success')
+  eq(close_q3().data.code, 'question_closed')
 end
 
-T['requires a workspace and a known action'] = function()
+T['drops a seeded sub-question without inventing an acceptance test'] = function()
   local chat = {}
-  local missing = Protocol.call('question', chat, question_args(), nil)
+  local args = frame_args()
+  args.unknowns = { 'Expected write rate' }
+  eq(Protocol.call('start', chat, args, nil).status, 'success')
+  local workspace = State.get(chat)
+  eq(State.find(workspace, 'Q1').data.provisional, true)
+
+  local dropped = Protocol.call(
+    'drop',
+    chat,
+    drop_args({
+      question_id = 'Q1',
+      justification = 'No external service',
+      drop_reason = 'out_of_scope',
+    }),
+    nil
+  )
+
+  eq(dropped.status, 'success')
+  eq(State.find(workspace, dropped.data.artifact.id).data.acceptance_test, '')
+  eq(#Tree.open_leaves(workspace, {}), 0)
+end
+
+T['still requires an acceptance test to answer a seeded sub-question'] = function()
+  local chat = {}
+  local args = frame_args()
+  args.unknowns = { 'Expected write rate' }
+  eq(Protocol.call('start', chat, args, nil).status, 'success')
+  local workspace = State.get(chat)
+  local item = evidence(workspace)
+
+  local blocked = Protocol.call(
+    'answer',
+    chat,
+    answer_args({
+      question_id = 'Q1',
+      answer = 'The rate stays bounded',
+      evidence_ids = { item.id },
+      acceptance_test = '',
+    }),
+    nil
+  )
+  eq(blocked.data.code, 'closure_invalid')
+  eq(blocked.data.diagnostic.path, 'acceptance_test')
+  eq(blocked.data.next_action.tool, 'reasoning_answer')
+
+  local closed = Protocol.call(
+    'answer',
+    chat,
+    answer_args({
+      question_id = 'Q1',
+      answer = 'The rate stays bounded',
+      evidence_ids = { item.id },
+      acceptance_test = 'Observe the measured write rate',
+    }),
+    nil
+  )
+  eq(closed.status, 'success')
+end
+
+T['requires a workspace and a known operation'] = function()
+  local chat = {}
+  local missing = Protocol.call('split', chat, split_args(), nil)
   eq(missing.data.code, 'workspace_missing')
-  eq(missing.data.next_action.tool, 'reasoning_frame')
+  eq(missing.data.next_action.tool, 'reasoning_start')
 
   local started_chat, workspace = started()
   local before = snapshot(workspace)
-  local unknown = Protocol.call('question', started_chat, question_args({ action = 'merge' }), nil)
-  eq(unknown.data.code, 'question_invalid')
-  eq(unknown.data.diagnostic.path, 'action')
+  local unknown = Protocol.call('merge', started_chat, {}, nil)
+  eq(unknown.data.code, 'internal_error')
+  eq(unknown.data.next_action.tool, 'reasoning_start')
   assert_unchanged(workspace, before)
 end
 
 T['exposes the configured child bound through the resolved schema'] = function()
   Config.setup({ limits = { max_children = 3 } })
-  local resolved = require('codecompanion._extensions.reasoning.schema').resolve('reasoning_question', Question)
+  local resolved = require('codecompanion._extensions.reasoning.schema').resolve('reasoning_split', Split)
   local properties = resolved.schema['function'].parameters.properties
   eq(properties.child_questions.maxItems, 3)
   eq(properties.parent_id.minLength, nil)
   eq(properties.residual.minLength, nil)
-  eq(properties.evidence_ids.uniqueItems, true)
+  eq(properties.child_questions.minItems, 2)
 end
 
 return T
